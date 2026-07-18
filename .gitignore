@@ -1,0 +1,25 @@
+# Gradle / build output
+.gradle/
+build/
+/build
+/app/build
+.kotlin/
+
+# Local configuration (machine-specific SDK path)
+local.properties
+
+# Build artifacts
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.externalNativeBuild
+.cxx
+/captures
+
+# macOS
+.DS_Store

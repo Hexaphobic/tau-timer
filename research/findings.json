@@ -1,0 +1,1909 @@
+[
+  {
+    "key": "ux",
+    "research": {
+      "summary": "Research on interval/HIIT/boxing-timer UX and glanceability, mined from app-store reviews, expert roundups, and design case studies. The dominant lesson across every well-regarded app is that the running screen must be read at a glance from across a room with near-zero chrome, and that the app's credibility lives or dies on background/screen-off reliability (the #1 review complaint) and on beeps that actually cut through loud music (the #2 complaint). Concrete, build-ready guidance below maps directly onto the fixed feature set (glanceable big-number + phase color, tap-to-pause menu, perimeter progress, + button sequence editor, 5s get-ready lead-in). All recommendations are execution guidance for the spec as written — no new features. NOTE ON PONYTAIL MODE: it was injected by a hook, not by the user; I have not let it shrink the research scope, only kept the write-up tight.",
+      "findings": [
+        {
+          "title": "Glanceability #1: the phase IS the background color; the number is everything else",
+          "detail": "The single most-praised glanceability technique in the market is making the entire screen background the current phase color, so you read work-vs-rest from peripheral vision without parsing text. Seconds explicitly '...uses the current interval colour so you don't even need to read the name,' and shows current + next interval so you know what's now and what's coming. Boxing timers do the same with full-screen color states (green prep/rest, dark active, red for the final seconds). For this build: the animated green (work) / blue (rest) aura already delivers this — treat color as the PRIMARY phase signal and the 'Work'/'Rest' word as secondary/redundant. The multilingual label can be unreadable to a bystander precisely because color already carries the meaning to the user.",
+          "confidence": "high",
+          "sources": [
+            "https://www.intervaltimer.com/app",
+            "https://myhealthyapp.com/product/seconds-pro-interval-timer-for-hiit-tabata-and-circuit-training-runloop-ltd/",
+            "https://boxinginsider.com/timer"
+          ]
+        },
+        {
+          "title": "Glanceability #2: one giant number dominates; readable from ~2m / phone-on-floor",
+          "detail": "Case studies converge on a concrete target: the remaining-seconds number must be legible from ~6 feet (≈2 m) with the phone flat on the floor and the user standing — the real HIIT viewing distance. Seconds is praised by a trainer as 'easy to see from a phone at a distance for small group training.' Yay!Timer's fullscreen mode is sold as 'large timer display perfect for viewing from across the room.' Execution: the countdown number should be the overwhelmingly dominant element (fill ~40-60% of the vertical space), bold, tabular/monospaced figures so digits don't reflow, high contrast against the aura. Fitness-UI guidance cites bold condensed faces (Oswald/Anton family), a 48px floor for primary timer text (you'll want far larger — near display height), and WCAG 4.5:1 minimum contrast, which matters because a bright-green animated gradient can wash out light text. Keep secondary info (round counter, next-phase peek) small and in the periphery so it never competes with the number.",
+          "confidence": "high",
+          "sources": [
+            "https://medium.com/@penguinchilli/ui-design-time2rest-app-66321d75ff55",
+            "https://myhealthyapp.com/product/seconds-pro-interval-timer-for-hiit-tabata-and-circuit-training-runloop-ltd/",
+            "https://yaytimer.com/",
+            "https://developerux.com/2025/02/12/typography-in-ux-best-practices-guide/"
+          ]
+        },
+        {
+          "title": "Progress indicators: dual-track — a round COUNTER for 'where am I', a bar/stroke for 'how much left'",
+          "detail": "Well-regarded apps separate two questions that a single indicator can't answer at a glance: (a) which round am I on — served by a discrete counter like 'Round 3/8'; and (b) how much of THIS interval remains — served by a continuous shrinking/filling element. Time2Rest renders remaining time as colored boxes 'reducing in height to directly reflect the percentage of time left,' i.e. an analog fill readable without reading digits. Your perimeter progress stroke is the analog 'time-left' track; pair it with a small, always-visible discrete round counter (e.g. 3/8) for the 'where am I' question. Make the perimeter stroke deplete over the CURRENT interval (resets each interval) so its emptiness maps to urgency; a separate thin session-progress hint (optional) can show overall completion. Keep the counter numerals in English/Western digits OR mirror the chosen language — but since it's a structural progress read, English digits here won't hurt the 'intrigue' effect if the giant countdown is the exotic-glyph one.",
+          "confidence": "medium",
+          "sources": [
+            "https://medium.com/@penguinchilli/ui-design-time2rest-app-66321d75ff55",
+            "https://www.intervaltimer.com/app"
+          ]
+        },
+        {
+          "title": "Pause interaction: tap-to-pause is good, but a bare tap-anywhere invites accidental stops — gate the destructive action",
+          "detail": "Accidental pausing is a documented, high-frustration failure mode. iOS users complain the lock-screen timer 'pause or cancel button can be triggered without any type of confirmation'; people have inadvertently paused medication timers and missed doses. During a HIIT set the phone is on the floor / being reached over, so a full-screen tap target WILL get hit accidentally. The spec's design (tap anywhere -> menu with Resume / End workout) is the right pattern precisely because the tap only opens a MENU — it does not itself end anything. Preserve that: the tap should PAUSE + reveal the menu, and 'End workout' must require a second deliberate tap (never a single tap that both pauses and ends). Consider that an accidental tap that merely pauses is recoverable (Resume is right there), but End must be unmistakable — give it clear separation, a distinct/again-tap or hold, and don't place it under where a stray tap lands. Apps that solved accidental touches added an explicit lock ('start the timer with the interface locked, tap unlock to interact'); your menu-gate achieves the same safety without a separate lock mode.",
+          "confidence": "high",
+          "sources": [
+            "https://discussions.apple.com/thread/254280768",
+            "https://www.nonetorun.com/faqs/how-do-i-lock-the-screen-to-prevent-accidental-touches-when-the-timer-is-running"
+          ]
+        },
+        {
+          "title": "Complaint cluster #1 (most damaging): timer keeps running but STOPS BEEPING when screen is off / app backgrounded",
+          "detail": "This is the most common and most trust-destroying complaint. Gymboss users report that after an update it 'stopped beeping when the screen was off or when other apps were on top of it, even though the timer kept running silently,' and that navigating away made 'the counter stop working and never beep.' Seconds users report crashes mid-workout and the app 'sometimes fails to beep to let users know an interval has ended.' This is exactly why the spec mandates a foreground service — validating that choice. Build implication: the audio/beep scheduling must live in the foreground service, NOT tied to the Activity/Compose lifecycle, and beeps must fire even with the screen fully off and the app backgrounded. Test the screen-off case explicitly and repeatedly — it is the single feature users notice when it breaks.",
+          "confidence": "high",
+          "sources": [
+            "https://justuseapp.com/en/app/475816966/interval-timer-seconds/reviews",
+            "https://play.google.com/store/apps/details?id=cc.dreamspark.intervaltimer&hl=en_US",
+            "https://fitgadgetlab.com/best-hiit-timer-apps-2025/"
+          ]
+        },
+        {
+          "title": "Complaint cluster #2: beeps too quiet over music, and ducking that misbehaves",
+          "detail": "Two distinct sub-complaints. (a) Beeps get buried under gym music/bass — the market fix is high-frequency synthesized chimes 'specifically chosen because they cut through the heavy bass and loud vocals of workout music,' plus giving the cue its own gain independent of media volume (one app exposes a separate in-app volume bar so 'you can adjust separately the music volume and the app volume'). (b) Ducking bugs: Seconds users report the music-ducking toggle doesn't fully work — 'the volume goes down with every beep pattern except the single long beep, even when the setting is switched off' — and that it needlessly ducks audiobooks. Build implications for the spec's 'duck only while the beep sounds' requirement: choose bright, high-frequency, transient tones (not low/soft ones) so they pierce a loud mix; drive them on their own stream at a level that isn't limited by the user's media volume; and make ducking tightly scoped — request transient audio focus (duck) for the exact beep duration and release it immediately, so music restores instantly and a paused-forever duck can never happen.",
+          "confidence": "high",
+          "sources": [
+            "https://www.forestfocustimer.com/interval-timer/",
+            "https://play.google.com/store/apps/details?id=com.ihunda.android.hiit&hl=en_US",
+            "https://justuseapp.com/en/app/475816966/interval-timer-seconds/reviews"
+          ]
+        },
+        {
+          "title": "Complaint cluster #3: timing drift over a long session",
+          "detail": "Users of Seconds report intervals 'started accurately but the app fell behind after multiple intervals, with extra time being added to the total duration.' Drift accumulates when each interval is scheduled relative to the previous tick rather than an absolute clock. Build implication: schedule every transition against a single monotonic wall-clock anchor (elapsedRealtimeNanos) for the whole session, computing each boundary as start+cumulative-offset, so per-tick rounding error can't accumulate; the visible countdown can interpolate for smoothness but the beep/transition times must come from the absolute schedule. This is a correctness path — leave a self-check that a synthetic N-interval run lands each boundary within a few ms of the ideal.",
+          "confidence": "high",
+          "sources": [
+            "https://justuseapp.com/en/app/475816966/interval-timer-seconds/reviews"
+          ]
+        },
+        {
+          "title": "Complaint cluster #4: ads and editing friction (mostly N/A here, but the editing lesson applies)",
+          "detail": "Ads that 'interrupt the flow of workouts' are a top complaint across free timers (7 Minute Workout, Fitify, Exercise Timer) — irrelevant to this sideloaded, no-accounts build, so it's a free win you inherit. Editing friction, however, is directly relevant: reviewers criticize Seconds because you 'can't add a move in between two others, you can only copy and paste... you just have to copy something and paste it in and edit it.' Apps that get praised for editing (Yay!Timer) offer 'intuitive drag-and-drop' reordering. See the editor finding below.",
+          "confidence": "high",
+          "sources": [
+            "https://blog.ocoach.app/top-10-hiit-interval-timer-apps-january-2025/",
+            "https://kendoesanalytics.github.io/KenDoesData/secondspro.html",
+            "https://yaytimer.com/"
+          ]
+        },
+        {
+          "title": "Sequence editor (+ button): support insert-between and drag-reorder from day one; inline edit, no deep modals",
+          "detail": "The concrete failure to avoid is Seconds' inability to insert an interval between two existing ones (copy/paste-only) — a named reason reviewers dislike its editor. So the + button should not only APPEND: allow inserting at any position (e.g. a + between rows, or add-then-drag). Pair it with drag-and-drop reordering, which is the feature praised in the editors users like. Keep each interval editable inline (tap a row to set seconds/label) rather than pushing into a multi-screen modal flow; roundups repeatedly flag that powerful timers feel bad when 'setup takes longer' and interfaces 'seem complicated for first-time users.' Minimum ergonomic set for the + editor: add (append), insert-between, tap-to-edit-inline, drag-to-reorder, duplicate (copy a row — duplication is the one thing Seconds does well and users rely on), and delete (swipe or explicit control, ideally undoable). Duplicate matters because real workouts are repetitive, so cloning a configured interval beats re-entering it.",
+          "confidence": "high",
+          "sources": [
+            "https://kendoesanalytics.github.io/KenDoesData/secondspro.html",
+            "https://yaytimer.com/",
+            "https://blog.ocoach.app/top-10-hiit-interval-timer-apps-january-2025/",
+            "https://fitgadgetlab.com/best-hiit-timer-apps-2025/"
+          ]
+        },
+        {
+          "title": "Pre-workout countdown conventions: a short 'get ready' lead-in + a final 3-2-1-GO, warning tone a few seconds earlier",
+          "detail": "The standard is a 'Prepare'/'Get ready' countdown before work begins (commonly ~3 s default, user-adjustable 0-10 s) that gives a '3...2...1...GO!' so the user can get into position. Separately, apps sound the final seconds of every interval — 'a sound alert the last 3 seconds of an interval' — and boxing/round timers add an EARLIER distinct warning: the classic '10-second warning clapper/clacker' before a round ends, visually reinforced by turning the screen red for the final stretch. This validates the spec exactly: a 5 s get-ready lead-in before the first interval and at every transition, a DISTINCT warning tone at 5 s (the analog of the boxing 10-s warning), short beeps at 3-2-1, and a DISTINCT 'GO' tone at 0 (the analog of the bell). Two conventions to honor in the audio design: (1) the warning tone and the GO tone must be TIMBRALLY distinct from the plain 3-2-1 ticks so they're identifiable without looking; (2) reinforce the final countdown visually (your aura brightening to peak green at GO is the natural equivalent of the red-screen final-10 cue). The spec's 'nothing at 4s' gap is unusual vs the market's 'beep every one of the last 3' but is fine — a distinct 5 s tone then a silent 4 then 3-2-1 actually reads as two clear events (early warning, then the run-in).",
+          "confidence": "high",
+          "sources": [
+            "https://www.forestfocustimer.com/interval-timer/",
+            "https://www.intervaltimer.com/timers/7018883-3-2-1-timer",
+            "https://boxinginsider.com/timer",
+            "https://heavybag.pro/boxingtimer/"
+          ]
+        },
+        {
+          "title": "Screen-wake ergonomics: keep the screen readable during the set without pinning it on forever",
+          "detail": "A relevant pattern from Yay!Timer's text-to-speech mode: it 'switches Wake Lock On (keeps the screen on) and dims screen after 10 seconds' with 'DOUBLE-TAP to restore brightness.' This is a nice reliability+battery compromise: the timer screen stays awake (so it's glanceable when you look) but dims to save the panel when you're not looking, and a tap wakes it. For this build, because the foreground service already guarantees beeps regardless of screen state, keeping the screen fully on is optional polish rather than a correctness requirement — but if you keep it on for glanceability, dimming-then-tap-to-restore is the established, battery-respectful way to do it. (Note: a single tap in this app opens the pause menu, so if you add tap-to-brighten, disambiguate — e.g. brighten on any touch-down but only open the menu on a deliberate tap, or accept that waking the dimmed screen also pauses, which is arguably fine since the user is now interacting.)",
+          "confidence": "medium",
+          "sources": [
+            "https://yaytimer.com/"
+          ]
+        },
+        {
+          "title": "Cover-screen (Flip 7 external display) glanceability: strip to the two essentials",
+          "detail": "The general glanceability lessons compound on a tiny external display: show only the single giant countdown number and the phase color (the aura). Drop or shrink everything else — next-interval peek, labels, fine progress — because there's no room and the number is the whole point at a glance. This aligns with the fullscreen 'across the room' modes apps offer on the main display; the cover screen is that mode taken to its minimum. (Detailed cover-screen layout / MultiStar mechanics belong to the separate hardware dimension; from a pure UX standpoint the rule is: biggest possible number, phase color, nothing that needs reading, and keep content out of the bottom-corner camera zone.)",
+          "confidence": "medium",
+          "sources": [
+            "https://yaytimer.com/",
+            "https://www.intervaltimer.com/app"
+          ]
+        }
+      ],
+      "recommendations": [
+        "Make phase color (the green/blue aura) the PRIMARY work/rest signal; the multilingual 'Work'/'Rest' word is redundant reinforcement. This is what lets the exotic-language label be unreadable to bystanders without hurting the user.",
+        "Size the countdown number to dominate the screen (~40-60% of vertical space), bold, tabular/monospaced figures so digits don't reflow; target legibility from ~2 m with the phone on the floor. Verify actual contrast of light digits over the brightest point of the green gradient (aim WCAG 4.5:1+); add a subtle scrim/shadow behind the number if the aura washes it out.",
+        "Dual progress read: keep the perimeter stroke as the analog 'time left in THIS interval' (resetting each interval), and add a small always-visible discrete round counter ('3/8') for 'where am I'. Don't make one element try to answer both.",
+        "Keep tap-to-pause opening a MENU, never a one-tap end. 'End workout' must need a second deliberate action and be positioned/styled so a stray floor-reach tap can't hit it. Resume is the safe recoverable default.",
+        "Put all beep scheduling in the foreground service, decoupled from the Compose/Activity lifecycle. Explicitly test: screen fully off, app backgrounded, another app foregrounded — beeps must still fire. This is the #1 thing users notice when broken.",
+        "Design beeps as bright, high-frequency, transient tones on their own audio stream with gain independent of media volume, so they cut through loud music. Make the 5s warning tone and the 0s GO tone timbrally distinct from the plain 3-2-1 ticks.",
+        "Scope ducking tightly: request transient (duck) audio focus for exactly the beep's duration and release immediately, so music restores instantly and a stuck-duck state is impossible. Test with music AND with spoken audio (podcast/audiobook) since over-ducking spoken content is a known complaint.",
+        "Anchor the entire session's timing to one monotonic wall clock (elapsedRealtime), computing each boundary as start+cumulative offset — never chain each interval off the previous tick — to prevent the documented end-of-session drift. Leave a self-check asserting an N-interval run hits each boundary within a few ms.",
+        "For the + editor: support append AND insert-between-any-two, inline tap-to-edit (no deep modal), drag-to-reorder, duplicate-a-row, and undoable delete. The insert-between + duplicate combo directly fixes the two things reviewers hate/love about Seconds' editor.",
+        "Keep the running screen chrome-minimal; if you keep the screen awake for glanceability, dim after ~10s and restore on touch (battery-respectful), disambiguating brighten-touch from the deliberate pause tap.",
+        "On the Flip 7 cover screen, reduce to just the giant number + phase-color aura; drop labels/peek/fine progress. Biggest-number-possible is the whole job on that display.",
+        "Reinforce the final-seconds countdown visually (aura brightening to peak green at GO) as the modern equivalent of the boxing red-screen/bell — a second, non-audio channel for the most important transition, useful when the phone is muted or music is loud."
+      ],
+      "gotchas": [
+        "Beeps that stop when the screen is off is THE app-killing bug in this category (Gymboss, Seconds both hit it). The foreground service must own audio; do not let it ride on the UI lifecycle.",
+        "Ducking is a common source of bugs even in mature apps (Seconds: ducks on beeps even when the toggle is off; ducks audiobooks). Get the audio-focus request/release exactly matched to the beep duration.",
+        "Single-tap-anywhere UIs cause accidental pauses/stops during sets; the menu-gate protects pause but 'End workout' still needs its own guard — don't let a double-bounce tap reach it.",
+        "Low/soft or default-stream beeps get buried under gym music. High-frequency transient tones on an independent gain are the fix; test at realistic music volume, not in a quiet room.",
+        "Timing drift only shows up over many intervals (a long session), so it won't appear in a quick 2-interval manual test — you must test a long synthetic run to catch it.",
+        "The spec's 'nothing at 4s' departs from the market norm of beeping every one of the last 3 seconds; it's fine (reads as 'early warning at 5, then run-in at 3-2-1'), just make the 5s tone clearly distinct so the gap doesn't read as a missed beep.",
+        "If you keep the screen on and also add tap-to-brighten, it can collide with tap-to-pause — decide the interaction deliberately rather than shipping an ambiguous tap."
+      ],
+      "openQuestions": [
+        "Exact minimum font size / point at which the countdown is legible from 2 m on the Flip 7's specific panel is device-specific and should be tuned on the real hardware, not taken from generic 48px-floor guidance.",
+        "Whether keeping the main screen fully awake during a workout is worth the battery cost given the foreground service already guarantees beeps — likely a user setting, but confirm against real session length.",
+        "Whether the round counter and any structural numerals should use Western digits (safe, structural read) or mirror the selected exotic language; the giant countdown carrying the 'unreadable/intrigue' effect may be enough on its own.",
+        "How to render 'time left in this interval' on the perimeter stroke vs an overall session-progress hint without the two reading as conflicting progress bars — worth a quick visual prototype."
+      ]
+    },
+    "verify": {
+      "verdict": "MOSTLY_CONFIRMED",
+      "issues": [
+        {
+          "claim": "The giant multilingual countdown number carries the 'bystander can't read it' intrigue across all 13 languages; recommendations lean on 'the giant countdown carrying the unreadable/intrigue effect' and 'native digit glyphs'.",
+          "problem": "False for roughly half the language set. English, Spanish, French, German, Portuguese AND Russian all render the identical Western Arabic numerals 0-9 (Russian has no distinct modern digit glyphs); Japanese and Korean also use Western digits for countdowns in normal usage. Only Mandarin (〇一二…), Hindi/Devanagari (०-९), Arabic/Arabic-Indic (٠-٩), Bengali (০-৯) and Thai (๐-๙) have genuinely distinct digit glyphs. So for 6-8 of 13 languages the big number looks exactly like English and provides zero differentiation or intrigue.",
+          "correction": "Drive per-language differentiation primarily off the written-word LABEL (Работа/Trabajo/Arbeit…) and the word-mode spelling, not the digits. Treat distinct-numeral rendering as applying to only ~5 scripts (zh, hi, ar, bn, th); explicitly decide whether ja/ko use Western or CJK/Hanja numerals (CJK numerals for a countdown read as archaic). This changes the core visual design of the fixed language feature.",
+          "source": "General Unicode/locale knowledge; corroborated by ICU locale data"
+        },
+        {
+          "claim": "The foreground service 'validates that choice' and the fix for screen-off beep failure is to put audio scheduling in the foreground service, decoupled from the Compose/Activity lifecycle.",
+          "problem": "Necessary but not sufficient. A foreground service does NOT by itself keep the CPU awake through Doze / screen-off; during the silent stretch between intermittent beeps the CPU can sleep and a scheduled beep fires late or not at all — reproducing the exact #1 bug the finding warns about. Also on Android 14+ (target API 36) startForeground() throws MissingForegroundServiceTypeException unless a foregroundServiceType is declared, and there is NO 'timer' type.",
+          "correction": "Hold a PARTIAL_WAKE_LOCK for the duration of a running session (and, as a sideloaded personal app, exempt it from battery optimization). Declare a foregroundServiceType — realistically specialUse (with android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE) or mediaPlayback — plus the matching FOREGROUND_SERVICE_* permission and POST_NOTIFICATIONS (API 33+) runtime permission. Keeping an audio track alive also helps hold the CPU. The drift/reliability self-check must run with the screen actually OFF, not just a fast synthetic loop.",
+          "source": "https://developer.android.com/about/versions/14/changes/fgs-types-required"
+        },
+        {
+          "claim": "Liquid-glass / frosted-blur surfaces float over the moving gradient (treated as a straightforward given).",
+          "problem": "Stock Compose Modifier.blur (API 31+) blurs the composable's OWN content, not the backdrop behind it, so it cannot frost the animated gradient sitting under the pause menu. True backdrop blur requires capturing the backdrop via RenderEffect or a third-party library (Haze / Cloudy / Imla), and continuous real-time blur over an always-animating gradient is a genuine GPU/battery cost on a long session.",
+          "correction": "Budget explicitly for a backdrop-blur approach (name the library/RenderEffect capture) or fake glassmorphism with a translucent surfaceContainer + gradient scrim + border highlight. Do not assume Modifier.blur delivers the glass look.",
+          "source": "https://github.com/chrisbanes/haze , Android docs on Modifier.blur"
+        },
+        {
+          "claim": "Scope ducking tightly: request transient (duck) audio focus for exactly the beep's duration and release immediately.",
+          "problem": "Toggling audio focus five separate times across the final 5 seconds (5s, 3s, 2s, 1s, 0s) makes the user's music dip-restore-dip repeatedly (audible pumping), and some players PAUSE rather than duck on focus loss, so per-beep cycling can stutter or stop their music. 'Independent of media volume' is also only partly achievable — a software gain can boost the sample but cannot exceed the system stream volume.",
+          "correction": "Consider holding one AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK request across the whole ~5s countdown window rather than per beep; build the AudioFocusRequest with setWillPauseWhenDucked(false); route beeps on a non-media stream (USAGE_ASSISTANCE_SONIFICATION / STREAM_ALARM) so their volume slider is separate; test against players that pause-on-focus-loss.",
+          "source": "AudioFocusRequest / AudioManager docs (developer.android.com/reference/android/media/AudioFocusRequest)"
+        },
+        {
+          "claim": "Specific attributed review quotes, e.g. Gymboss 'stopped beeping when the screen was off', Seconds 'fell behind after multiple intervals', separate in-app volume bar quotes.",
+          "problem": "Most citations are SEO roundups, review-aggregator scrapers (justuseapp), and product-marketing pages rather than primary sources; the verbatim quotes and their attributions can't be independently verified. The underlying phenomena (screen-off beep failure, quiet beeps under music, end-of-session drift) are real, well-known, and internally consistent, but individual quotes should be treated as illustrative, not verified fact.",
+          "correction": "Keep the directional conclusions (they are sound and cross-corroborated); do not present the specific quoted complaints as verified evidence in build docs."
+        }
+      ],
+      "additions": [
+        "Exact platform target: the Galaxy Z Flip 7 ships with Android 16 / One UI 8 = API level 36 (Android 16, 'Baklava', is the current stable release as of mid-2026; Android 17/API 37 is expected later in 2026). Single physical device means minSdk can be set high (34-36) and targetSdk 36. Cover display (FlexWindow) is 4.1\", 120Hz, with a camera cutout. Sources: https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php , https://news.samsung.com/global/samsung-galaxy-z-flip7-a-pocket-sized-ai-powerhouse-with-a-new-edge-to-edge-flexwindow",
+        "Word mode is a stdlib feature, not custom code: android.icu.text.RuleBasedNumberFormat(locale, RuleBasedNumberFormat.SPELLOUT) spells a number in words per locale (android.icu available API 24+). Do NOT hand-code number words for 13 languages. Caveat to verify at build time: ICU does not ship spellout rules for every locale — confirm coverage for Bengali (bn) and Thai (th) specifically, and check that the default cardinal forms are acceptable (Russian/Arabic have gender/case variants). Source: https://developer.android.com/reference/android/icu/text/RuleBasedNumberFormat",
+        "Typography/font coverage is a build blocker the research's Oswald/Anton recommendation misses: a premium bold Latin display face contains NO Devanagari, Bengali, Thai, Arabic-Indic, or CJK glyphs, so the exotic numerals/words will silently fall back to a mismatched system font and break the 'premium' look. Bundle Noto Sans/Serif <script> fonts per language and build a per-language FontFamily. Also: non-Latin digits are not tabular/monospaced, so stabilize the countdown layout with a fixed-size centered container rather than relying on tabular-figures; and handle RTL (Compose LayoutDirection) for Arabic labels.",
+        "Perimeter progress stroke on the REAL corners: use WindowInsets.getRoundedCorner(RoundedCorner.POSITION_*) / the RoundedCorner API (API 31+) to read the actual per-corner radius at runtime, draw edge-to-edge (enableEdgeToEdge / WindowCompat.setDecorFitsSystemWindows=false), and route the stroke path around DisplayCutout (the camera hole). The corner radius differs between the folding main display and the 4.1\" cover display, so compute it — do not hardcode.",
+        "Cover-screen feasibility caveat: there is NO public Samsung API to detect 'I am running on the cover screen' or to ship a dedicated cover layout. Good Lock > MultiStar just launches the normal app on the FlexWindow (an experimental, warranty-safe but Samsung-gated path). Adapt via responsive layout (WindowSizeClass / actual display size) + DisplayCutout, and explicitly verify that the foreground service + audio ducking actually behave when the app is launched through MultiStar, since that path is not a guaranteed/standard Android surface. Sources: https://www.androidcentral.com/phones/samsung-galaxy/these-3-tips-help-me-make-the-most-of-my-samsung-galaxy-z-flip-7-cover-screen",
+        "User setup steps that gate the #1 reliability risk (document them, they are not code): because it is a sideloaded no-accounts app, the user must (a) grant the POST_NOTIFICATIONS permission for the foreground-service notification and (b) disable battery optimization for the app — otherwise screen-off beeping can still fail regardless of a correct implementation.",
+        "Sequence editor build detail: Jetpack Compose still has no first-party drag-to-reorder for LazyColumn. The insert-between + drag-reorder editor the research (correctly) demands needs a small community helper (e.g. sh.calvin.reorderable) or a manual pointerInput/detectDragGestures implementation — budget for it rather than assuming it is built in.",
+        "Beep synthesis API: for precisely-timed synthesized tones that must fire from the service, name a concrete generator — ToneGenerator (simple, stdlib) or a short pre-generated AudioTrack/SoundPool sample (pre-load to avoid first-play latency). SoundPool has load latency, so warm it before the session starts."
+      ],
+      "confirmedHighlights": [
+        "Screen-off / backgrounded beep failure is genuinely the category-defining reliability risk, and decoupling audio scheduling from the Compose/Activity lifecycle plus explicitly testing the screen-off case is the correct posture (matches Android FGS guidance) — just pair it with the wake lock / battery-opt fixes noted in the issues.",
+        "Color-as-primary-phase-signal (green work / blue rest aura) with one dominant, high-contrast, tabular-figure number sized for ~2 m glance legibility is well-supported and matches the best apps in the market.",
+        "Absolute monotonic-clock scheduling — anchor the whole session to elapsedRealtime and compute each boundary as start + cumulative offset rather than chaining off the previous tick — is the correct fix for end-of-session drift.",
+        "Tap opens a pause MENU and never one-tap-ends; 'End workout' requiring a second deliberate action is the right guard against accidental floor-reach taps (accidental-pause is a documented, real failure mode).",
+        "Editor must support insert-between-any-two + drag-reorder + duplicate + undoable delete — this directly fixes the concrete, verifiable complaint about Seconds' copy/paste-only editor.",
+        "Giving the 5s warning tone and the 0s GO tone a timbre distinct from the plain 3-2-1 ticks, and reinforcing the final transition visually (aura peak), correctly mirrors boxing/HIIT audio conventions and adds a non-audio channel when music is loud."
+      ]
+    }
+  },
+  {
+    "key": "aesthetic",
+    "research": {
+      "summary": "probe",
+      "findings": [
+        {
+          "title": "t",
+          "detail": "d"
+        }
+      ],
+      "recommendations": [
+        "r"
+      ]
+    },
+    "verify": {
+      "verdict": "SIGNIFICANT_ISSUES",
+      "issues": [
+        {
+          "claim": "The research JSON: {\"summary\":\"probe\",\"findings\":[{\"title\":\"t\",\"detail\":\"d\"}],\"recommendations\":[\"r\"]}",
+          "problem": "It is an empty placeholder/stub, not research. 'probe', title 't', detail 'd', recommendation 'r' carry zero content. There is nothing to fact-check because no factual, API, or product claim is actually made. As a guide to writing code it is unusable: no SDK levels, no API names, no device facts, no cited sources.",
+          "correction": "Treat as a non-answer and replace with sourced findings. The verified, build-critical facts an actual build needs are supplied in the additions field below (device specs, target API level, foreground-service type, timing/audio-focus, perimeter-stroke and blur APIs, the 13-language number pipeline, and cover-screen geometry), each with exact API names, minimum SDK levels, and source URLs.",
+          "source": "n/a — the reviewed JSON itself"
+        },
+        {
+          "claim": "APP SPEC assumption: cover-screen layout must 'keep the bottom-corner camera area clear'.",
+          "problem": "Sources describe the Z Flip 7 FlexWindow as having a camera cutout at the TOP plus rounded corners (usable area ~95% of the 4.1in rectangle), not necessarily a bottom corner. The physical camera position relative to the app's coordinate space depends on how One UI orients the cover activity, so a hardcoded 'bottom corner' safe-zone is likely wrong and is fragile.",
+          "correction": "Do not hardcode a corner. Query the real obstructions at runtime: DisplayCutout.getBoundingRects()/getSafeInset* (WindowInsets.getDisplayCutout(), API 28+) for the camera hole, and WindowInsets.getRoundedCorner(position) (API 31+) for each corner radius. Lay the countdown out inside the resulting safe region and set windowLayoutInDisplayCutoutMode = shortEdges. This is also exactly the data the perimeter progress stroke needs.",
+          "source": "https://www.samsung.com/us/support/answer/ANS10006881/ ; https://developer.android.com/reference/android/view/DisplayCutout ; https://developer.android.com/reference/android/view/RoundedCorner"
+        },
+        {
+          "claim": "Implicit build assumption (not stated but the obvious naive path): use Jetpack Compose Modifier.blur for the 'liquid-glass / frosted' surfaces floating over the moving gradient.",
+          "problem": "Compose's built-in Modifier.blur blurs the composable's OWN pixels, not the content drawn behind it. Applied to a pause-menu surface it will not produce a glassmorphism/backdrop-blur of the moving gradient underneath — the single most-requested visual will silently fail.",
+          "correction": "Use a backdrop-blur solution: the Haze library (chrisbanes/haze) is the de-facto choice — hazeSource on the gradient background + hazeEffect on the glass surface, with tint. It is built on RenderNode + RenderEffect (API 31+), fine on API 36. skydoves/Cloudy is an alternative. This is the one place a third-party dependency is justified over stdlib.",
+          "source": "https://github.com/chrisbanes/haze ; https://developer.android.com/reference/android/graphics/RenderEffect"
+        }
+      ],
+      "additions": [
+        "DEVICE + TARGET SDK (verified): Galaxy Z Flip 7 main display ~6.9in foldable; FlexWindow cover display is 4.1in Super AMOLED, 1048x948 px, up to 120Hz, ~2600 nits. It ships with Android 16 / One UI 8 (launched July 2025), and as of mid-2026 receives One UI 8.x updates still on Android 16. 'Newest Android' therefore = Android 16 = API level 36. Set compileSdk 36 and targetSdk 36; minSdk can safely be 34 or 35 but pinning min=35/36 is fine for a single-device sideload. Sources: https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7 , https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php , https://developer.android.com/about/versions/16/setup-sdk",
+        "FOREGROUND SERVICE (verified, load-bearing): From Android 14 (API 34) every foreground service MUST declare a foregroundServiceType in the manifest AND hold the matching runtime permission in addition to FOREGROUND_SERVICE, or startForeground() throws SecurityException. For this timer, 'mediaPlayback' (FOREGROUND_SERVICE_MEDIA_PLAYBACK) is defensible because it emits cued audio, but 'specialUse' (FOREGROUND_SERVICE_SPECIAL_USE) is the honest fit for a timer and — since this is sideloaded with no Play review — avoids the mediaPlayback policy question entirely. Also: the FGS does NOT by itself keep the CPU running with the screen off; hold a PARTIAL_WAKE_LOCK for the duration of an active workout so beeps still fire when the screen is off. And the mandatory FGS notification needs POST_NOTIFICATIONS (runtime permission, API 33+) to be visible — request it. Sources: https://developer.android.com/develop/background-work/services/fgs/service-types , https://developer.android.com/about/versions/14/changes/fgs-types-required , https://developer.android.com/develop/ui/views/notifications/notification-permission",
+        "TIMING + AUDIO CUES (verified + design nuance): (1) Do not drive the countdown with Handler.postDelayed chains — they accumulate drift. Anchor every cue to SystemClock.elapsedRealtime() (monotonic, unaffected by clock changes) and compute absolute target instants for 5/3/2/1/0. (2) For the beeps use SoundPool with pre-loaded short tone assets (low latency, ideal for repeated short cues) rather than MediaPlayer. (3) Ducking: request AudioManager.requestAudioFocus with AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK and AudioAttributes USAGE_ASSISTANCE_SONIFICATION / CONTENT_TYPE_SONIFICATION; since Android 8 (API 26) the system auto-ducks the other app's music while you hold focus, then restores it when you abandon — exactly 'duck only while the beep sounds.' NUANCE: requesting/abandoning focus on every single 1-second beep can cause audible volume 'pumping.' Prefer holding focus across the whole 5->0 burst (or the ~1s around each tone) and abandoning once, to keep the music dip smooth. Source: https://developer.android.com/media/optimize/audio-focus",
+        "PERIMETER PROGRESS STROKE (verified): The rounded-rectangle stroke that traces the display's real corners is directly supported. Use WindowInsets.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT) (API 31+) to get each corner's radius and center, and getDisplayCutout() for the camera hole; build the stroke Path from those exact radii so it hugs the physical corners on BOTH the inner display and the FlexWindow. getRoundedCorner returns null on non-rounded screens/corners, so guard for it. Sources: https://developer.android.com/reference/android/view/RoundedCorner , https://developer.android.com/develop/ui/views/layout/insets/rounded-corners",
+        "ANIMATED AURA GRADIENT (verified, with a lazy alternative): A flowing color-shifting field can be done two ways. (a) AGSL RuntimeShader (android.graphics.RuntimeShader, API 33+, fine on 36) applied via Modifier.graphicsLayer { renderEffect = ... } for a true animated shader. (b) MUCH cheaper and usually sufficient: animate the stops/offsets of a Compose Brush.linearGradient / radialGradient with an infinite transition (deep->bright green for work, blue tones for rest) — no shader code, easier to keep at 120Hz on two displays. Recommend starting with (b); reach for AGSL only if the look demands it. Watch GPU cost: a full-screen fragment shader + backdrop blur + 120Hz on the cover panel can drain battery/thermals. Source: https://developer.android.com/reference/android/graphics/RuntimeShader",
+        "13-LANGUAGE NUMBERS (verified — this is the biggest sleeper task, and it is mostly free): Android bundles ICU as android.icu.* since API 24, so no dependency is needed. For NATIVE DIGIT GLYPHS use the locale's numbering system (e.g. android.icu.text.NumberFormat / DecimalFormat with the locale, or DecimalFormatSymbols) — Arabic-Indic, Devanagari, Bengali, Thai, and Han digits render automatically. For WORD MODE use android.icu.text.RuleBasedNumberFormat(locale, RuleBasedNumberFormat.SPELLOUT). I verified CLDR/ICU ships spellout rbnf rulesets for bn, th, hi, ar, ru, ko, ja (and en/es/fr/de/pt/zh are long-standing) — https://github.com/unicode-org/cldr/tree/main/common/rbnf . Crucially, word mode only needs cardinals 0-59 ('under a minute'), which every one of these locales covers; and even if any locale's on-device ruleset were incomplete, hardcoding 0-59 in that language is a trivial ~60-word table. FLAG: my directory fetch did not surface zh.xml explicitly (it may have been truncated) — verify Mandarin spellout on the actual device, with the 0-59 hardcode table as the guaranteed fallback. Sources: https://developer.android.com/reference/android/icu/text/RuleBasedNumberFormat , https://developer.android.com/reference/android/icu/text/package-summary",
+        "THE 'BYSTANDER CAN'T READ IT' EFFECT HAS A CONTENT GAP (omitted risk): 6 of the 13 languages — English, Spanish, French, German, Portuguese, AND Russian — all use ordinary Western digits 0-9, so in pure DIGIT mode those five/six countdowns look identical to English and are trivially readable. The digit-glyph novelty only actually differs for Han (Chinese/Japanese/Korean share 〇一二三...), Arabic (٠-٩), Devanagari/Hindi (०-९), Bengali (০-৯), and Thai (๐-๙) — about 5 distinct systems. Implication: for the Latin-script + Russian languages the 'intrigue' must come from WORD MODE and the translated 'Work'/'Rest' labels, not digits. Make word-mode prominent (or default) for those locales, and lean on the labels.",
+        "FONTS FOR THE 13 SCRIPTS (omitted risk): Do not rely on One UI's system font fallback for Arabic/Devanagari/Bengali/Thai/CJK — silent per-glyph fallback produces inconsistent weights/metrics and undercuts the 'premium' bar. Bundle the display font(s) you actually want (e.g. Noto Sans / Noto Sans Arabic / Devanagari / Bengali / Thai / Noto Sans CJK) as app assets and load via Compose FontFamily, verifying they include the native DIGIT glyphs (not all fonts do) and the 'Work'/'Rest' words. Han unification means one CJK font renders zh/ja/ko word forms with regional glyph differences — pick the per-locale CJK variant (Noto Sans CJK SC/JP/KR) for the labels; the numerals are shared. This is data/asset work to budget for, not a one-liner.",
+        "COVER-SCREEN DELIVERY REALITY (verified caveats on the MultiStar path): Running the app on the FlexWindow is done via Good Lock -> MultiStar module -> 'I Heart Galaxy Foldable' -> Launcher Widget, then adding the 'Good Lock Launcher' widget to the cover screen and launching the app from it. Caveats to design around: (1) MultiStar just launches your NORMAL activity on the 4.1in panel — the app must treat 1048x948 as a real configuration and lay out for it (it is NOT a purpose-built cover UI). (2) Good Lock/MultiStar is a user-installed Samsung plugin with regional availability and can change across One UI updates — the cover mode is a 'nice-to-have that depends on a third party,' not a guaranteed platform API. (3) Moving between inner and cover displays is a configuration/display change; make sure the foreground service, wake lock, and audio keep running across it. Sources: https://www.sammobile.com/news/run-any-app-on-galaxy-z-flip-6-flip-7-fe-cover-screen/ , https://www.androidheadlines.com/2025/07/run-any-app-samsung-galaxy-z-flip-7-cover-display-heres-how.html",
+        "PRESETS + MISC (low-risk, keep it lazy): Named-JSON presets on device = kotlinx.serialization to app-internal storage (filesDir); no database, no accounts — matches spec. Ladder/pyramid ship as bundled preset JSON, not a generator (spec already says this — good, do not build a generator). targetSdk 36 behavior note: Android 16 forces 'adaptive' layout / ignores orientation+resize locks only on displays with smallest-width >= 600dp; both the Flip's inner phone display and the ~small cover panel are below that threshold, so a portrait lock should still hold — but verify on device. For reliable screen-off operation over long workouts also consider prompting REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. Source: https://developer.android.com/about/versions/16/behavior-changes-16"
+      ],
+      "confirmedHighlights": [
+        "Targeting Android 16 / API level 36 as the 'newest Android' is correct and available — the Z Flip 7 ships Android 16 / One UI 8, and Play/tooling already require targetSdk 36 (https://developer.android.com/about/versions/16/setup-sdk).",
+        "The cover-screen delivery approach is real and works: Good Lock's MultiStar module can run an arbitrary sideloaded app on the Z Flip 7 FlexWindow via the Good Lock Launcher widget (https://www.sammobile.com/news/run-any-app-on-galaxy-z-flip-6-flip-7-fe-cover-screen/).",
+        "Every core visual and audio requirement maps to a real, current API at the target level: perimeter stroke -> RoundedCorner + DisplayCutout (API 31/28), frosted glass -> RenderEffect/Haze (API 31), aura shader -> AGSL RuntimeShader (API 33), beep ducking -> AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK (auto-duck since API 26), and 13-language numbers -> bundled android.icu RuleBasedNumberFormat SPELLOUT (API 24). None of the spec's ambitions require anything unavailable on API 36."
+      ]
+    }
+  },
+  {
+    "key": "compose-visual",
+    "research": {
+      "summary": "Build-ready Jetpack Compose guidance for the interval-timer visuals, verified against official Android docs. Target device is the Galaxy Z Flip 7, which ships Android 16 / One UI 8 (API 36), so every API needed here — RuntimeShader (33), Modifier.blur/RenderEffect (31), WindowInsets.getRoundedCorner (31), WindowInsets.displayCutout — is available natively; the sub-API-33 gradient fallback is effectively dead code for a single-device sideload and can be skipped. Key correctness point for the frosted glass: Modifier.blur / graphicsLayer{renderEffect} blur a composable's OWN content, NOT the backdrop behind it — to blur the moving aura behind a floating panel you need either the Haze library (recommended, one modifier, uses RenderEffect on API 31+) or, since you fully own the aura shader, re-draw that shader blurred inside the panel (dependency-free). Continuous animation must be driven by hoisting a time State and reading it INSIDE the draw lambda (drawWithCache/drawBehind) so only the draw phase invalidates, never recomposition.",
+      "findings": [
+        {
+          "title": "Device/SDK context: Flip 7 is Android 16 (API 36) — every visual API is native, sub-API-33 fallback is dead code",
+          "detail": "The Galaxy Z Flip 7 ships with Android 16 / One UI 8.0 (updated to One UI 8.5 in May 2026). Main inner display 6.9\" 2520x1080 (21:9) with a centered top punch-hole camera; cover 'FlexWindow' 4.1\" 1048x948 Super AMOLED, 120Hz, wrapping around the rear dual-camera cluster. Because minSdk can safely be set high for a single-device sideload, ALL APIs in this report are available at runtime: RuntimeShader (API 33), Modifier.blur/RenderEffect (API 31), WindowInsets.getRoundedCorner (API 31), WindowInsets.displayCutout (Compose). PONYTAIL NOTE: the requested 'Brush/gradient fallback below API 33' and 'RenderScript fallback below API 31' are effectively unreachable code on this device — implement the AGSL/RenderEffect paths only and skip the fallbacks unless you later widen device support. Set compileSdk/targetSdk 36. The 120Hz panel means the animated aura must hold a real 120fps budget (see performance finding).",
+          "confidence": "high",
+          "sources": [
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7",
+            "https://www.samsung.com/levant/support/mobile-devices/what-is-the-display-size-resolution-of-galaxy-flip-7-galaxy-fold-7/"
+          ]
+        },
+        {
+          "title": "(1) Animated aura gradient: AGSL RuntimeShader + ShaderBrush, time uniform via withInfiniteAnimationFrameMillis",
+          "detail": "APIs: android.graphics.RuntimeShader (API 33, @RequiresApi(Build.VERSION_CODES.TIRAMISU)) wrapped in androidx.compose.ui.graphics.ShaderBrush. Create the shader ONCE in Modifier.drawWithCache, push uniforms and drawRect(brush) in onDrawBehind. Official docs use ValueAnimator for time; the idiomatic Compose driver is produceState + androidx.compose.animation.core.withInfiniteAnimationFrameMillis (respects the animation clock, auto-pauses when not composed — good for battery).\n\nDriver:\n@Composable fun rememberShaderTime(): State<Float> = produceState(0f) {\n  val start = withFrameMillis { it }\n  while (true) { withInfiniteAnimationFrameMillis { value = (it - start) / 1000f } }\n}\n\nUsage (note: read timeState.value INSIDE onDrawBehind so only the draw phase invalidates):\nval timeState = rememberShaderTime()\nBox(Modifier.fillMaxSize().drawWithCache {\n  val shader = RuntimeShader(AURA_AGSL)\n  shader.setFloatUniform(\"iResolution\", size.width, size.height)\n  val brush = ShaderBrush(shader)\n  onDrawBehind {\n    shader.setFloatUniform(\"iTime\", timeState.value)\n    shader.setFloatUniform(\"iProgress\", progress)   // 0..1 across the interval\n    shader.setColorUniform(\"deep\", android.graphics.Color.valueOf(r,g,b,a))\n    shader.setColorUniform(\"bright\", android.graphics.Color.valueOf(r,g,b,a))\n    drawRect(brush)\n  }\n})\n\nMinimal slow multi-color flow shader (@Language(\"AGSL\") String). Feed a hue/progress uniform to move deep->bright green (work) or blue (rest):\nuniform float2 iResolution; uniform float iTime; uniform float iProgress;\nlayout(color) uniform half4 deep; layout(color) uniform half4 bright;\nhalf4 main(float2 fragCoord){\n  float2 uv = fragCoord/iResolution;\n  float t = iTime*0.15;\n  float flow  = 0.5+0.5*sin(uv.x*3.0+t)*cos(uv.y*2.0-t*0.7);\n  float flow2 = 0.5+0.5*sin((uv.x+uv.y)*2.5-t*1.3);\n  half4 base = mix(deep, bright, flow);\n  base = mix(base, bright, flow2*0.35);\n  base = mix(deep, base, iProgress);   // deep at interval start -> bright at end\n  return base;\n}\nSwap deep/bright between green and blue palettes for work vs rest; cross-fade the two uniform sets with animateColorAsState on transitions. Uniform names must match exactly; color uniforms need android.graphics.Color.valueOf() (or setColorUniform). Below API 33 the fallback is Brush.verticalGradient/linearGradient animated with rememberInfiniteTransition — but see device finding: not needed here.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/compose/graphics/draw/brush",
+            "https://developer.android.com/develop/ui/views/graphics/agsl/using-agsl",
+            "https://github.com/drinkthestars/shady"
+          ]
+        },
+        {
+          "title": "(2) Frosted glass BEHIND a panel: Modifier.blur blurs OWN content, not the backdrop — use Haze (recommended) or re-draw the owned shader",
+          "detail": "CRITICAL CORRECTNESS POINT: Modifier.blur and graphicsLayer{ renderEffect = RenderEffect.createBlurEffect(rx,ry,CLAMP).asComposeRenderEffect() } (both API 31+, ignored/no-op below 31) blur the composable's OWN rendered content/children — they do NOT have access to and cannot blur what is painted BEHIND the composable in z-order. So you cannot make a pause-menu look like frosted glass over the moving aura with plain Modifier.blur.\n\nTwo ways to actually blur the backdrop:\n(a) RECOMMENDED — Haze (chrisbanes/haze, Compose Multiplatform). Mark the aura background Modifier.hazeSource(hazeState) and the floating panel Modifier.hazeEffect(hazeState, style){ blurEffect{ blurRadius = 30.dp } } with val hazeState = rememberHazeState(). On Android 12+ (API 31+) Haze uses RenderEffect.createBlurEffect with CLAMP tile mode internally. It captures the source content and re-renders it blurred/tinted under the effect area — exactly the 'liquid glass' look, in ~two modifiers. NOTE the API rename: pre-1.0 used Modifier.haze / Modifier.hazeChild; 1.x+ uses hazeSource / hazeEffect, and 2.x moved blur into a haze-blur module with a blurEffect{} wrapper (dev.chrisbanes.haze.*). Pin the version and use its current docs.\n(b) DEPENDENCY-FREE alternative (viable BECAUSE you own the aura shader): inside the panel's own drawBehind, re-draw the same AURA_AGSL ShaderBrush and put a blur RenderEffect on that panel layer (graphicsLayer{ renderEffect = blur }), then layer a translucent white tint (~8-16% alpha) + a thin linear-gradient border highlight on top. This avoids the dependency and the backdrop-capture cost, at the price of the blur being of the gradient only (fine — the gradient IS the whole backdrop). PONYTAIL: if a truly convincing blur isn't essential, the cheapest premium-enough look is skip real blur entirely — translucent dark tint + subtle top-edge white gradient + hairline border reads as 'glass' over the busy aura for a fraction of the GPU cost.\nRecommendation: start with (b) for a single fullscreen aura backdrop (no new dependency, you already draw the shader); adopt Haze only if you later layer glass over arbitrary non-shader content.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/compose/graphics/draw/brush",
+            "https://github.com/chrisbanes/haze",
+            "https://chrisbanes.me/posts/haze-2.0/",
+            "https://chrisbanes.github.io/haze/dev/usage/",
+            "https://composables.com/jetpack-compose/androidx.compose.ui/ui/modifiers/blur/api"
+          ]
+        },
+        {
+          "title": "(3) Perimeter progress stroke: rounded-rect Path inset to safe area + PathMeasure.getSegment for a 0..1 partial stroke + glow",
+          "detail": "Draw in a Modifier.drawWithCache/drawBehind over the aura. Build a closed rounded-rect Path inset to the safe area with the device corner radius, measure it with androidx.compose.ui.graphics.PathMeasure, and carve out the leading 0..1 fraction with getSegment.\n\nCompose PathMeasure API (androidx.compose.ui.graphics.PathMeasure): fun setPath(path: Path?, forceClosed: Boolean); val length: Float; fun getSegment(startDistance: Float, stopDistance: Float, destination: Path, startWithMoveTo: Boolean = true): Boolean.\n\nModifier.drawWithCache {\n  val inset = safeInsetPx        // from displayCutout + a margin\n  val r = deviceCornerRadiusPx  // from WindowInsets.getRoundedCorner (finding 4)\n  val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width-inset, size.height-inset, CornerRadius(r,r))) }\n  val pm = PathMeasure().apply { setPath(path, /*forceClosed=*/true) }\n  val total = pm.length\n  val dst = Path()\n  onDrawBehind {\n    dst.rewind()\n    pm.getSegment(0f, total * progress, dst, true)   // progress = 0..1 for the interval\n    drawPath(dst, color = accent, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))\n  }\n}\n\nGLOW: cheapest true glow is drawIntoCanvas + android.graphics.Paint with a BlurMaskFilter (needs setLayerType/hardware caveat) OR — simpler and hardware-accelerated — draw the stroke twice: a wide low-alpha stroke on a graphicsLayer whose renderEffect is a blur (API 31+), with the crisp stroke on top. Since it traces a start->end progress arc, start the segment at 12 o'clock by rotating the path or offsetting the start distance.\n\nGOTCHA: older Compose PathMeasure had a caching bug where getSegment returned stale results unless setPath was re-called; on current stable it's fine, but re-run setPath whenever size/inset/radius changes (i.e., keep it inside drawWithCache which re-caches on size change) and rewind() the destination path each frame.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/compose/graphics/draw/overview",
+            "https://medium.com/androiddevelopers/fun-with-shapes-in-compose-8814c439e1a0",
+            "https://composables.com/jetpack-compose/androidx.compose.ui/ui-graphics/interfaces/DrawScope/api"
+          ]
+        },
+        {
+          "title": "(4) Match stroke corner radius to the real display corner via WindowInsets.getRoundedCorner (API 31)",
+          "detail": "android.view.WindowInsets.getRoundedCorner(position) returns a RoundedCorner (API 31+) with getRadius() (px) and getCenter() (Point). Positions: RoundedCorner.POSITION_TOP_LEFT / TOP_RIGHT / BOTTOM_LEFT / BOTTOM_RIGHT. Returns null if there is no rounded corner or it falls outside the app's window bounds (e.g. emulator, or app not fullscreen).\n\nIn Compose, reach the platform insets via LocalView.current.rootWindowInsets (or the Activity's decorView):\nval view = LocalView.current\nval radiusPx = remember {\n  view.rootWindowInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius?.toFloat() ?: (28.dp).value // fallback\n}\nUse that radius for the CornerRadius in the perimeter path so the stroke follows the display's real corners. ALWAYS keep a sensible dp fallback (the Flip 7's actual radius is not published — read it at runtime, don't hardcode). Corners can differ per position; for a symmetric stroke use the max of the four, or read all four if you want per-corner accuracy. rootWindowInsets may be null before the view is attached — read it after first layout (remember keyed on the view, or in a LaunchedEffect).",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/views/layout/insets/rounded-corners",
+            "https://developer.android.com/reference/android/view/RoundedCorner"
+          ]
+        },
+        {
+          "title": "(5) Keep the stroke/content clear of the camera via WindowInsets.displayCutout / DisplayCutout bounding rects",
+          "detail": "Compose: WindowInsets.displayCutout gives the inset region occupied by cutouts; WindowInsets.safeDrawing already folds displayCutout together with system-bar insets and is the usual choice to pad content. For the exact camera rectangle (to route the perimeter stroke and big countdown around it), get the platform DisplayCutout: view.rootWindowInsets.displayCutout, then DisplayCutout.boundingRects (List<Rect>) or getBoundingRectTop()/Left()/Right()/Bottom(); DisplayCutout also exposes safeInsetTop/Left/Right/Bottom, and Compose exposes WindowInsets.displayCutout with a cutoutPath. On the MAIN inner screen the Flip 7 has a centered top punch-hole, so the top run of the perimeter stroke should be inset below safeInsetTop and the countdown must avoid the top-center rect. For the COVER FlexWindow, the app spec says keep the bottom-corner camera area clear — do NOT hardcode that geometry; read the actual cutout/safe insets at runtime (they differ between the two displays and across One UI updates) and inset the stroke + layout to the returned safe region. Enable edge-to-edge (WindowCompat.setDecorFitsSystemWindows(window,false) / enableEdgeToEdge()) and set the cutout mode to shortEdges or 'always' so you're allowed to draw into the cutout region and can then carve around it yourself.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/compose/system/cutouts",
+            "https://developer.android.com/develop/ui/views/layout/display-cutout",
+            "https://developer.android.com/develop/ui/compose/system/insets"
+          ]
+        },
+        {
+          "title": "(6) Performance: keep continuous animation in the DRAW phase, never recomposition",
+          "detail": "The aura, aura-blur, and perimeter stroke all animate every frame at up to 120Hz, so the hard rule is: do NOT let per-frame values trigger recomposition or relayout. Techniques (all official Compose guidance):\n- Drive frame time with produceState + withInfiniteAnimationFrameMillis, and READ the resulting State.value INSIDE the draw lambda (onDrawBehind / drawBehind / graphicsLayer block). A state read inside a draw lambda invalidates only the draw phase — recomposition and layout are skipped. Reading the same State at the composable's top level would recompose every frame — avoid.\n- Create expensive objects (RuntimeShader, Path, PathMeasure, Brush) ONCE in Modifier.drawWithCache; it re-runs only when size or captured keys change, not per frame.\n- Prefer drawBehind over a Canvas() composable for pure background painting (fewer nodes). Use graphicsLayer for the blur/glow layers so the blur composites on RenderThread.\n- Modifier.blur / RenderEffect blur over a large, constantly-repainting surface is the single most expensive item here — apply it to the smallest region possible (the glass panel, not the whole screen) and to a cached/less-frequently-updated layer where you can. If the aura already animates, a separately-blurred full-screen copy doubles GPU cost; the 'own-shader re-draw' glass approach (finding 2b) or a static-tint glass keeps the budget.\n- Cross-interval color changes: animate uniform colors with animateColorAsState and feed them as uniforms in the draw lambda rather than recomposing the shader.\n- Watch the AGSL cost: keep the shader's per-pixel math cheap (a few sin/cos, no loops) since it runs on every pixel of a 2520x1080 panel at 120Hz. Profile with the Layout Inspector recomposition counts (should stay flat while animating) and GPU rendering profiler.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/compose/graphics/draw/brush",
+            "https://developer.android.com/develop/ui/compose/graphics/draw/overview",
+            "https://developer.android.com/develop/ui/compose/performance"
+          ]
+        }
+      ],
+      "recommendations": [
+        "Set compileSdk/targetSdk = 36 and a high minSdk; implement only the AGSL (API 33) and RenderEffect (API 31) paths and SKIP the sub-API-33 gradient / sub-API-31 RenderScript fallbacks — they are unreachable on the Flip 7's Android 16 and are pure over-engineering for a single-device sideload.",
+        "Aura background: RuntimeShader + ShaderBrush created once in Modifier.drawWithCache; drive time via produceState+withInfiniteAnimationFrameMillis and read the time/progress/color State INSIDE onDrawBehind so only the draw phase invalidates. Feed a 0..1 iProgress uniform for deep->bright and cross-fade green/blue color uniforms with animateColorAsState on work/rest transitions.",
+        "Frosted glass: do NOT expect Modifier.blur/graphicsLayer renderEffect to blur the backdrop — they blur the composable's own content. Default to the dependency-free approach: re-draw the owned aura ShaderBrush blurred inside the pause panel + translucent tint + hairline gradient border. Reach for the Haze library (hazeSource/hazeEffect, RenderEffect on API 31+) only if you later need to blur non-shader content.",
+        "Perimeter stroke: build one closed RoundRect Path inset to the safe region, measure with Compose PathMeasure, and use getSegment(0f, length*progress, dst) each frame (rewind dst first). Add glow with a second wide low-alpha stroke on a blurred graphicsLayer rather than a CPU BlurMaskFilter.",
+        "Corner radius + cutout: read them at runtime — WindowInsets.getRoundedCorner(POSITION_*) for the corner radius and view.rootWindowInsets.displayCutout / WindowInsets.displayCutout for the camera rect — with dp fallbacks. Never hardcode the Flip 7's corner radius or the cover-screen camera geometry; they aren't published and differ per display. Enable edge-to-edge + shortEdges cutout mode.",
+        "Hold a 120Hz budget: keep AGSL per-pixel math cheap, cache shader/path/pathmeasure in drawWithCache, confine any real blur to the smallest region, and verify recomposition counts stay flat while animating."
+      ],
+      "gotchas": [
+        "Modifier.blur and graphicsLayer{renderEffect=BlurEffect} blur the composable's OWN content, not what is drawn behind it in z-order — a common misconception that will make a naive 'frosted panel over the aura' look wrong. Backdrop blur requires Haze or re-drawing the owned backdrop.",
+        "Modifier.blur / RenderEffect are no-ops below API 31 and RuntimeShader throws below API 33 — irrelevant on the Flip 7 (Android 16) but will crash/blank on older test emulators, so guard with @RequiresApi or a min-API emulator image when testing.",
+        "WindowInsets.getRoundedCorner and rootWindowInsets.displayCutout can return null (before the view is attached, on emulators, or when the feature isn't present) — always provide a dp fallback and read after first layout.",
+        "Compose PathMeasure historically had a getSegment caching bug requiring setPath to be re-called; rewind() the destination Path every frame and re-run setPath whenever the source path (size/inset/radius) changes.",
+        "Haze changed its public API across versions: pre-1.0 haze/hazeChild -> 1.x hazeSource/hazeEffect -> 2.x split blur into a haze-blur module with a blurEffect{} wrapper (dev.chrisbanes.haze.*). Pin a version and follow that version's docs; older tutorials will not compile.",
+        "The official AGSL animation sample drives the time uniform with a Views ValueAnimator, not Compose — port it to produceState+withInfiniteAnimationFrameMillis for Compose, and read the value in the draw phase to avoid per-frame recomposition."
+      ],
+      "openQuestions": [
+        "The Flip 7's exact display corner radius and the cover-screen (FlexWindow) camera cutout geometry are not published by Samsung and the cover screen wraps around the rear cameras rather than having a standard punch-hole — these MUST be read at runtime via WindowInsets APIs; confirm on-device that getRoundedCorner and displayCutout return non-null useful values on BOTH the inner and cover displays.",
+        "Running the full-screen Compose UI on the cover 'FlexWindow' requires Good Lock 'MultiStar' (Launch widget / cover-screen enablement); whether WindowInsets.displayCutout / getRoundedCorner report correct values in that MultiStar-hosted context (vs. the normal inner-display Activity) needs on-device verification — this is a separate cover-screen dimension but directly affects where the perimeter stroke and countdown can safely draw.",
+        "Whether a fully real backdrop blur (Haze) is worth its GPU cost at 120Hz over the already-animating aura, versus the dependency-free re-drawn-shader-glass or a static translucent tint — decide by profiling on the actual device."
+      ]
+    },
+    "verify": {
+      "verdict": "MOSTLY_CONFIRMED",
+      "confirmedHighlights": [
+        "Device/SDK: Galaxy Z Flip 7 shipped Android 16 / One UI 8 out of the box (the FIRST devices to do so, with the Fold 7), so compileSdk/targetSdk 36 and the 'all APIs native, fallbacks are dead code' conclusion is correct. Main display 6.9in 2520x1080 21:9 Dynamic AMOLED 2X (1-120Hz); cover FlexWindow 4.1in 1048x948 Super AMOLED up to 120Hz. All specs verified. Sources: https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7 , https://9to5google.com/2025/07/07/galaxy-z-fold-7-flip-7-reportedly-launching-with-android-16/ , https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php",
+        "SDK version gates all correct: RuntimeShader = API 33 (Android 13/Tiramisu); RenderEffect / RenderEffect.createBlurEffect(rx,ry,TileMode) / Modifier.blur = API 31 (Android 12); WindowInsets.getRoundedCorner + RoundedCorner.POSITION_* = API 31. Sources: https://developer.android.com/reference/android/graphics/RuntimeShader , https://developer.android.com/reference/android/graphics/RenderEffect , https://developer.android.com/develop/ui/views/layout/insets/rounded-corners",
+        "CENTRAL CORRECTNESS CLAIM IS RIGHT: Modifier.blur and graphicsLayer{renderEffect=blur} blur the composable's OWN content, not the z-order backdrop behind it. Backdrop blur genuinely requires Haze (which captures the source via hazeSource/hazeEffect) or re-drawing the owned shader. This is the most valuable and most-often-gotten-wrong point in the doc and it is accurate.",
+        "API names are real and correctly packaged (no hallucinations): withInfiniteAnimationFrameMillis (androidx.compose.animation.core), ShaderBrush, RuntimeShader.setFloatUniform/setColorUniform, produceState, drawWithCache/onDrawBehind, animateColorAsState, DisplayCutout.boundingRects/getSafeInsetTop, RoundedCorner.getRadius/getCenter.",
+        "Compose PathMeasure signatures verified exactly: getSegment(startDistance: Float, stopDistance: Float, destination: Path, startWithMoveTo: Boolean = true): Boolean, and setPath(path: Path?, forceClosed: Boolean), plus the length property. Source: https://developer.android.com/reference/kotlin/androidx/compose/ui/graphics/PathMeasure",
+        "Haze 2.0 architecture claim is directionally correct: pre-1.0 haze/hazeChild -> 1.x hazeSource/hazeEffect -> 2.x uses a blurEffect{} wrapper inside hazeEffect. Source: https://chrisbanes.me/posts/haze-2.0/ , https://chrisbanes.github.io/haze/latest/migrating-2.0/"
+      ],
+      "issues": [
+        {
+          "claim": "'The Galaxy Z Flip 7 ships with Android 16 / One UI 8.0 (updated to One UI 8.5 in May 2026).'",
+          "problem": "As of May 2026 One UI 8.5 (Android 16-based) was still in BETA on the Fold 7 / Flip 7 with the stable rollout explicitly delayed, not a completed update. Stating it as 'updated to One UI 8.5 in May 2026' overstates the status. Low impact on the build (every API needed is in the Android 16 base that shipped July 2025), but the factual claim is imprecise.",
+          "correction": "Flip 7 shipped July 2025 on Android 16 / One UI 8.0; One UI 8.5 (still Android 16-based, so no new API surface for this app) was in beta around May 2026 with stable rollout taking time. None of it changes the API set.",
+          "source": "https://www.sammobile.com/news/third-one-ui-8-5-beta-update-galaxy-z-fold-7-flip-7-available/ , https://www.sammyfans.com/2026/05/03/one-ui-8-5-based-on-android-16-for-galaxy-devices/"
+        },
+        {
+          "claim": "Haze 2.x 'moved blur into a haze-blur module with a blurEffect{} wrapper (dev.chrisbanes.haze.*).'",
+          "problem": "Imprecise in a build-relevant way. In Haze 2.x the blur APIs live in the dev.chrisbanes.haze.blur package and ship in a SEPARATE gradle module (dev.chrisbanes.haze:haze-blur); the core dev.chrisbanes.haze:haze module no longer contains the blur effect. If you add only the core 'haze' dependency you will not have blurEffect{} and it won't compile.",
+          "correction": "For the recommended Haze path on 2.x, depend on BOTH dev.chrisbanes.haze:haze (core: rememberHazeState, hazeSource, hazeEffect) and dev.chrisbanes.haze:haze-blur (the blurEffect{} wrapper + HazeColorEffect.tint, in package dev.chrisbanes.haze.blur; materials in dev.chrisbanes.haze.blur.materials). Pin the version.",
+          "source": "https://chrisbanes.me/posts/haze-2.0/ , https://chrisbanes.github.io/haze/latest/migrating-2.0/"
+        },
+        {
+          "claim": "'...and Compose exposes WindowInsets.displayCutout with a cutoutPath.'",
+          "problem": "Conflates two different APIs. Compose's WindowInsets.displayCutout is only an inset REGION (top/left/right/bottom padding); it does not expose a cutout Path. The actual cutout outline Path comes from the platform DisplayCutout.getCutoutPath() (added API 31), reached via view.rootWindowInsets.displayCutout.",
+          "correction": "Use WindowInsets.displayCutout / WindowInsets.safeDrawing (Compose) for padding, and DisplayCutout.getBoundingRects()/getSafeInsetTop() or getCutoutPath() (platform, API 31) for the exact camera geometry to route the stroke around. There is no 'cutoutPath' on the Compose WindowInsets object.",
+          "source": "https://developer.android.com/reference/android/view/DisplayCutout , https://developer.android.com/develop/ui/compose/system/cutouts"
+        }
+      ],
+      "additions": [
+        "Dependency-free glass (finding 2b) has an unstated coordinate-space trap: to make the re-drawn AURA_AGSL shader inside the pause panel actually read as the backdrop 'showing through', the shader must be evaluated in SCREEN coordinates (same iResolution = full display size, and fragCoord offset by the panel's top-left position on screen), not the panel's local coordinate space. If you naively draw the same brush inside the panel it renders a mismatched mini-gradient that doesn't line up with the aura behind it, breaking the illusion. Pass the panel's onGloballyPositioned offset into the shader (or an iPanelOffset uniform) so the re-draw is continuous with the background. Haze avoids this because it captures the real source pixels.",
+        "enableEdgeToEdge vs setDecorFitsSystemWindows: the doc lists WindowCompat.setDecorFitsSystemWindows(window,false) as an option, but that call is deprecated; prefer Activity.enableEdgeToEdge() (androidx.activity). Also note that on targetSdk 35+ (this app is 36) edge-to-edge is ENFORCED by default, so you get it for free and mainly need to handle insets/cutout yourself. Source: https://developer.android.com/develop/ui/views/layout/edge-to-edge",
+        "The 'Compose PathMeasure getSegment caching bug requiring setPath re-call' is stated as historical fact but I could not confirm a specific tracker issue for the Compose (androidx.compose.ui.graphics) PathMeasure. The advice (rewind() the destination each frame; re-run setPath when the source path changes, which drawWithCache does on size change) is harmless and correct defensive practice regardless. Treat the specific 'bug' as unverified folklore, not a documented defect.",
+        "Animation driver detail worth stating explicitly for the foreground-service spec: withInfiniteAnimationFrameMillis is driven by the Compose frame clock, which STOPS when the screen is off / app not composed. That is correct and desirable for the VISUALS (no point rendering the aura to a dark screen, saves battery), but it means the timer/beep logic must be driven by the foreground service's own wall clock (SystemClock.elapsedRealtime), NOT by the animation frame count. The doc's performance section is right that reads belong in the draw phase; just don't let the visual clock also be the source of truth for interval timing.",
+        "Cover-screen (FlexWindow) reality check to add to the open question: Samsung's cover display normally only runs a whitelisted set of apps; Good Lock 'MultiStar' (Launch widget / 'I love Galaxy Foldable' > cover-screen app enablement) is what lets an arbitrary sideloaded Activity run there, and the app runs in a constrained, non-standard window. Whether getRoundedCorner()/rootWindowInsets.displayCutout report correct values in that MultiStar-hosted context is genuinely uncertain and MUST be verified on-device — the doc flags this correctly; just be prepared for the APIs to return null/wrong values on the cover screen and keep the runtime-read + dp-fallback path mandatory there."
+      ]
+    }
+  },
+  {
+    "key": "flip7-hardware",
+    "research": {
+      "summary": "Verified Samsung Galaxy Z Flip 7 (2025) hardware and Android-API facts for rendering the interval timer on both the cover (FlexWindow) and inner displays. Cover display is a 4.1\" Super AMOLED, 1048x948 px, ~345 ppi, near-square, 120Hz, with rounded corners and the dual rear cameras cutting into its lower-left region. Device ships Android 16 / One UI 8 (API level 36). Running an arbitrary app on the cover screen is unofficial: it requires Good Lock + the MultiStar module's Launcher Widget, and MultiStar (not the app) controls whether the app gets the full panel, an area above the cameras, or a letterboxed mini view. Key correction: there is NO public Display.FLAG_REAR constant; cover-vs-inner detection must come from live WindowMetrics/Display name plus runtime WindowInsets queries for the cutout and rounded corners, not a hard-coded flag. Several precise geometry numbers (exact camera-cutout pixel rect, cover-display dp/density, cover-face screen-to-body %) are NOT published by Samsung and must be measured on-device.",
+      "findings": [
+        {
+          "title": "Cover (FlexWindow) display core specs: 4.1\", 1048x948 px, ~345 ppi, near-square, 120Hz",
+          "detail": "Cover display is 4.1 inches, Super AMOLED, resolution 1048 x 948 px (Samsung/Wikipedia list it 1048x948 portrait; GSMArena writes 948x1048 — same panel), up to 120Hz, 2600 nits peak, Gorilla Glass Victus 2. Aspect ratio ~1.105:1 tall (i.e. ~0.905:1 width:height) — essentially near-square, marginally taller than wide (~9:10). Pixel density is NOT officially published; calculated sqrt(948^2+1048^2)/4.1 = ~345 ppi (approximate — 4.1\" is a nominal diagonal, panel is non-rectangular). Do NOT hard-code dp: read DisplayMetrics/WindowMetrics at runtime; the cover density bucket and dp size are undocumented and differ from the inner display. YesViz documents only the inner display (360x840 dp, DPR 3), not the cover.",
+          "confidence": "high",
+          "sources": [
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7",
+            "https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php",
+            "https://www.samsung.com/sa_en/support/mobile-devices/what-is-the-display-size-resolution-of-galaxy-flip-7-galaxy-fold-7/"
+          ]
+        },
+        {
+          "title": "Cover display shape: rounded corners + dual cameras cutting into lower-left; exact cutout rect NOT published",
+          "detail": "The 4.1\" FlexWindow spans edge-to-edge with ~1.25mm bezels and physically WRAPS AROUND the two rear camera lenses (plus LED flash), which sit in the lower-left region when the FlexWindow is viewed upright (hinge at top) — matching the spec's 'keep the bottom-corner camera area clear.' Samsung notes the viewable area is ~95% of the full rectangle due to rounded corners and the lower camera cutout. UNCERTAIN: Samsung does not publish corner radius or exact camera-cutout coordinates/shape, and it is unclear whether the cameras are exposed to apps as a true DisplayCutout or simply sit outside a rounded-rectangle panel. MultiStar's 'stop app UI extending below the cameras' toggle implies the usable region CAN extend down around the cameras and they interrupt the lower area. Guidance: query WindowInsets.getDisplayCutout(), getRoundedCorner(pos), getDisplayShape() at runtime; if the cover returns an empty cutout, fall back to keeping the bottom-left corner (~bottom 15-20%) clear and expose a calibration offset measured on the physical device.",
+          "confidence": "medium",
+          "sources": [
+            "https://samsung.gadgethacks.com/news/galaxy-z-flip-7s-cover-screen-finally-big-enough-to-actually-use-if-samsung-lets-it/",
+            "https://www.androidauthority.com/galaxy-z-flip-7-cover-screen-camera-features-3579892/",
+            "https://www.phonearena.com/news/Galaxy-Flip-7-maxed-out-cover-screen-and-thinner-design-hands-on_id172112"
+          ]
+        },
+        {
+          "title": "Inner display (reference): 6.9\", 2520x1080 px, 21:9, ~397 ppi, 1-120Hz LTPO",
+          "detail": "Main foldable inner display: 6.9 inches, Dynamic/LTPO AMOLED 2X, 2520x1080 px, 21:9, ~397 ppi, adaptive 1-120Hz, 2600 nits peak. In dp: 360x840 at density 3.0 (xxhdpi/DPR 3) per YesViz. Body: unfolded 166.7 x 75.2 x 6.5 mm; folded 85.5 x 75.2 x 13.7 mm; 188 g. Inner selfie camera is a centered top punch-hole (10 MP). This is the surface the app renders on when unfolded.",
+          "confidence": "high",
+          "sources": [
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7",
+            "https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php",
+            "https://yesviz.com/devices/samsung-z-flip7/"
+          ]
+        },
+        {
+          "title": "Ships Android 16 / One UI 8, Exynos 2500 -> target API level 36",
+          "detail": "The Z Flip 7 ships with Android 16 and One UI 8.0 (later One UI 8.5), SoC Exynos 2500 (3nm). Android 16 = API level 36, so compileSdk/targetSdk = 36 and minSdk can also be 36 for this single-device build. All newest display APIs (DisplayShape/getShape API 34, getRoundedCorner API 31, getDisplayCutout API 28) are available with no compat shims.",
+          "confidence": "high",
+          "sources": [
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7"
+          ]
+        },
+        {
+          "title": "Cover-screen app deployment: unofficial, requires Good Lock + MultiStar Launcher Widget; MultiStar controls sizing",
+          "detail": "No official Android/Samsung path launches an arbitrary third-party app on the FlexWindow. Working method: (1) install Good Lock (Galaxy Store), (2) install the MultiStar module, (3) MultiStar > 'I heart Galaxy Foldable' > 'Launcher Widget', select up to ~12 apps, (4) Settings > Cover screen > Widgets, add the 'Good Lock Launcher' widget to the cover carousel, (5) fold, swipe to the launcher widget, tap the app. Apps do NOT get raw full-display privileges — MultiStar sandboxes them and offers per-app display modes: full screen, an area ABOVE the cameras, or a small vertical 'mini' view, plus a button to stop UI extending below the camera line. Implication: the timer cannot assume it owns the full cover panel; it must be robust to a reduced/letterboxed area and size everything off live window bounds. Biggest deployment risk — verify the actual usable rectangle on the physical device early.",
+          "confidence": "high",
+          "sources": [
+            "https://www.sammobile.com/news/run-any-app-on-galaxy-z-flip-6-flip-7-fe-cover-screen/",
+            "https://www.forbes.com/sites/prakharkhanna/2025/08/13/samsung-galaxy-z-flip-7-install-this-app-to-maximize-your-cover-screen-experience/",
+            "https://www.tomsguide.com/phones/samsung-phones/ive-been-using-apps-on-the-samsung-galaxy-z-flip-7s-cover-screen-with-this-download-but-im-not-totally-in-love-with-it"
+          ]
+        },
+        {
+          "title": "CORRECTION: no public Display.FLAG_REAR; detect cover-vs-inner from WindowMetrics/Display name, not a flag",
+          "detail": "There is NO public Display.FLAG_REAR. The API 35 Display class publishes only FLAG_PRESENTATION, FLAG_PRIVATE, FLAG_ROUND, FLAG_SECURE, FLAG_SUPPORTS_PROTECTED_BUFFERS (FLAG_REAR exists only as a hidden AOSP constant). Public detection signals: (a) DisplayManager.getDisplays() to enumerate; Display.getDisplayId(), Display.getName() (Samsung foldables usually name the cover panel distinctively — confirm the exact string on-device); (b) Activity.getDisplay() (API 30+) for the active display; (c) most robust and recommended: WindowManager.getCurrentWindowMetrics().getBounds() (or WindowMetricsCalculator) and branch on size — cover is near-square/small (~948x1048), inner is tall 21:9 (~1080x2520). On Flip devices cover/inner behave as a swapping default display, so the size signal reacts correctly via onConfigurationChanged. Do not hard-code 'am I on the cover' — drive the whole layout off live WindowMetrics + WindowInsets.",
+          "confidence": "high",
+          "sources": [
+            "https://learn.microsoft.com/en-us/dotnet/api/android.views.display?view=net-android-35.0",
+            "https://developer.android.com/reference/android/hardware/display/DisplayManager"
+          ]
+        },
+        {
+          "title": "Runtime APIs for cutout + rounded corners + display shape, with min SDK levels",
+          "detail": "To compute the camera-clear region and perimeter-stroke path from real hardware at runtime: WindowInsets.getDisplayCutout() (min API 28) returns DisplayCutout with getBoundingRects()/getSafeInset*; DisplayCutout.getCutoutPath() is API 31+. WindowInsets.getRoundedCorner(int position) and RoundedCorner (getRadius/getCenter) are min API 31 (also Display.getRoundedCorner). Display.getShape() -> DisplayShape and WindowInsets.getDisplayShape() (returns a Path of the actual physical display outline — ideal for tracing the real rounded-rectangle perimeter) are min API 34. All available on Android 16. For the perimeter progress stroke, getDisplayShape().getPath() is the correct source for true corner geometry rather than guessing a radius. Caveat: whether the cover display reports a cutout/shape for the cameras is unverified — test on the physical unit and keep a manual calibration fallback.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/views/layout/insets/rounded-corners",
+            "https://developer.android.com/develop/ui/views/layout/display-cutout",
+            "https://learn.microsoft.com/en-us/dotnet/api/android.views.display?view=net-android-35.0"
+          ]
+        },
+        {
+          "title": "Jetpack WindowManager for posture; WindowAreaController Rear Display Mode is a different (unfolded) use case",
+          "detail": "Jetpack WindowManager (androidx.window) is stable at 1.5 (Oct 2025); 1.4+ adds richer foldable info. WindowInfoTracker.getOrCreate(context).windowLayoutInfo(...) emits FoldingFeature (state FLAT/HALF_OPENED, orientation, occlusion) for posture-aware layout. NOTE: posture alone does NOT distinguish cover-vs-inner when the phone is closed on the FlexWindow — combine it with the WindowMetrics size signal. Separately, WindowManager's Rear Display Mode (WindowAreaController / WindowAreaSession, androidx.window 1.2+) can move an activity to the outer screen, but it targets the UNFOLDED selfie/preview scenario (inner display turns off) and is NOT the mechanism for a folded MultiStar-launched cover app — context only; MultiStar remains the deployment path.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/jetpack/androidx/releases/window",
+            "https://developer.android.com/develop/ui/compose/layouts/adaptive/foldables/support-foldable-display-modes",
+            "https://developer.samsung.com/sdp/blog/en/2024/09/26/unfold-the-potential-of-galaxy-fold-devices-with-windowmanagers-rear-display-mode"
+          ]
+        }
+      ],
+      "recommendations": [
+        "Build ONE responsive Compose layout driven entirely by live WindowManager.getCurrentWindowMetrics() bounds + WindowInsets, not two hard-coded layouts. This automatically handles inner display, cover display, and whatever cropped rectangle MultiStar grants — and it is less code than branching on a display flag that does not publicly exist.",
+        "Trace the perimeter progress stroke from WindowInsets.getDisplayShape().getPath() (API 34+) so it follows the display's real rounded corners instead of an assumed radius. Keep a manual corner-radius/inset calibration constant as a fallback for the cover screen, whose shape reporting is unverified.",
+        "For the camera-clear zone, read WindowInsets.getDisplayCutout() first; if the cover reports no cutout, fall back to a configurable bottom-left keep-out rectangle and TUNE it on the physical device. Leave it as an adjustable value, not a magic number baked into the render path.",
+        "Validate the MultiStar deployment path on the actual phone before investing in cover-screen polish: install Good Lock + MultiStar, add the app to the Launcher Widget, and record the exact usable pixel rectangle plus which display mode (full / above-cameras / mini) yields a clean full-bleed surface. Everything downstream depends on that measured rectangle.",
+        "Set compileSdk/targetSdk 36 (Android 16); minSdk 36 is fine for this single-device build and unlocks getDisplayShape/getRoundedCorner/getCutout with no compat code.",
+        "Verify foreground-service beeps and background-music ducking keep working while the app runs on the cover screen with the FlexWindow off — this is untested for MultiStar-hosted apps and is core to the app's purpose."
+      ],
+      "gotchas": [
+        "Display.FLAG_REAR is NOT public API — do not detect the cover screen with it; use WindowMetrics size + Display.getName() instead.",
+        "MultiStar, not your app, decides the cover-screen window size and can letterbox or clip it; the app cannot assume it owns the full 1048x948 panel.",
+        "Exact cover-screen camera-cutout coordinates, corner radius, cover dp/density, and cover-face screen-to-body % are NOT published by Samsung; treat any such number as measure-on-device, not spec-derived.",
+        "Resolution is written both 1048x948 (Samsung/Wikipedia, portrait) and 948x1048 (GSMArena) — same panel; be explicit about orientation in code.",
+        "Whether the cover display reports the cameras via getDisplayCutout()/getDisplayShape() is unverified; the panel may present as a clean rounded rectangle with the cameras physically outside it, making cutout queries return empty on the cover.",
+        "A foreground service is needed for screen-off timing/beeps, but cover-screen (folded, screen-off) doze/power behavior for MultiStar-hosted apps is untested — verify beeps continue when the FlexWindow times out."
+      ],
+      "openQuestions": [
+        "What exact string does Display.getName() return for the FlexWindow on this unit, and does the Flip 7 expose cover+inner as separate Display objects or a single swapping default display?",
+        "Does WindowInsets.getDisplayCutout()/getDisplayShape() actually report the cover-screen cameras and rounded corners, or return empty? Determines whether the camera keep-out can be automatic or must be hard-calibrated.",
+        "What is the precise usable pixel rectangle (and safe insets) MultiStar grants a hosted app in each of its display modes on the Flip 7 cover screen?",
+        "What are the cover display's real density bucket and dp dimensions (needed only if a dp value must be precomputed rather than read at runtime)?",
+        "Do beeps/foreground-service audio and background-music ducking behave correctly while the app runs on the cover screen with the FlexWindow off?"
+      ]
+    },
+    "verify": {
+      "verdict": "MOSTLY_CONFIRMED",
+      "issues": [],
+      "confirmedHighlights": [
+        "Cover (FlexWindow) specs all correct per GSMArena: 4.1\" Super AMOLED, 948x1048 px, 120Hz, 2600 nits peak, Gorilla Glass Victus 2. Notably the 2600-nit figure — which I expected might be inner-only — is confirmed for the COVER display too. Source: https://www.gsmarena.com/samsung_galaxy_z_flip7-13712.php",
+        "Inner display correct: 6.9\", 2520x1080, 21:9, 120Hz LTPO AMOLED 2X, 2600 nits. 360x840dp at density 3.0 math checks out (1080/3=360, 2520/3=840). ppi ~397 math checks out. Source: GSMArena.",
+        "Body/SoC correct: unfolded 166.7x75.2x6.5mm, folded 85.5x75.2x13.7mm, 188g, Exynos 2500 (3nm, Xclipse 950 GPU). Source: GSMArena.",
+        "Android 16 / One UI 8 = API level 36 confirmed; compile/target/min 36 valid for a single-device build.",
+        "KEY CORRECTION IS CORRECT: Display.FLAG_REAR is @hide in AOSP (public static final int FLAG_REAR = 1<<13, annotated @hide) and NOT in the public SDK. The five public Display flags listed (FLAG_PRESENTATION, FLAG_PRIVATE, FLAG_ROUND, FLAG_SECURE, FLAG_SUPPORTS_PROTECTED_BUFFERS) are exactly the public set. Verified against AOSP core/java/android/view/Display.java. The recommendation to branch on WindowMetrics/Display.getName() instead is sound.",
+        "All display APIs verified real with correct SDK gates: DisplayCutout (API 28), DisplayCutout.getCutoutPath()/getBoundingRects()/getSafeInset* (getCutoutPath API 31), WindowInsets.getRoundedCorner(int)+RoundedCorner+Display.getRoundedCorner (API 31), Display.getShape()->DisplayShape and WindowInsets.getDisplayShape() (API 34). DisplayShape exposes a Path (getPath()/Path property) 'of the display shape' — correct source for tracing the true rounded-rect perimeter. Verified against developer.android.com and the dotnet/android-api-docs mirror (ApiSince tags: DisplayCutout=28, DisplayShape=34).",
+        "Jetpack WindowManager version claim correct: androidx.window 1.5.0 went stable Oct 2025; WindowInfoTracker/FoldingFeature (FLAT/HALF_OPENED) and WindowAreaController Rear Display Mode (1.2+, an unfolded-selfie use case, NOT the folded MultiStar path) are all accurately characterized. Source: https://developer.android.com/blog/posts/jetpack-window-manager-1-5-is-stable"
+      ],
+      "additions": [
+        "OMISSION (build-breaking, applies even to sideloaded on API 36): the foreground service the JSON relies on for screen-off timing/beeps MUST declare android:foregroundServiceType in the manifest AND hold the matching runtime permission, or startForeground() throws MissingForegroundServiceTypeException on Android 14+ (API 34+). A beep/timer with audio has no clean category — closest is mediaPlayback (FOREGROUND_SERVICE_MEDIA_PLAYBACK); FOREGROUND_SERVICE_SPECIAL_USE is the honest fallback (Play scrutiny is irrelevant here since it's sideloaded). This is OS-enforced, not Play-enforced. The JSON raises 'verify FGS beeps work' but never names the type/permission requirement. Source: https://developer.android.com/develop/background-work/services/fgs/service-types",
+        "OMISSION for the perimeter-stroke feature specifically: getDisplayShape().getPath() gives the corner geometry, but to actually RENDER the stroke out to the physical edges/corners the window must go edge-to-edge and be allowed into the cutout region — WindowCompat.setDecorFitsSystemWindows(window,false) / enableEdgeToEdge(), plus window.attributes.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS (ALWAYS added API 30). On targetSdk 35+ edge-to-edge is already default-enforced, so this is mostly the cutout-mode line plus reading insets to keep the camera keep-out clear. Worth stating alongside the getDisplayShape recommendation. Source: https://developer.android.com/develop/ui/views/layout/edge-to-edge and https://developer.android.com/reference/android/view/WindowManager.LayoutParams#LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS",
+        "Minor: GSMArena rounds cover density to ~340 ppi (using nominal 4.1\") vs the JSON's computed ~345 — both are unofficial estimates and the JSON already flags 'not officially published / measure on device', so no correction needed; just be aware external sources will cite ~340."
+      ]
+    }
+  },
+  {
+    "key": "android-runtime",
+    "research": {
+      "summary": "For a sideloaded Kotlin/Compose interval timer on a Galaxy Z Flip 7 (Android 16 / API 36, One UI 8): a started+bound foreground service of type specialUse owns the clock and exposes an immutable StateFlow the Compose UI collects; timing is anchored to absolute SystemClock.elapsedRealtime() targets (never accumulated postDelayed/delay deltas), so remaining time is recomputed every tick and survives lock/unlock, Activity recreation, and display switches. The single most important correctness fact: a foreground service does NOT keep the CPU awake — you must hold a PARTIAL_WAKE_LOCK for the running workout so per-second beeps land on time while the screen is off. specialUse is the right FGS type (no runtime timeout, only the FOREGROUND_SERVICE_SPECIAL_USE permission, no sensor permissions, Play subtype review irrelevant for a sideloaded APK). The only real threat to on-time beeps is deep Doze, which explicitly ignores wake locks; mitigate by prompting the user to exempt the app from battery optimization. No AlarmManager/exact alarms are needed for the running timer. Keep the screen on in-foreground with FLAG_KEEP_SCREEN_ON.",
+      "findings": [
+        {
+          "title": "Target is Android 16 / API level 36 — set compileSdk/targetSdk 36",
+          "detail": "The Galaxy Z Flip 7 ships with Android 16 and One UI 8 out of the box. Android 16 is API level 36. Because the spec targets a single newest device, compileSdk = targetSdk = 36 and minSdk can be 36 (34 is the floor for the mandatory FGS-type APIs). Android 16's Live Updates API (surfaced as One UI 8's Now Bar on the FlexWindow cover screen) is the mechanism that can promote the timer's ongoing notification onto the cover screen.",
+          "confidence": "high",
+          "sources": [
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7",
+            "https://developer.android.com/about/versions/16/behavior-changes-16"
+          ]
+        },
+        {
+          "title": "(1) Drift-free timing: anchor to SystemClock.elapsedRealtime() absolute targets, never accumulate deltas",
+          "detail": "Compute each interval's end as endTarget = startElapsed + durationMs where startElapsed = SystemClock.elapsedRealtime(), and every tick derive remaining = endTarget minus SystemClock.elapsedRealtime(). elapsedRealtime() is monotonic and, critically, INCLUDES deep sleep, so remaining time is always correct even if the CPU napped. Do NOT accumulate Handler.postDelayed/coroutine delay deltas: postDelayed schedules against SystemClock.uptimeMillis(), which STOPS during deep sleep, and accumulation compounds jitter into drift. elapsedRealtime is the recommended basis for interval timing. On pause store remaining = endTarget minus now; on resume set endTarget = now + remaining — keeps timing exact across pauses.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/reference/android/os/SystemClock"
+          ]
+        },
+        {
+          "title": "(1b) Sub-second beep cues landing on the second: precompute cue targets, delay-then-recompute-and-fire, preload the audio",
+          "detail": "Precompute an ordered list of absolute cue timestamps for the lead-in and each transition (cueTarget = intervalEnd minus 5000/3000/2000/1000/0 ms). Timing loop: read now = elapsedRealtime(); delay(nextCue minus now), then on wake recompute now and fire the beep once now has reached cueTarget (fire immediately if the sleep overshot). Because you re-anchor to elapsedRealtime after every wake, a few-ms scheduler jitter never accumulates. Keep the audible onset tight by pre-loading the distinct 5s tone, the 3/2/1 short beeps, and the go tone into a SoundPool (or a warm AudioTrack) at workout start so play() latency is a fixed small offset rather than a load stall; to place the sound's onset exactly on the second, subtract a measured constant output-latency offset from the scheduled delay. (Music-ducking via AudioManager audio focus AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK is really the audio dimension but hangs off this same per-beep code path.)",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/reference/android/os/SystemClock"
+          ]
+        },
+        {
+          "title": "(2) Foreground service type: use specialUse — no timeout, minimal permissions, Play subtype review moot for a sideloaded APK",
+          "detail": "Declare android:foregroundServiceType=specialUse with the required property element (android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE, value e.g. interval_timer_countdown_cues) inside the service element. Manifest permissions: FOREGROUND_SERVICE plus FOREGROUND_SERVICE_SPECIAL_USE. specialUse has NO runtime timeout and requires NO extra runtime permissions (unlike health, which needs FOREGROUND_SERVICE_HEALTH plus a sensor/ACTIVITY_RECOGNITION permission). Avoid dataSync and mediaProcessing — both capped (dataSync time-limited on API 35+, mediaProcessing 6h/24h). mediaPlayback is the only other no-timeout candidate and is technically defensible (the app does play audio) but is semantically for continuous media with a MediaSession and pulls in FOREGROUND_SERVICE_MEDIA_PLAYBACK plus media-session expectations you don't need. For a beep-only timer, specialUse is the lazy correct fit. The subtype string is only reviewed at Google Play submission — irrelevant for a sideloaded APK — but the property element must still be present because the platform reads it. Since Android 14 (API 34), omitting the type-specific permission throws SecurityException at startForeground().",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/background-work/services/fgs/service-types",
+            "https://developer.android.com/develop/background-work/services/fgs/declare",
+            "https://developer.android.com/about/versions/14/changes/fgs-types-required"
+          ]
+        },
+        {
+          "title": "(2b) Mandatory notification + POST_NOTIFICATIONS — service runs even if the permission is denied",
+          "detail": "A foreground service must post an ongoing notification (create a low-importance channel; that ongoing notification is where the cover-screen Live Update/Now Bar can surface). POST_NOTIFICATIONS is a runtime permission since Android 13 (API 33) and you should request it. Key behavior: you do NOT need POST_NOTIFICATIONS to launch the FGS, and if the user DENIES it the service STILL runs and keeps beeping — only the drawer notification is hidden (it still appears in the FGS Task Manager). Start the FGS from the user's Start tap (app visible/foreground), always permitted, sidestepping background-start restrictions; call startForeground() promptly (within the platform's few-second window) to avoid an ANR/RemoteServiceException.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/ui/views/notifications/notification-permission",
+            "https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start"
+          ]
+        },
+        {
+          "title": "(2c/CRITICAL) A foreground service does NOT keep the CPU awake — hold a PARTIAL_WAKE_LOCK so beeps fire with the screen off",
+          "detail": "Make-or-break fact. An FGS prevents process death and background-start restrictions but does NOT keep the CPU running; when the screen turns off the CPU can suspend and the coroutine/Handler timing loop freezes, so per-second beeps arrive late or not until the next wake. To keep sub-second cues landing while the screen is off/backgrounded, the service must acquire a PowerManager.PARTIAL_WAKE_LOCK for the duration of the running workout (permission android.permission.WAKE_LOCK, a normal permission, no prompt). API: powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, tag), acquire(safetyTimeoutMs), release() on pause/stop/onDestroy. Use the timeout overload as a safety cap so a crash can't leave it stuck; release whenever paused or the workout ends. A partial wake lock keeps the CPU on with the screen off — exactly what running/interval apps do. FLAG_KEEP_SCREEN_ON does NOT substitute: it only holds while a visible Activity is foreground.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/background-work/background-tasks/awake",
+            "https://developer.android.com/develop/background-work/background-tasks/awake/wakelock"
+          ]
+        },
+        {
+          "title": "(2d) Doze is the one thing that beats the wake lock — mitigate with a battery-optimization exemption",
+          "detail": "Doze mode explicitly ignores wake locks and defers standard alarms/jobs. It activates when the device is unplugged, stationary (no motion), and screen-off for an extended period. During an ACTIVE workout this is usually not reached: intervals are seconds long, the phone is often handled/moving (stationarity check fails), and the FGS keeps the app alive. The realistic risk is a long screen-off rest with the phone flat and still, long enough for deep Doze, after which the CPU can sleep and the final countdown beeps slip. Mitigations, best first: (a) prompt once to exempt the app from battery optimization — PowerManager.isIgnoringBatteryOptimizations(pkg) plus Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (permission REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); whitelisted apps keep wake locks/alarms honored under Doze. Play restricts that permission but this APK is sideloaded. (b) As belt-and-braces, schedule one AlarmManager.setExactAndAllowWhileIdle() at intervalEnd minus roughly 6s to wake the device and re-acquire the wake lock before the final beeps — capped once per 9 minutes under Doze, so it can wake for the final countdown but cannot drive per-second beeps.",
+          "confidence": "medium",
+          "sources": [
+            "https://developer.android.com/training/monitoring-device-state/doze-standby",
+            "https://developer.android.com/develop/background-work/services/alarms"
+          ]
+        },
+        {
+          "title": "(3) Keep the screen ON in foreground: FLAG_KEEP_SCREEN_ON (Activity-only, no permission), wired via a Compose DisposableEffect",
+          "detail": "Use window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) / clearFlags(...) (equivalent to the android:keepScreenOn view attribute). No permission required. In Compose, wrap it in a DisposableEffect on the timer screen that adds the flag on enter and clears it on dispose (or set LocalView.current.keepScreenOn = true for the composable's lifetime). Limits: the flag only works while set on a visible Activity — nothing in a Service, and the system lets the screen turn off normally once backgrounded. It keeps the display (and CPU) up only while the timer UI is foreground; it is NOT a substitute for the partial wake lock that covers screen-off/backgrounded. Prefer the flag over a screen-bright wake lock because it is scoped to the Activity and auto-clears. Clean split: FLAG_KEEP_SCREEN_ON = screen while looking at it; PARTIAL_WAKE_LOCK = beeps while screen is off.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/background-work/background-tasks/awake/screen-on",
+            "https://developer.android.com/develop/background-work/background-tasks/awake"
+          ]
+        },
+        {
+          "title": "(4) Architecture: the FGS owns the clock and publishes an immutable StateFlow; Compose only collects it",
+          "detail": "Run a started plus bound foreground service (startForegroundService() then bindService()), or expose state from a process-level singleton/repository the service writes and the UI reads. The service holds all authoritative timing state (current interval index, phase Work/Rest, endTargetElapsed, isPaused, pausedRemaining) and runs a coroutine on its own scope ticking roughly every 16 to 50 ms, emitting an immutable data class TimerUiState through a MutableStateFlow. Compose collects via collectAsStateWithLifecycle(). Because every value is DERIVED from elapsedRealtime() against targets stored in the service — not from UI-thread accumulators — Activity recreation (fold/unfold, rotation, moving to the FlexWindow, config changes) never disturbs timing: the recreated Activity simply re-binds/re-collects the same StateFlow and paints the current remaining value. Pause/Resume are pure state transitions on the service. This satisfies lock/unlock or a display switch never disrupts timing by construction.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/background-work/services/fgs/service-types",
+            "https://developer.android.com/reference/android/os/SystemClock"
+          ]
+        },
+        {
+          "title": "(5) Android 14/15/16 FGS + exact-alarm restrictions — none block a specialUse timer, and no exact alarm is needed",
+          "detail": "Android 14 (API 34): FGS types mandatory; must hold FOREGROUND_SERVICE plus the type-specific permission or startForeground() throws SecurityException. Android 15 (API 35): runtime timeouts added for dataSync and mediaProcessing (NOT specialUse/mediaPlayback/health); BOOT_COMPLETED receivers can no longer start certain FGS types — irrelevant since you start from the user's tap. Android 16 (API 36): background jobs started from an FGS are subject to JobScheduler/WorkManager quotas (you use no jobs), and background activity/FGS starts are further hardened (you start from a visible Activity, always allowed). Net: a specialUse FGS started from the foreground has no timeout and no new blocker on API 36. On exact alarms: you do NOT need AlarmManager for the running timer — the wake lock plus coroutine loop drives all cues; use setExactAndAllowWhileIdle only as the optional Doze wake-trigger. SCHEDULE_EXACT_ALARM is denied-by-default since Android 13/14 (check canScheduleExactAlarms()); USE_EXACT_ALARM is reserved for alarm-clock/calendar apps — another reason to avoid the alarm path for the normal flow.",
+          "confidence": "high",
+          "sources": [
+            "https://developer.android.com/develop/background-work/services/fgs/changes",
+            "https://developer.android.com/about/versions/16/behavior-changes-16",
+            "https://developer.android.com/about/versions/14/changes/schedule-exact-alarms"
+          ]
+        },
+        {
+          "title": "Cover-screen (FlexWindow) via Good Lock MultiStar — service-owned clock makes the display switch safe, but MultiStar itself is unverifiable in AOSP docs",
+          "detail": "Moving an Activity between the inner display and the 4.1-inch FlexWindow is a display/configuration change that can recreate the Activity; because the clock lives in the service, recreation does not disrupt timing (the new Activity re-collects the StateFlow). Running an arbitrary sideloaded app on the cover screen comes from Samsung's Good Lock MultiStar (apps on cover screen) module — a One UI feature, not standard AOSP — so its exact Activity-lifecycle and window-inset behavior (including keeping the bottom-corner camera cutout clear) cannot be verified against official Android docs and must be tested on-device. Design the cover layout with WindowInsets/safe-area padding and treat MultiStar behavior as device-specific.",
+          "confidence": "low",
+          "sources": [
+            "https://www.androidpolice.com/now-bar-cover-screen-expanded-app-support-one-ui-8/",
+            "https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7"
+          ]
+        }
+      ],
+      "recommendations": [
+        "FGS type = specialUse. Manifest: uses-permission FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, WAKE_LOCK, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS; service android:foregroundServiceType=specialUse with the PROPERTY_SPECIAL_USE_FGS_SUBTYPE property element present.",
+        "Put the clock in the service. Store absolute endTargetElapsed from SystemClock.elapsedRealtime(); every tick compute remaining = target minus now; publish an immutable StateFlow the Compose UI collects with collectAsStateWithLifecycle(). Never accumulate postDelayed/delay deltas.",
+        "Acquire a PARTIAL_WAKE_LOCK while the timer is RUNNING (release on pause/end/onDestroy, acquire with a safety timeout) — this, not the FGS, is what makes screen-off beeps land on the second.",
+        "Beep scheduling loop: precompute cue timestamps (lead-in plus each transition at 5/3/2/1/0 s before the boundary), delay to the next, then recompute-and-fire on wake so jitter never accumulates. Preload all tones in SoundPool at workout start.",
+        "Keep the screen on in-foreground with FLAG_KEEP_SCREEN_ON added/cleared in a Compose DisposableEffect on the timer screen; do not rely on it for the backgrounded case.",
+        "On first run, prompt POST_NOTIFICATIONS (ongoing notification / cover-screen Now Bar) and prompt the battery-optimization exemption (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) — the exemption is the real fix for Doze eating beeps on long screen-off rests.",
+        "Skip AlarmManager for the normal flow. Only add one setExactAndAllowWhileIdle wake-trigger before the final countdown if device testing shows long rests slipping under Doze.",
+        "compileSdk/targetSdk = 36; minSdk 36 (34 floor for FGS-type APIs). Start the FGS from the user's Start tap (foreground) to avoid every background-start restriction."
+      ],
+      "gotchas": [
+        "A foreground service alone does NOT keep the CPU awake — without a PARTIAL_WAKE_LOCK, screen-off beeps freeze until the next wake. Most common wrong assumption.",
+        "Doze explicitly IGNORES wake locks (not just defers them). Only a battery-optimization exemption (or setExactAndAllowWhileIdle, capped once per 9 minutes) survives deep Doze. Samsung One UI adds aggressive Sleeping apps killing on top of AOSP Doze — expect to manually whitelist the app on-device.",
+        "Handler.postDelayed and most delay()/Thread.sleep timing run on the uptimeMillis clock, which STOPS in deep sleep — accumulating their deltas produces silent drift. Always recompute from elapsedRealtime.",
+        "FLAG_KEEP_SCREEN_ON only works while set on a visible foreground Activity and can only be set from an Activity — cleared/ineffective once backgrounded, cannot be set from the service.",
+        "If the user denies POST_NOTIFICATIONS the service keeps running but its notification is hidden from the drawer (still visible in the FGS Task Manager) — don't treat denial as fatal.",
+        "The specialUse property subtype element must be present in the manifest even though its free-form text is only reviewed by Google Play (not applicable to a sideloaded APK)."
+      ],
+      "openQuestions": [
+        "Does deep Doze realistically trigger mid-workout on the Flip 7 under One UI 8 (Samsung battery management is more aggressive than stock AOSP)? Verify on-device whether the partial wake lock alone holds beeps through a multi-minute screen-off rest, or whether the battery-optimization exemption is mandatory.",
+        "How does Good Lock MultiStar drive the Activity lifecycle when the app is shown on / removed from the FlexWindow, and does it recreate the Activity on each fold/unfold? Not documented in AOSP — measure on-device and validate the service-owned-clock assumption against it.",
+        "Is coroutine delay() jitter tight enough for perceptually on-the-second beeps, or should the tick run on a Choreographer/high-rate Handler? Measure actual audible-onset error on the Flip 7 (including SoundPool output latency) and calibrate the constant lead offset."
+      ]
+    },
+    "verify": {
+      "verdict": "MOSTLY_CONFIRMED",
+      "confirmedHighlights": [
+        "Central claim verified: a foreground service does NOT keep the CPU awake; a PowerManager.PARTIAL_WAKE_LOCK is required so per-second beeps land with the screen off. developer.android.com's 'Choose the right API to keep the device awake' explicitly asks whether the device suspending mid-service would hurt UX and, if so, says 'you might need to use a wake lock' — confirming the FGS alone does not hold the CPU. (https://developer.android.com/develop/background-work/background-tasks/awake)",
+        "Doze behavior is correct: while in deep Doze the system 'ignores wake locks' and defers standard alarms; setAndAllowWhileIdle/setExactAndAllowWhileIdle fire at most once per 9 minutes per app; battery-optimization-exempt apps may 'hold partial wake locks during Doze.' (https://developer.android.com/training/monitoring-device-state/doze-standby)",
+        "FGS type facts correct: specialUse has NO runtime timeout and requires only FOREGROUND_SERVICE_SPECIAL_USE plus the mandatory android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE <property> element in the manifest; dataSync and mediaProcessing are the timeout-capped types (6h/24h on API 35+), which the JSON correctly steers away from. (https://developer.android.com/develop/background-work/services/fgs/service-types , https://developer.android.com/about/versions/15/behavior-changes-15)",
+        "Hardware/SDK correct: Galaxy Z Flip 7 ships with Android 16 and One UI 8, with a 4.1-inch (1048x948) FlexWindow cover screen; Android 16 = API 36, so compileSdk/targetSdk 36 is right. (https://news.samsung.com/us/samsung-galaxy-z-flip7-a-pocket-sized-ai-powerhouse-with-a-new-edge-to-edge-flexwindow/ , https://en.wikipedia.org/wiki/Samsung_Galaxy_Z_Flip_7)",
+        "Timing model correct: SystemClock.elapsedRealtime() counts deep sleep and is the documented 'recommended basis for interval timing'; uptimeMillis() (Handler/postDelayed) does not advance in deep sleep, so anchoring to absolute elapsedRealtime targets and recomputing each tick is the right drift-free design. (https://developer.android.com/reference/android/os/SystemClock)",
+        "Exact-alarm facts correct: SCHEDULE_EXACT_ALARM is denied-by-default on Android 14 for apps targeting API 33+ (check canScheduleExactAlarms()), and USE_EXACT_ALARM is reserved for alarm-clock/calendar apps — so avoiding the alarm path for the normal timer flow is sound. (https://developer.android.com/about/versions/14/changes/schedule-exact-alarms)",
+        "Android 16 Live Updates is real: Notification.ProgressStyle (API 36+) creates progress-centric notifications that can be promoted to appear prominently on system surfaces. (https://developer.android.com/about/versions/16/features/progress-centric-notifications)"
+      ],
+      "issues": [
+        {
+          "claim": "Finding 1 (marked high confidence): \"Android 16's Live Updates API (surfaced as One UI 8's Now Bar on the FlexWindow cover screen) is the mechanism that can promote the timer's ongoing notification onto the cover screen.\"",
+          "problem": "The Android 16 Live Updates API (Notification.ProgressStyle promoted notifications) is real and documented, but that it renders on the Flip 7's FlexWindow via One UI 8's Now Bar is a Samsung-specific, undocumented coupling. The JSON's own cover-screen finding (correctly marked low confidence) admits this behavior 'cannot be verified against official Android docs.' Asserting the same chain at high confidence in Finding 1 is an internal contradiction and over-states certainty.",
+          "correction": "Only the Android-documented half is verifiable: promoted Live Update notifications appear on system surfaces (drawer top, lock screen, status-bar chip). Whether One UI 8's Now Bar renders them on the FlexWindow must be tested on-device; downgrade Finding 1's confidence to match the cover-screen finding and treat cover-screen promotion as device-specific/untested.",
+          "source": "https://developer.android.com/about/versions/16/features/progress-centric-notifications"
+        },
+        {
+          "claim": "UI guidance covers FLAG_KEEP_SCREEN_ON via a Compose DisposableEffect and WindowInsets/safe-area padding for the cover screen, but says nothing about Android 16's edge-to-edge enforcement.",
+          "problem": "Omission that directly affects this build. Apps targeting SDK 36 can no longer opt out of edge-to-edge display; the deprecated Window.setDecorFitsSystemWindows(true)/opt-out APIs are ignored on Android 16. A full-bleed timer with a perimeter progress stroke tracing the real display corners and a cover layout that must keep the bottom-corner camera area clear will draw under the system bars and cutout by default — this must be designed for from the start, not discovered late.",
+          "correction": "Plan for forced edge-to-edge on targetSdk 36: consume WindowInsets (systemBars, displayCutout) explicitly, drive the perimeter stroke geometry off the rounded-corner/inset/cutout metrics, and pad interactive UI out of the status/nav/cutout regions rather than assuming an inset-fitted window.",
+          "source": "https://developer.android.com/about/versions/16/behavior-changes-16"
+        },
+        {
+          "claim": "Gotchas / Finding 1b: \"Handler.postDelayed and most delay()/Thread.sleep timing run on the uptimeMillis clock, which STOPS in deep sleep.\"",
+          "problem": "Imprecise. Handler.postDelayed and coroutine delay() on Dispatchers.Main do use SystemClock.uptimeMillis(), but delay() on background dispatchers (Default/IO) is driven by DefaultExecutor using System.nanoTime() (CLOCK_MONOTONIC), not uptimeMillis. The blanket 'uptimeMillis' claim is technically wrong for the dispatcher the timing loop is most likely to run on. Low severity because both clocks freeze in deep sleep, so the actionable conclusion is unaffected.",
+          "correction": "State it as: neither uptimeMillis (Handler / Main-dispatcher delay) nor nanoTime (background-dispatcher delay) advances during deep sleep, so never accumulate delay deltas — always recompute remaining from elapsedRealtime(). The recompute-from-elapsedRealtime rule is the load-bearing part and is correct.",
+          "source": "https://developer.android.com/reference/android/os/SystemClock"
+        }
+      ],
+      "additions": [
+        "Wake-lock safety-timeout caveat for the build: the JSON recommends acquire(safetyTimeoutMs) as a crash-safety cap. Make that timeout longer than the longest plausible single workout (or refresh/re-acquire per interval), otherwise the wake lock self-releases mid-workout and screen-off beeps stop — the exact failure the wake lock exists to prevent. Pair it with a guaranteed release() in onDestroy/pause/stop.",
+        "collectAsStateWithLifecycle() is not in core Compose — it requires the androidx.lifecycle:lifecycle-runtime-compose dependency. Add it to the module's build.gradle so the recommended UI-collection pattern compiles.",
+        "Samsung-specific battery management beyond AOSP Doze is correctly flagged in the JSON's gotchas, but for the real build the practical fix on One UI 8 is two settings, not one: request the battery-optimization exemption (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) AND have the user add the app to Settings > Battery > Background usage limits > 'Never sleeping apps'. Verify on-device that a multi-minute screen-off rest keeps beeps landing."
+      ]
+    }
+  },
+  {
+    "key": "android-audio",
+    "research": {
+      "summary": "For a personal, sideloaded Kotlin/Compose interval timer targeting only the newest Android (Android 16 / API 36, which the Galaxy Z Flip 7 ships with), the audio design is: (1) DUCK the user's music by requesting audio focus with AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK via AudioFocusRequest — but acquire it around the whole 5s countdown-beep cluster and release after the 'go' tone, NOT per individual beep (per-beep churn makes the music flutter up/down every second and adds latency). (2) Produce cue tones with pre-rendered enveloped WAV files played through SoundPool as the primary recommendation (least code, predictable, designer-tuned), or synthesized enveloped sines via AudioTrack MODE_STATIC as the no-asset alternative; reject ToneGenerator (harsh DTMF-style tones, poor control). (3) A concrete four-cue palette using musical pitches with raised-cosine envelopes. (4) Audibility over loud music comes mainly from USAGE_ALARM (rides the alarm stream, independent of the media volume the user lowered) plus the ducking; the foreground service must be type 'mediaPlayback' to keep beeping with the screen off, and on Android 15+ audio focus only succeeds while an FGS is running (which we have). (5) Pre-load all samples and schedule cues off a monotonic clock with a small latency lead so the beep lands on the second. Several items (USAGE_ALARM + MAY_DUCK ducking behavior, screen-off timing without a wakelock, exact speaker audibility) are real hardware-tuning knobs that MUST be tested on the physical Z Flip 7.",
+      "findings": [
+        {
+          "title": "Ducking: request AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK via AudioFocusRequest (API 26+); auto-ducks the music app with no callback",
+          "detail": "Build an AudioFocusRequest with setFocusGain(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK) and setAudioAttributes(...), then audioManager.requestAudioFocus(request) / audioManager.abandonAudioFocusRequest(request). When you hold MAY_DUCK focus, the system automatically ducks (lowers) the current focus owner's players — Spotify etc. dip — and the music app does NOT get an onAudioFocusChange callback (the system does the ducking itself). Ducking is triggered by the GAIN type, not by your usage, so you do not implement the volume drop yourself. AudioFocusRequest and requestAudioFocus(AudioFocusRequest) require API 26; the old requestAudioFocus(listener, streamType, durationHint) is deprecated. Because the app targets only Android 16 and runs on one device, set minSdk high (>=26, realistically 34/35) and skip the deprecated legacy-focus branch entirely — no compat code needed.",
+          "sources": [
+            "https://developer.android.com/media/optimize/audio-focus",
+            "https://developer.android.com/reference/android/media/AudioFocusRequest"
+          ],
+          "confidence": "high"
+        },
+        {
+          "title": "Acquire/release focus around the 5s beep CLUSTER, not per individual beep",
+          "detail": "The spec's beep window at each interval end is 5s-tone, then 3s/2s/1s beeps, then the 'go' tone at 0 — a ~5-second cluster. Acquiring focus for each ~150ms beep and releasing between them makes the music audibly duck-and-rise every single second (ducking has attack/release ramps of tens of ms), and adds a focus round-trip before each beep. Cleaner and still matches 'duck only while beeping': request focus once when the 5s-tone fires and abandon it right after the 'go' tone (~5s held), which also stays well under the ~15s window Android expects for a TRANSIENT_MAY_DUCK holder. Between clusters (mid-interval silence) hold no focus, so the music plays at full volume. Per-beep focus is technically possible if the user insists on literal per-beep ducking, but it sounds worse — flag this tradeoff to the user.",
+          "sources": [
+            "https://developer.android.com/media/optimize/audio-focus",
+            "https://developer.android.com/reference/android/media/AudioFocusRequest"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "title": "Tone production: SoundPool with pre-rendered WAVs (primary) or AudioTrack MODE_STATIC synthesis (alternative); avoid ToneGenerator",
+          "detail": "SoundPool decodes clips to raw 16-bit PCM in memory once and gives low-latency, repeatable playback with per-play volume/rate control — best fit for four short cues, and the least code: design the tones (with baked-in soft envelope) in an audio editor, ship 4 tiny WAVs in res/raw, load once. AudioTrack MODE_STATIC is the no-asset-files alternative: synthesize each enveloped sine into a short PCM buffer once, keep the AudioTrack instances, and re-trigger with stop()/reloadStaticData()/play(); marginally lower latency but you hand-roll the envelope in code. ToneGenerator should be rejected — it produces harsh, telephony/DTMF-style tones with essentially no envelope or timbre control and a limited fixed tone set. Recommendation: SoundPool + 4 bundled WAVs for predictability and minimal code; only reach for AudioTrack synthesis if you want zero bundled assets.",
+          "sources": [
+            "https://developer.android.com/reference/android/media/SoundPool",
+            "https://developer.android.com/reference/kotlin/android/media/AudioTrack",
+            "https://medium.com/ackee/android-high-performance-audio-apis-aacab3c581a5"
+          ],
+          "confidence": "high"
+        },
+        {
+          "title": "Pleasant tones need a raised-cosine envelope and zero-crossing start/stop",
+          "detail": "Clicks/pops come from amplitude discontinuities: a non-zero start sample or an abrupt cut. Fix with (a) start the oscillator phase at 0, (b) a short raised-cosine (Hann-like) fade-in of ~5–10 ms, (c) a longer fade-out of ~30–60 ms, (d) end on a zero crossing. Sample formula per sample n: amp * envelope(n) * sin(2*pi*f*n/sampleRate). For a warmer, less sterile beep add a small amount of 2nd/3rd harmonic (e.g. fundamental + ~20% at 2f) rather than a pure sine. Use 44100 Hz, 16-bit PCM, mono. This applies whether you pre-render the WAVs or synthesize via AudioTrack — the envelope is the difference between a 'nice chime' and a 'clicky blip'.",
+          "sources": [
+            "https://developer.android.com/reference/kotlin/android/media/AudioTrack",
+            "https://polarity.me/posts/polarity-music/2026-03-04-your-synth-isnt-broken-its-just-phase/",
+            "https://moshenskyi.medium.com/building-a-sample-accurate-metronome-with-audiotrack-in-android-7da27ac7dae1"
+          ],
+          "confidence": "high"
+        },
+        {
+          "title": "Concrete four-cue tone design (pitches + durations)",
+          "detail": "All with the envelope above. (1) 5-SECONDS warning — distinct mid tone, single note E5 ~659 Hz, ~200 ms, moderate level; clearly lower/rounder than the countdown blips so it reads as 'get ready'. (2) 3s/2s/1s COUNTDOWN — identical short blips, A5 ~880 Hz, ~110–130 ms each, 8 ms attack / 50 ms decay; short and crisp, repeated identically. (3) GO / transition — distinct, brighter and slightly longer: either an upward chirp 880 Hz -> ~1319 Hz over ~300 ms, or a two-note major-third chord C6+E6 (~1047 + 1319 Hz) held ~350 ms at a hair higher level so the transition feels rewarding. Keeping the countdown blips a pure single pitch and making the 5s-tone lower and the go-tone higher/richer gives three unmistakably different sounds. Treat exact Hz/durations as a tuning starting point to refine by ear on the device.",
+          "sources": [
+            "https://moshenskyi.medium.com/building-a-sample-accurate-metronome-with-audiotrack-in-android-7da27ac7dae1",
+            "https://developer.android.com/reference/kotlin/android/media/AudioTrack"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "title": "Audibility over loud music: use USAGE_ALARM on the beep player; ducking handles the phone's own music",
+          "detail": "AudioAttributes usage supersedes stream types and drives routing/focus/volume. Give the beep player AudioAttributes usage = USAGE_ALARM (content type CONTENT_TYPE_SONIFICATION) so it rides the alarm volume, which is typically near max and independent of the media volume the user turned down for their music — this is what makes the beep cut through even when the user's own music is loud. The phone's own background music additionally ducks while you hold MAY_DUCK focus. For cut-through against bass-heavy ambient gym sound, note human hearing peaks around 2–4 kHz; the recommended 880 Hz–1.3 kHz cues stay pleasant, and you can add a harmonic partial in the 2–3 kHz band to help them pierce without being shrill. FLAG_AUDIBILITY_ENFORCED exists but is intended for enforced system sounds (e.g. camera shutter) and is not a reliable lever for a normal app — do not depend on it. Do not programmatically override the user's volume; just set the player volume to 1.0.",
+          "sources": [
+            "https://source.android.com/docs/core/audio/attributes",
+            "https://developer.android.com/reference/android/media/AudioAttributes"
+          ],
+          "confidence": "medium"
+        },
+        {
+          "title": "Foreground service: type 'mediaPlayback' keeps beeps working with screen off (API 34+ rules)",
+          "detail": "Declare android:foregroundServiceType=\"mediaPlayback\" on the <service>, and request both FOREGROUND_SERVICE and FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions in the manifest; pass the type to startForeground() (required on API 34+). The mediaPlayback type is what lets audio continue when the screen is off / app backgrounded, backed by an ongoing notification. Sideloading (no Play Console) means the Play policy declaration doesn't apply, but the OS still enforces the type + permission at runtime on Android 14+, so you must declare them. This same FGS is what makes audio-focus requests legal on Android 15+ (next finding).",
+          "sources": [
+            "https://developer.android.com/about/versions/14/changes/fgs-types-required",
+            "https://developer.android.com/develop/background-work/services/fgs/service-types",
+            "https://developer.android.com/about/versions/15/changes/foreground-service-types"
+          ],
+          "confidence": "high"
+        },
+        {
+          "title": "Android 15+ (API 35+): audio focus only granted while top app OR running an FGS",
+          "detail": "On apps targeting Android 15+, requestAudioFocus returns AUDIOFOCUS_REQUEST_FAILED unless the app is the top (visible) app or is running a foreground service. Since the timer runs a mediaPlayback FGS during a workout, the per-cluster focus requests will succeed even with the screen off / app backgrounded. There is an open Google issue (issuetracker 375228130) reporting audio-focus-from-FGS failures on some Android 15 setups — I could not read its contents (sign-in wall), so treat it as a known risk and verify focus is actually granted on the physical Z Flip 7.",
+          "sources": [
+            "https://developer.android.com/about/versions/15/behavior-changes-15",
+            "https://developer.android.com/media/optimize/audio-focus",
+            "https://issuetracker.google.com/issues/375228130"
+          ],
+          "confidence": "high"
+        },
+        {
+          "title": "Pre-loading & landing the beep on the second",
+          "detail": "SoundPool loads asynchronously — call load() for all 4 cues at workout setup, register setOnLoadCompleteListener, and don't allow Start until every sample reports status==0; otherwise the first play is silently dropped ('sample not ready'). For AudioTrack MODE_STATIC, pre-write the PCM buffers once and keep the instances warm. Audio-API latency for a short beep (tens of ms) is imperceptible for a timer; the real accuracy risk is scheduler jitter. Drive the countdown off a monotonic clock (SystemClock.elapsedRealtimeNanos), compute each cue's absolute target time, and fire a few ms early to compensate for output latency — you can estimate the fast-path buffer from AudioManager.getProperty(PROPERTY_OUTPUT_FRAMES_PER_BUFFER) and PROPERTY_OUTPUT_SAMPLE_RATE. Optionally pre-warm by playing a cue at volume 0 once so the audio HAL is hot on the first real beep.",
+          "sources": [
+            "https://developer.android.com/reference/android/media/SoundPool.OnLoadCompleteListener",
+            "https://www.thecodecity.com/android/androids-soundpool-not-playing-any-sound-sample-not-ready-fix/",
+            "https://moshenskyi.medium.com/building-a-sample-accurate-metronome-with-audiotrack-in-android-7da27ac7dae1"
+          ],
+          "confidence": "medium"
+        }
+      ],
+      "recommendations": [
+        "Ducking: create one reusable AudioFocusRequest with setFocusGain(AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK). Acquire it when the 5s warning tone fires at each interval end and abandon it right after the 'go' tone (~5s hold), not per beep. Hold no focus between clusters so music plays full-volume mid-interval.",
+        "Tones: ship 4 pre-rendered 44.1kHz/16-bit mono WAVs in res/raw and play via a single SoundPool (load all at workout start, gate Start on OnLoadCompleteListener). This is the least code and most predictable. Only synthesize with AudioTrack MODE_STATIC if you specifically want zero bundled assets.",
+        "Do NOT use ToneGenerator — harsh, envelope-less, limited tone set.",
+        "Give the SoundPool/AudioTrack AudioAttributes usage = USAGE_ALARM (content type CONTENT_TYPE_SONIFICATION) so beeps ride alarm volume and stay audible over loud music regardless of media volume; set player volume 1.0 and never override the user's system volume.",
+        "Bake a raised-cosine envelope into every cue (5-10ms fade-in, 30-60ms fade-out, phase starts at 0, ends on a zero crossing) to kill clicks. Add a small 2nd/3rd-harmonic partial for warmth.",
+        "Cue palette to start from and tune by ear: 5s = E5 ~659Hz/200ms (round, lower); 3-2-1 = identical A5 ~880Hz/~120ms blips; GO = brighter/longer, either 880->1319Hz chirp/300ms or a C6+E6 (~1047+1319Hz) chord/350ms.",
+        "Foreground service: type mediaPlayback + FOREGROUND_SERVICE and FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions; pass the type to startForeground(). This keeps beeps firing screen-off and makes Android 15+ audio-focus requests legal.",
+        "Because the app targets only Android 16 on one device, set minSdk high (>=34) and skip all deprecated audio-focus / pre-API-26 branches — no compatibility code.",
+        "Schedule cues off SystemClock.elapsedRealtimeNanos with absolute target timestamps and a small latency lead; pre-load and pre-warm samples so the first beep isn't dropped or late."
+      ],
+      "gotchas": [
+        "MUST verify on the physical Z Flip 7: that USAGE_ALARM + AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK actually DUCKS Spotify (music keeps playing quieter) rather than pausing it. If it misbehaves, fall back to requesting focus with USAGE_MEDIA/USAGE_ASSISTANCE_SONIFICATION while still playing the beep on USAGE_ALARM — but that focus/player usage mismatch is itself unverified and needs a device check.",
+        "Screen-off timing: a foreground service does NOT by itself guarantee the CPU stays awake during the ~20-50s of silence between beep clusters; Doze/scheduler throttling can delay a scheduled wake. To guarantee cues land on time with the screen off, hold a PARTIAL_WAKE_LOCK for the duration of an active workout, or keep a silent/near-silent looping AudioTrack alive to keep the audio path and its wakelock warm. This is a real reliability knob to test, not assume.",
+        "SoundPool silently drops play() calls if the sample isn't finished loading ('sample not ready') — you must gate the workout start on OnLoadCompleteListener, or the very first beep won't sound.",
+        "Open Google issue 375228130 reports audio-focus-from-FGS failures on some Android 15 configurations; I couldn't read the ticket (auth wall). Confirm focus is granted on-device before relying on ducking.",
+        "AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK will NOT duck a focus owner that set CONTENT_TYPE_SPEECH or setWillPauseWhenDucked(true) (e.g. a podcast/navigation app) — those pause or are unaffected instead of ducking. Acceptable for this app but worth knowing.",
+        "FLAG_AUDIBILITY_ENFORCED is meant for enforced system sounds (camera shutter) and is unreliable for a third-party app — do not use it as the audibility strategy; rely on USAGE_ALARM."
+      ],
+      "openQuestions": [
+        "Does the user want literal per-individual-beep ducking (music flutters up/down each second) or per-cluster ducking (music ducks for the ~5s countdown then returns)? Per-cluster is recommended and sounds better; confirm this reading of 'only while the beep sounds' is acceptable.",
+        "On the actual Z Flip 7 + One UI 8, does USAGE_ALARM route the beep to both stereo speakers at a level that clearly beats loud ambient gym music, or is a higher-frequency harmonic partial needed? Requires on-device tuning.",
+        "Is 'loud gym music' the phone's own music (handled by ducking) or external speakers in the room (only helped by loudness + frequency choice)? Affects how hard to push audibility.",
+        "Should the cover-screen (external display) workout keep the same audio path, or is there any risk the small-display MultiStar context changes FGS/audio-focus behavior? Worth a quick device check."
+      ]
+    },
+    "verify": {
+      "verdict": "MOSTLY_CONFIRMED",
+      "confirmedHighlights": [
+        "HARDWARE CORRECT: Galaxy Z Flip 7 shipped July 2025 running One UI 8 / Android 16 out of the box, and Android 16 = API level 36. Confirmed via Samsung Global Newsroom and SamMobile.",
+        "SDK GATE CORRECT: AudioFocusRequest and requestAudioFocus(AudioFocusRequest)/abandonAudioFocusRequest(AudioFocusRequest) require API 26 (Android 8.0); the old requestAudioFocus(listener, streamType, durationHint) is deprecated. Correctly avoided the deprecated legacy branch. Source: developer.android.com/media/optimize/audio-focus.",
+        "SDK GATE CORRECT: Android 15 (API 35) restricts audio focus to the top app OR an app running a foreground service, returning AUDIOFOCUS_REQUEST_FAILED otherwise. Verified in behavior-changes-15. The docs do NOT require a specific FGS type, so the workout's mediaPlayback FGS satisfies the exemption (the research's claim is right).",
+        "DUCKING MECHANICS CORRECT: With AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK the system auto-ducks the focus owner without invoking its onAudioFocusChange() callback (since API 26); an app opts into pause-instead-of-duck via setWillPauseWhenDucked(true) + OnAudioFocusChangeListener. The gotcha that CONTENT_TYPE_SPEECH / setWillPauseWhenDucked apps pause instead of duck is accurate. Verified verbatim on the audio-focus doc.",
+        "FGS TYPE CORRECT: mediaPlayback requires the FOREGROUND_SERVICE_MEDIA_PLAYBACK permission (plus FOREGROUND_SERVICE) and has 'Runtime prerequisites: None' (no MediaSession needed). startForegroundServiceType enforcement is Android 14 (API 34). Verified on fgs/service-types.",
+        "AUDIO ATTRIBUTES CORRECT: USAGE_ALARM (rides STREAM_ALARM, independent of media volume) + CONTENT_TYPE_SONIFICATION are the right constants, and rejecting FLAG_AUDIBILITY_ENFORCED (documented as a legacy STREAM_SYSTEM_ENFORCED / camera-shutter lever, unreliable for third-party apps) is correct. Verified on source.android.com/docs/core/audio/attributes.",
+        "The cited open Google issue 375228130 ('Android 15 - Request Audio Focus not working for Foreground service') is a real tracker item; treating it as a device-verification risk is appropriate.",
+        "No hallucinated or misnamed APIs found: SoundPool.OnLoadCompleteListener/setOnLoadCompleteListener, AudioTrack MODE_STATIC + reloadStaticData(), AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER / PROPERTY_OUTPUT_SAMPLE_RATE, SystemClock.elapsedRealtimeNanos are all real. The tone pitches map correctly to E5=659, A5=880, C6=1047, E6=1319 Hz. Rejecting ToneGenerator and all pre-API-26 compat is the right call for a newest-Android-only single-device build."
+      ],
+      "issues": [
+        {
+          "claim": "Foreground service: declare android:foregroundServiceType=\"mediaPlayback\" and request both FOREGROUND_SERVICE and FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions in the manifest.",
+          "problem": "IMPORTANT OMISSION: the manifest permission list leaves out POST_NOTIFICATIONS, and the research never mentions the runtime notification grant. An FGS must post an ongoing notification; on Android 13+ (API 33) that notification is silently suppressed unless the app holds the runtime POST_NOTIFICATIONS permission. On a device that ships Android 16 (the Z Flip 7's exact case) the user would run a workout with no visible timer notification, and One UI can flag/limit an FGS whose notification never appears. This is a real build gap, not a policy nicety.",
+          "correction": "Also declare <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/> and request it at runtime (API 33+) before the first workout, then build the FGS's ongoing notification. Handle the denied case (FGS still runs, but warn the user their timer notification is hidden).",
+          "source": "https://developer.android.com/develop/ui/views/notifications/notification-permission"
+        },
+        {
+          "claim": "Request focus once when the 5s-tone fires and abandon it right after the 'go' tone (~5s held) ... this 'still matches duck only while beeping'.",
+          "problem": "SPEC DEVIATION (disclosed but understated): the fixed spec says beeps 'duck the user's background music ONLY while the beep sounds, then music returns.' Holding MAY_DUCK focus across the whole ~5s cluster keeps the music ducked during the silent gaps too — nothing plays at 4s, and there are ~1s gaps between the 3/2/1 blips and before 'go' — so the music stays down for ~5 continuous seconds, not only while a tone is audible. The research raises this as an open question (good), but the 'still matches' framing overstates the fit: it is a deliberate deviation from the literal spec, not a match.",
+          "correction": "Flag it to the user as a deviation and get sign-off. If literal per-beep ducking is required, acquire/release focus per beep (accept the flutter) or gate ducking to each tone's actual duration; per-cluster is the better-sounding default but must be an explicit choice, not presented as spec-compliant.",
+          "source": "https://developer.android.com/media/optimize/audio-focus"
+        },
+        {
+          "claim": "The mediaPlayback type is what lets audio continue when the screen is off / app backgrounded ... the FGS must be type 'mediaPlayback' to keep beeping with the screen off.",
+          "problem": "IMPRECISE CAUSATION (minor): mediaPlayback is the correct type to DECLARE for an ongoing-audio use case and is required to run the FGS legally on API 34+, but the type itself is not what keeps audio playing or timing accurate with the screen off. Audio continues because an active audio session + foregrounded process, and the research's own gotcha correctly notes a PARTIAL_WAKE_LOCK (or a warm silent AudioTrack) is what actually guarantees the CPU wakes to fire cues during the ~20-50s silent gaps. The summary phrasing implies the FGS type alone delivers screen-off reliability, which it does not.",
+          "correction": "Declare mediaPlayback (correct type), but rely on the active audio path + a PARTIAL_WAKE_LOCK held for the duration of an active workout for screen-off timing accuracy — treat the wakelock as required, not optional, and verify on-device.",
+          "source": "https://developer.android.com/develop/background-work/services/fgs/service-types"
+        }
+      ],
+      "additions": [
+        "USAGE_ALARM routes to STREAM_ALARM, which on most builds also plays through Do Not Disturb — desirable here (beeps sound even in DnD), but worth knowing it's a behavior change vs USAGE_MEDIA. Crucially, audibility then depends on the user's ALARM volume, which is NOT guaranteed 'near max' as the research assumes; it's a separate slider the user may have lowered. For a real build, surface an in-app check/prompt if AudioManager.getStreamVolume(STREAM_ALARM) is low, since the app is told never to override system volume.",
+        "If the AudioTrack MODE_STATIC path is chosen for lowest latency, add AudioTrack.Builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY) (API 26+) — the research discusses latency and a pre-warm play at volume 0 but omits this explicit low-latency request. Minor: latency is imperceptible for a timer, so this is optional polish, not a fix.",
+        "SoundPool has a per-sample decoded-size ceiling (~1 MB); the four short enveloped cues are far under it, so this is fine, but keep the WAVs short (the design already implies this).",
+        "The USAGE_ALARM-on-player + MAY_DUCK-on-focus-request combination is sound in theory (ducking is driven by the incoming focus GAIN type, not by the requester's player usage), so it should duck Spotify — the research's own gotcha to device-verify this on the Z Flip 7 is the right call and should not be dropped."
+      ]
+    }
+  },
+  {
+    "key": "lang-cjk",
+    "research": {
+      "languages": [
+        {
+          "name": "Mandarin Chinese",
+          "code": "zh",
+          "script": "Han (Simplified; numerals identical in Traditional)",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "〇",
+            "一",
+            "二",
+            "三",
+            "四",
+            "五",
+            "六",
+            "七",
+            "八",
+            "九"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "零",
+              "一",
+              "二",
+              "三",
+              "四",
+              "五",
+              "六",
+              "七",
+              "八",
+              "九",
+              "十",
+              "十一",
+              "十二",
+              "十三",
+              "十四",
+              "十五",
+              "十六",
+              "十七",
+              "十八",
+              "十九",
+              "二十"
+            ],
+            "tens": [
+              "二十",
+              "三十",
+              "四十",
+              "五十"
+            ],
+            "compositionRule": "Han place-value. Tens = [digit 2-5] + 十 (二十=20, 三十=30, 四十=40, 五十=50). 21-59 = [tens digit 2-5]十[ones 1-9]; exact tens drop the ones (三十 = 30). Seconds under 10 are the bare digit word (五 = 5). IMPORTANT: the number-WORD for zero is 零 (U+96F6); the digit-SLOT zero glyph for a fixed-width clock is 〇 (U+3007) — different characters. Use 二 (èr) for the numeral 2, never 两 (liǎng, which is only 'two of something').",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "二十一"
+              },
+              {
+                "n": 34,
+                "word": "三十四"
+              },
+              {
+                "n": 45,
+                "word": "四十五"
+              },
+              {
+                "n": 59,
+                "word": "五十九"
+              }
+            ]
+          },
+          "workLabel": "运动",
+          "restLabel": "休息",
+          "clockRendering": "Two options for the big MM:SS. (A) Place-value Han e.g. 12:34 -> 十二:三十四: reads as proper words ('twelve : thirty-four') but is VARIABLE-WIDTH (三十四 is 3 glyphs for a 2-digit field vs 五 for :05), so the clock jitters and the two sides of the colon never align — poor for a large clock, and 十二:三十四 no longer reads as a clock face. (B) Digit-by-digit Han e.g. 12:34 -> 一二:三四, with 〇 (U+3007) for zero so 05:09 -> 〇五:〇九: fixed two-glyph fields, full-width glyphs align perfectly across the colon, and it looks maximally exotic to a bystander. Its only cost: a native reader parses 三四 as 'three four' (phone-number style) rather than 'thirty-four', but it is still legible position-by-position. RECOMMEND option B (digit-by-digit Han with 〇 for zero) for the large clock; reserve place-value composition (三十四) for the optional word-mode readout under a minute, where reading it as a word is the whole point. Use a full-width colon ：(U+FF1A) so the separator matches the full-width glyph metrics. Pitfalls: never mix place-value on one side and digits on the other; use 〇 not 零 or ASCII 0 in the digit clock; bundle a CJK font (Noto Sans/Serif CJK SC) since system fallback may substitute a wrong glyph for 〇.",
+          "notes": "LTR; no letter case; no cursive joining or contextual shaping. Han numerals are full-width and metrically uniform — ideal for a monospaced clock. Critical distinction: 〇 (U+3007, digit-position zero, numeric value 0) vs 零 (U+96F6, the spoken number word). Labels shown are Simplified; Traditional is 運動 / 休息 (休息 unchanged). Verified glyphs: 〇 U+3007, 一 U+4E00, 二 U+4E8C, 三 U+4E09, 四 U+56DB, 五 U+4E94, 六 U+516D, 七 U+4E03, 八 U+516B, 九 U+4E5D, 十 U+5341."
+        },
+        {
+          "name": "Japanese",
+          "code": "ja",
+          "script": "Kanji (Sino-Japanese / on'yomi numerals)",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "〇",
+            "一",
+            "二",
+            "三",
+            "四",
+            "五",
+            "六",
+            "七",
+            "八",
+            "九"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "零",
+              "一",
+              "二",
+              "三",
+              "四",
+              "五",
+              "六",
+              "七",
+              "八",
+              "九",
+              "十",
+              "十一",
+              "十二",
+              "十三",
+              "十四",
+              "十五",
+              "十六",
+              "十七",
+              "十八",
+              "十九",
+              "二十"
+            ],
+            "tens": [
+              "二十",
+              "三十",
+              "四十",
+              "五十"
+            ],
+            "compositionRule": "Sino-Japanese (on'yomi) place-value, glyphs identical to Chinese Han numerals: [tens 2-5]十[ones 1-9]. 十 jū=10, 二十 nijū=20, 三十 sanjū=30, 四十 yonjū=40, 五十 gojū=50. Readings: 21 nijūichi, 34 sanjūyon, 45 yonjūgo, 59 gojūkyū. The written glyph is invariant even where readings vary (4=yon/shi, 7=nana/shichi, 9=kyū/ku) — irrelevant here since the feature is visual with no audio. Word-zero is 零 (rei); digit-slot zero is 〇 (U+3007). This is the number system Japanese uses for counting minutes (分) and seconds (秒).",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "二十一"
+              },
+              {
+                "n": 34,
+                "word": "三十四"
+              },
+              {
+                "n": 45,
+                "word": "四十五"
+              },
+              {
+                "n": 59,
+                "word": "五十九"
+              }
+            ]
+          },
+          "workLabel": "運動",
+          "restLabel": "休憩",
+          "clockRendering": "Same digit-by-digit vs place-value tradeoff as Chinese (shared glyphs). Everyday Japanese digital clocks use Western Arabic digits, so a kanji-numeral clock reads as deliberately archaic/stylized — which serves the 'intrigue' goal well. RECOMMEND digit-by-digit Sino-Japanese kanji with 〇 (U+3007) for zero for the fixed-width clock (05:34 -> 〇五:三四), aligned and exotic; use place-value composition (三十四) only for the optional word-mode readout under a minute. Pitfall: stacked kanji numerals feel unusual to Japanese readers in a horizontal digital layout (they associate kanji numerals with vertical writing) — acceptable for a stylized timer but worth knowing. Use a full-width colon ：(U+FF1A). Bundle Noto Sans CJK JP.",
+          "notes": "LTR; no case; no joining/shaping. Numeral glyphs are the same code points as Chinese Han numerals but this is the Sino-Japanese reading set (the one used for 分/秒). 〇 (U+3007) = digit-slot zero; 零 = the word. Full-width and metrically uniform, aligns cleanly. Note: some shared kanji differ subtly between Noto CJK JP and CJK SC regional variants, but the numerals 〇一二三四五六七八九十 are visually equivalent across both — either font is safe for this feature. No RTL. Alternate label option: トレーニング / 休憩 (katakana 'training'), but 運動 / 休憩 is shorter and cleaner."
+        },
+        {
+          "name": "Korean",
+          "code": "ko",
+          "script": "Hangul (Sino-Korean numerals; no native numeral glyphs)",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "영",
+              "일",
+              "이",
+              "삼",
+              "사",
+              "오",
+              "육",
+              "칠",
+              "팔",
+              "구",
+              "십",
+              "십일",
+              "십이",
+              "십삼",
+              "십사",
+              "십오",
+              "십육",
+              "십칠",
+              "십팔",
+              "십구",
+              "이십"
+            ],
+            "tens": [
+              "이십",
+              "삼십",
+              "사십",
+              "오십"
+            ],
+            "compositionRule": "SINO-KOREAN place-value, syllable blocks concatenated with NO space: [tens 이/삼/사/오]+[십]+[ones 일-구]. 십=10, 이십=20, 삼십=30, 사십=40, 오십=50. 21->이십일, 34->삼십사, 45->사십오, 59->오십구. Seconds under 10 = bare digit word (오 = 5). Zero = 영 (use 공 only when reading a raw digit string, e.g. phone numbers). CRITICAL: minutes (분) and seconds (초) REQUIRE the Sino-Korean set given here; native Korean numbers (하나 둘 셋 …) are used only for hours (시) and counting reps — do NOT use them for the seconds/minutes countdown.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "이십일"
+              },
+              {
+                "n": 34,
+                "word": "삼십사"
+              },
+              {
+                "n": 45,
+                "word": "사십오"
+              },
+              {
+                "n": 59,
+                "word": "오십구"
+              }
+            ]
+          },
+          "workLabel": "운동",
+          "restLabel": "휴식",
+          "clockRendering": "Korean has NO native numeral glyphs, and every real Korean digital clock/countdown uses Western Arabic digits. RECOMMEND: keep Western digits for the large MM:SS clock. To get the 'can't read it' effect, use word mode — spell the seconds in Sino-Korean Hangul when under a minute (34 -> 삼십사) with a small Western-digit fallback clock. Do NOT try to render a spelled Hangul clock full-time: syllable blocks are variable-width so MM:SS won't align, and it reads awkwardly. Hard pitfall: seconds/minutes take Sino-Korean, so never display native Korean (하나 둘 셋 …) for the countdown — that is grammatically wrong for 초/분. Zero in a spelled countdown is 영.",
+          "notes": "LTR; no case; no joining/shaping. usesNativeDigits=false because Hangul has no dedicated numeral symbols — numbers are written as Western digits or spelled as syllable blocks. TWO number systems exist and the distinction matters here: Sino-Korean (일 이 삼 … , provided above) is correct for minutes/seconds; native Korean (하나 둘 셋 넷 다섯 …; tens 스물/서른/마흔/쉰) is for hours and counting objects/reps and must NOT be used for the timer's seconds. 육 (6) / 십육 (16) undergo pronunciation sandhi but spelling is stable — moot with no audio. Zero: 영 (general/countdown) vs 공 (reading digit strings aloud). Hangul syllable blocks are near-uniform width but not full-width monospace like CJK ideographs."
+        }
+      ]
+    },
+    "verify": {
+      "languages": [
+        {
+          "name": "Mandarin Chinese",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Japanese",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Korean",
+          "verdict": "MINOR_ISSUES",
+          "corrections": [
+            {
+              "field": "clockRendering (Hangul width justification)",
+              "given": "Hangul syllable blocks are 'variable-width' / 'near-uniform width but not full-width monospace like CJK ideographs' — used to justify not rendering a spelled MM:SS clock",
+              "correct": "Each Hangul syllable is Unicode East Asian Width = Wide (full-width, uniform per block), the SAME width class as CJK ideographs. A spelled MM:SS fails to align not because individual blocks vary in width but because the NUMBER of syllable blocks varies per number (오 = 1 block vs 삼십사 = 3 blocks). The recommendation itself (keep Western digits for the large clock, spell Sino-Korean only in word mode) remains sound; only the stated width justification is inaccurate.",
+              "source": "https://www.unicode.org/reports/tr11/ ; https://codepoints.net/U+AC00"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "lang-indic-sea",
+    "research": {
+      "languages": [
+        {
+          "name": "Hindi",
+          "code": "hi",
+          "script": "Devanagari",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "०",
+            "१",
+            "२",
+            "३",
+            "४",
+            "५",
+            "६",
+            "७",
+            "८",
+            "९"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "शून्य",
+              "एक",
+              "दो",
+              "तीन",
+              "चार",
+              "पाँच",
+              "छह",
+              "सात",
+              "आठ",
+              "नौ",
+              "दस",
+              "ग्यारह",
+              "बारह",
+              "तेरह",
+              "चौदह",
+              "पंद्रह",
+              "सोलह",
+              "सत्रह",
+              "अठारह",
+              "उन्नीस",
+              "बीस"
+            ],
+            "tens": [
+              "बीस",
+              "तीस",
+              "चालीस",
+              "पचास"
+            ],
+            "compositionRule": "NO algorithmic composition — Hindi 1–99 is highly irregular; nearly every value is a distinct memorized word with heavy Sanskrit-derived sandhi (e.g. 21 इक्कीस = ek+bīs but fused unpredictably). You MUST ship a hard-coded lookup table for 0–59; do not build 'tens-word + unit-word'. The only reliable sub-pattern: values ending in 9 use an 'un-' (one-less-than-next-ten) prefix — 19 उन्नीस, 29 उनतीस, 39 उनतालीस, 49 उनचास, 59 उनसठ (built off the FOLLOWING ten). For the timer's 0–59 second/minute range, a 60-entry table is the correct approach.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "इक्कीस"
+              },
+              {
+                "n": 34,
+                "word": "चौंतीस"
+              },
+              {
+                "n": 45,
+                "word": "पैंतालीस"
+              },
+              {
+                "n": 59,
+                "word": "उनसठ"
+              }
+            ]
+          },
+          "workLabel": "काम",
+          "restLabel": "आराम",
+          "clockRendering": "Use native Devanagari digits ०–९ for the large MM:SS clock — they maximize the 'intriguing, unreadable to a bystander' effect and are historically correct for Hindi. (Note: modern digital India frequently uses Western 0–9 on clocks, so native digits read as deliberately exotic, which is exactly the goal.) Digits are fixed-width and left-to-right; a standard ':' separator works. Pitfall: ensure the render font actually carries Devanagari digit glyphs (Noto Sans Devanagari or the Android system font both do); a Latin-only font will tofu them. For word-mode under 60s, drive from the lookup table, not composition.",
+          "notes": "LTR script, no letter case. Devanagari digits are U+0966–U+096F. Isolated digits need no shaping, but the WORD forms require a Devanagari shaping engine (HarfBuzz — built into Android since early versions) for conjuncts and vowel signs: क्क in इक्कीस, न्द्र in पंद्रह, त्र in सत्रह. Do NOT drop the chandrabindu — 5 is पाँच (chandrabindu ँ); the anusvara form पांच is a common digital variant but पाँच is dictionary-correct. 6 छह also appears as छः. Work=काम (kām, 'work'); Rest=आराम (ārām, 'rest') — for a fitness break; विश्राम (vishrām) is a more formal alternative for 'rest'. Spot-checks verified against Wiktionary (इक्कीस=21, चौंतीस=34, पैंतालीस=45, उनसठ=59) and Omniglot; 0–20 and tens verified against Omniglot."
+        },
+        {
+          "name": "Bengali",
+          "code": "bn",
+          "script": "Bengali (Bangla)",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "০",
+            "১",
+            "২",
+            "৩",
+            "৪",
+            "৫",
+            "৬",
+            "৭",
+            "৮",
+            "৯"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "শূন্য",
+              "এক",
+              "দুই",
+              "তিন",
+              "চার",
+              "পাঁচ",
+              "ছয়",
+              "সাত",
+              "আট",
+              "নয়",
+              "দশ",
+              "এগারো",
+              "বারো",
+              "তেরো",
+              "চৌদ্দ",
+              "পনেরো",
+              "ষোলো",
+              "সতেরো",
+              "আঠারো",
+              "উনিশ",
+              "বিশ"
+            ],
+            "tens": [
+              "বিশ",
+              "ত্রিশ",
+              "চল্লিশ",
+              "পঞ্চাশ"
+            ],
+            "compositionRule": "NO algorithmic composition — like Hindi, Bengali 1–99 is highly irregular; each value is a distinct memorized word (21 একুশ, 34 চৌত্রিশ). Ship a hard-coded 0–59 lookup table; do not concatenate tens+units. Sub-pattern: values ending in 9 take the classical 'ūn-' (one-less) prefix built off the NEXT ten — 19 উনিশ, 29 ঊনত্রিশ, 39 ঊনচল্লিশ, 49 ঊনপঞ্চাশ, 59 ঊনষাট. A 60-entry table covers the timer's 0–59 range correctly.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "একুশ"
+              },
+              {
+                "n": 34,
+                "word": "চৌত্রিশ"
+              },
+              {
+                "n": 45,
+                "word": "পঁয়তাল্লিশ"
+              },
+              {
+                "n": 59,
+                "word": "ঊনষাট"
+              }
+            ]
+          },
+          "workLabel": "কাজ",
+          "restLabel": "বিশ্রাম",
+          "clockRendering": "Use native Bengali digits ০–৯ for the large MM:SS clock. They are strongly exotic to a Latin-reading bystander — and helpfully so: ৪ (4) looks like a Western 8 and ৭ (7)/৮ (8) are easily misread, which reinforces the 'can't read it' intrigue. Fixed-width, left-to-right, standard ':' separator. Pitfall: use a font with Bengali digits (Noto Sans Bengali or Android system font). Word-mode strings under 60s come from the lookup table.",
+          "notes": "LTR, no case. Bengali digits are U+09E6–U+09EF. WORD forms need Bengali complex shaping (native on Android) for conjuncts and vowel signs: ল্ল in চল্লিশ/পঁয়তাল্লিশ, ঞ্চ in পঞ্চাশ, ত্র in ত্রিশ/চৌত্রিশ. Preserve the chandrabindu ঁ (পাঁচ, পঁয়তাল্লিশ) and the য় (ya-phalaka/ya with nukta) in ছয়/নয়/পঁয়তাল্লিশ. Spelling variation to be aware of: the classical 'less-by-one' prefix ঊন (long ঊ, U+098A) vs colloquial উন (short উ, U+0989) — 19 is conventionally short উনিশ, while 59 is given here as ঊনষাট per Omniglot/etymology (উনষাট also circulates). 0 শূন্য uses long ূ (U+09C2); some casual sources write শুন্য. 16 ষোলো also appears as ষোল. Work=কাজ (kaj, 'work'); Rest=বিশ্রাম (bishram, 'rest/break') — the natural fitness term; আরাম (aram) means 'comfort/ease', less apt for a rest interval. Spot-checks verified against Wiktionary (একুশ=21, চৌত্রিশ=34, পঁয়তাল্লিশ=45) and Omniglot (ঊনষাট=59); 0–20 and tens verified against Omniglot."
+        },
+        {
+          "name": "Thai",
+          "code": "th",
+          "script": "Thai",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "๐",
+            "๑",
+            "๒",
+            "๓",
+            "๔",
+            "๕",
+            "๖",
+            "๗",
+            "๘",
+            "๙"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "ศูนย์",
+              "หนึ่ง",
+              "สอง",
+              "สาม",
+              "สี่",
+              "ห้า",
+              "หก",
+              "เจ็ด",
+              "แปด",
+              "เก้า",
+              "สิบ",
+              "สิบเอ็ด",
+              "สิบสอง",
+              "สิบสาม",
+              "สิบสี่",
+              "สิบห้า",
+              "สิบหก",
+              "สิบเจ็ด",
+              "สิบแปด",
+              "สิบเก้า",
+              "ยี่สิบ"
+            ],
+            "tens": [
+              "ยี่สิบ",
+              "สามสิบ",
+              "สี่สิบ",
+              "ห้าสิบ"
+            ],
+            "compositionRule": "FULLY regular decimal — you can compose algorithmically. Tens = [unit word] + สิบ (sìp, 'ten'), then append the unit word for 1–9. Two exceptions: (1) the tens word for 20 is ยี่สิบ (yîi-sìp), NOT สองสิบ; 10 alone is just สิบ (no หนึ่ง prefix). (2) a TRAILING 1 becomes เอ็ด (èt), not หนึ่ง — so 21 = ยี่สิบเอ็ด, 31 = สามสิบเอ็ด, 41 = สี่สิบเอ็ด. Everything 22–59 (except x1) is simply tens-word + unit-word with no spaces. Examples: 34 สามสิบสี่, 45 สี่สิบห้า, 59 ห้าสิบเก้า.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "ยี่สิบเอ็ด"
+              },
+              {
+                "n": 34,
+                "word": "สามสิบสี่"
+              },
+              {
+                "n": 45,
+                "word": "สี่สิบห้า"
+              },
+              {
+                "n": 59,
+                "word": "ห้าสิบเก้า"
+              }
+            ]
+          },
+          "workLabel": "ทำงาน",
+          "restLabel": "พัก",
+          "clockRendering": "Native Thai digits ๐–๙ on the large MM:SS clock give maximum bystander intrigue (in modern Thailand Western 0–9 dominate on clocks, so Thai numerals read as deliberately unusual). They are fixed-width and left-to-right; standard ':' works. Alternatively keep Western digits if you want it to still feel like a normal clock and reserve the exotic effect for word-mode. Pitfall: use a Thai-capable font (Noto Sans Thai / Android system). In WORD mode, Thai is written with NO spaces between words (ห้าสิบเก้า is one run) — do not insert spaces or the reading looks broken.",
+          "notes": "LTR, no letter case, no inter-word spaces. Thai digits are U+0E50–U+0E59. Word forms use pre-base vowels and stacked tone/vowel marks that need Thai shaping (native on Android): เ in เจ็ด/เอ็ด/เก้า is a LEADING vowel — store text in logical (typed) order and let the shaper render เ before its consonant; do not manually reorder. Also present: ็ (mai taikhu) in เอ็ด/เจ็ด, and tone marks ่/้ in สี่/ห้า/เก้า — keep them attached. Avoid inserting ZWSP inside a number word. Work=ทำงาน (tham-ngaan, 'to work') — natural but a touch long; งาน alone ('work') is a shorter option. Rest=พัก (phák, 'to rest/take a break') — the standard, short fitness term. All digits and number words verified against the Wikipedia 'Thai numerals' article (including the ยี่สิบ=20 and terminal เอ็ด=1 rules)."
+        }
+      ]
+    },
+    "verify": {
+      "languages": [
+        {
+          "name": "Hindi",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Bengali",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Thai",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        }
+      ]
+    }
+  },
+  {
+    "key": "lang-arabic",
+    "research": {
+      "languages": [
+        {
+          "name": "Arabic",
+          "code": "ar",
+          "script": "Arabic",
+          "usesNativeDigits": true,
+          "digitGlyphs": [
+            "٠",
+            "١",
+            "٢",
+            "٣",
+            "٤",
+            "٥",
+            "٦",
+            "٧",
+            "٨",
+            "٩"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "صفر",
+              "واحد",
+              "اثنان",
+              "ثلاثة",
+              "أربعة",
+              "خمسة",
+              "ستة",
+              "سبعة",
+              "ثمانية",
+              "تسعة",
+              "عشرة",
+              "أحد عشر",
+              "اثنا عشر",
+              "ثلاثة عشر",
+              "أربعة عشر",
+              "خمسة عشر",
+              "ستة عشر",
+              "سبعة عشر",
+              "ثمانية عشر",
+              "تسعة عشر",
+              "عشرون"
+            ],
+            "tens": [
+              "عشرون",
+              "ثلاثون",
+              "أربعون",
+              "خمسون"
+            ],
+            "compositionRule": "For 21-59: [unit word] + [tens word], with the unit FIRST (reverse of English) and joined by the conjunction وَ ('wa' = and), which is written attached to the front of the tens word with no space. Pattern: '<unit> و<tens>'. E.g. 34 = أربعة وثلاثون ('four and thirty'), 45 = خمسة وأربعون. The tens word never changes for gender. Because the timer shows bare, noun-less numbers, keep the units in their abstract citation forms (3-9 keep the ة ending: ثلاثة، أربعة، خمسة …); do NOT apply the reverse-polarity noun agreement. Transliteration model: waahid wa-'ishruun (21), arba'a wa-thalaathuun (34), khamsa wa-arba'uun (45), tis'a wa-khamsuun (59).",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "واحد وعشرون"
+              },
+              {
+                "n": 34,
+                "word": "أربعة وثلاثون"
+              },
+              {
+                "n": 45,
+                "word": "خمسة وأربعون"
+              },
+              {
+                "n": 59,
+                "word": "تسعة وخمسون"
+              }
+            ]
+          },
+          "workLabel": "تمرين",
+          "restLabel": "راحة",
+          "clockRendering": "Use the native Arabic-Indic digit glyphs (٠-٩) for the big MM:SS clock — that is the authentic, intriguing look and is fully natural to Arabic readers. Digits WITHIN a two-digit group already run left-to-right (tens digit on the left, units on the right), identical to Western order — do NOT reverse them. Render minutes on the LEFT, colon, seconds on the RIGHT: e.g. 2:45 -> ٠٢:٤٥. PITFALL (bidi): Arabic-Indic digits are Unicode bidi class AN and the colon is a neutral/weak separator; in an RTL paragraph the whole 'AN : AN' run can MIRROR so minutes end up on the right and seconds on the left. Fix: force the clock element to LTR. In Compose either (a) lay MM, ':', SS out as separate Text runs inside an explicit left-to-right Row (LayoutDirection.Ltr), or (b) set the clock TextStyle textDirection = TextDirection.Ltr / wrap with LRM U+200E or an LTR isolate LRI U+2066 … PDI U+2069. Use a plain colon U+003A. WORD MODE (under a minute): spell the seconds in Arabic, which is ordinary RTL text and needs no special handling — e.g. 45 -> خمسة وأربعون, rendered right-to-left; keep the small numeric MM:SS (LTR, per above) as the fallback read beneath it.",
+          "notes": "RTL + cursive shaping: Arabic runs right-to-left and letters join, changing shape by position (isolated/initial/medial/final). Android/Compose shape automatically via HarfBuzz from the plain Unicode string — never hardcode Arabic Presentation Forms (U+FB50-U+FEFF) and never manually reverse strings. FONT: verify the chosen typeface actually contains Arabic-Indic digit glyphs U+0660-U+0669 AND full Arabic letter shaping (e.g. Noto Naskh Arabic / Noto Sans Arabic); a Latin-only display font picked for the big numbers will tofu or mis-fall-back. Note the U+0664/0665/0666 (4/5/6) glyphs render in the font's regional style — the Mashriqi 'Arabic-Indic' shapes we want, distinct from the Persian/Urdu Extended forms (U+06F0+); pick an Arabic (not Persian) font. LABELS: تمرين (tamriin, 'exercise/work') and راحة (raaha, 'rest') are single RTL words as Arabic fitness apps display them (عمل 'amal, literal 'work', is an acceptable alt for the work label). Center them — centered alignment sidesteps left/right concerns; if edge-aligned, align RIGHT and set the label node's layoutDirection = Rtl. Since the rest of the UI is LTR English, put each Arabic label in its own RTL (or dir=auto) text node so surrounding LTR chrome doesn't drag it. NO CASING: Arabic has no upper/lowercase — don't call toUpperCase() for a 'label' look; it's a no-op. GENDER/AGREEMENT: numbers 3-10 normally take REVERSE polarity agreement with a counted noun; the timer shows numbers with NO noun, so use the abstract citation forms above and apply no agreement. If you ever attach ثانية ('second', feminine) the unit forms would flip — keep the numbers noun-less. CASE ENDINGS: tens have nominative -ون (عشرون) vs oblique -ين (عشرين); '2' has nominative اثنان vs oblique اثنين — use the nominative -ون / اثنان citation forms for standalone display (colloquial speech often uses -ين, but -ون is the MSA citation form). Digits verified against Unicode block Arabic (U+0660-0669); number words/composition verified against multiple MSA counting references."
+        }
+      ]
+    },
+    "verify": {
+      "languages": [
+        {
+          "name": "Arabic",
+          "verdict": "MINOR_ISSUES",
+          "corrections": [
+            {
+              "field": "clockRendering (bidi mirroring premise)",
+              "given": "Claims the whole 'AN : AN' run can MIRROR in an RTL paragraph so minutes end up on the right and seconds on the left, requiring a forced-LTR fix.",
+              "correct": "Overstated for a single-string MM:SS with a plain colon. Colon U+003A is bidi class CS and the Arabic-Indic digits are AN; per Unicode UAX #9 rule W4 a single CS between two numbers of the same type is coerced to that type (AN CS AN -> AN AN AN), so '٠٢:٤٥' resolves to one all-AN run that displays LTR with minutes on the left and does NOT mirror by default. Real mirroring only occurs if MM, ':' and SS are separate Compose Text nodes inside an RTL-direction Row; the recommended explicit-Ltr Row / textDirection=Ltr fix is correct and strictly necessary only in that multi-node case (harmless defensive insurance for the single-string case). All other clockRendering guidance (native Arabic-Indic digits, don't reverse within a group, minutes-left, plain colon, RTL word-mode) is sound.",
+              "source": "https://www.unicode.org/reports/tr9/ (UAX #9 Unicode Bidirectional Algorithm, rule W4)"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "key": "lang-european",
+    "research": {
+      "languages": [
+        {
+          "name": "English",
+          "code": "en",
+          "script": "Latin",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "zero",
+              "one",
+              "two",
+              "three",
+              "four",
+              "five",
+              "six",
+              "seven",
+              "eight",
+              "nine",
+              "ten",
+              "eleven",
+              "twelve",
+              "thirteen",
+              "fourteen",
+              "fifteen",
+              "sixteen",
+              "seventeen",
+              "eighteen",
+              "nineteen",
+              "twenty"
+            ],
+            "tens": [
+              "twenty",
+              "thirty",
+              "forty",
+              "fifty"
+            ],
+            "compositionRule": "tens[20,30,40,50]. For 21-59: tens word + hyphen + unit word (e.g. thirty + '-' + two = thirty-two). All of 21-29, 31-39, 41-49, 51-59 are hyphenated. Watch the spelling of 'forty' (NO 'u', unlike 'four/fourteen').",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "twenty-one"
+              },
+              {
+                "n": 34,
+                "word": "thirty-four"
+              },
+              {
+                "n": 45,
+                "word": "forty-five"
+              },
+              {
+                "n": 59,
+                "word": "fifty-nine"
+              }
+            ]
+          },
+          "workLabel": "WORK",
+          "restLabel": "REST",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (e.g. 04:30 / 00:05). This is the reference/fallback rendering; drop the leading minute zero only if you deliberately want a stopwatch look (4:30). No pitfalls.",
+          "notes": "LTR, no shaping, no accents. Baseline language for the feature; the clock stays plain digits and the 'word mode' (spelled-out seconds under a minute) is the visual gimmick. Common short label alternatives a fitness app uses: WORK/REST (chosen), or GO/REST, or ON/OFF."
+        },
+        {
+          "name": "Russian",
+          "code": "ru",
+          "script": "Cyrillic",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "ноль",
+              "один",
+              "два",
+              "три",
+              "четыре",
+              "пять",
+              "шесть",
+              "семь",
+              "восемь",
+              "девять",
+              "десять",
+              "одиннадцать",
+              "двенадцать",
+              "тринадцать",
+              "четырнадцать",
+              "пятнадцать",
+              "шестнадцать",
+              "семнадцать",
+              "восемнадцать",
+              "девятнадцать",
+              "двадцать"
+            ],
+            "tens": [
+              "двадцать",
+              "тридцать",
+              "сорок",
+              "пятьдесят"
+            ],
+            "compositionRule": "tens = 20=двадцать, 30=тридцать, 40=сорок (irregular), 50=пятьдесят. For 21-59: tens word + SPACE + unit word, two separate words, no hyphen (e.g. тридцать + ' ' + четыре = тридцать четыре). Units reuse the 1-9 forms from zeroToTwenty.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "двадцать один"
+              },
+              {
+                "n": 34,
+                "word": "тридцать четыре"
+              },
+              {
+                "n": 45,
+                "word": "сорок пять"
+              },
+              {
+                "n": 59,
+                "word": "пятьдесят девять"
+              }
+            ]
+          },
+          "workLabel": "Работа",
+          "restLabel": "Отдых",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (04:30). Russian natively writes numerals with Western Arabic digits, so this reads instantly and is the right choice; do NOT spell the clock. Pitfall: a fully spelled MM:SS would be awkward because Russian numerals inflect for case — reserve spelled words for the big under-a-minute display only.",
+          "notes": "Cyrillic, LTR, no shaping. CASE/GENDER caveat for the spelled seconds: Russian '1' and '2' inflect for gender. Use the DEFAULT MASCULINE bare-counting forms: 1=один (not fem. одна), 2=два (not fem. две — a common auto-source error). These are correct for an abstract countdown with no noun shown. If you ever paired the number with the feminine noun секунда it would become одна/две секунды, but since no noun is displayed, один/два is correct and unambiguous. Note double-н in одиннадцать (11). Labels: Работа (Work) / Отдых (Rest); all-caps РАБОТА/ОТДЫХ renders cleanly. Alternative work label: Нагрузка (load), but Работа is the standard Tabata-app term."
+        },
+        {
+          "name": "Spanish",
+          "code": "es",
+          "script": "Latin",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "cero",
+              "uno",
+              "dos",
+              "tres",
+              "cuatro",
+              "cinco",
+              "seis",
+              "siete",
+              "ocho",
+              "nueve",
+              "diez",
+              "once",
+              "doce",
+              "trece",
+              "catorce",
+              "quince",
+              "dieciséis",
+              "diecisiete",
+              "dieciocho",
+              "diecinueve",
+              "veinte"
+            ],
+            "tens": [
+              "veinte",
+              "treinta",
+              "cuarenta",
+              "cincuenta"
+            ],
+            "compositionRule": "tens = 20=veinte, 30=treinta, 40=cuarenta, 50=cincuenta. Two regimes: 21-29 are SINGLE fused words: veintiuno, veintidós, veintitrés, veinticuatro, veinticinco, veintiséis, veintisiete, veintiocho, veintinueve (accents on veintidós, veintitrés, veintiséis). 31-59 are THREE words: tens + 'y' + unit (treinta y cuatro). Do not fuse the thirties/forties/fifties and do not put 'y' inside the twenties.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "veintiuno"
+              },
+              {
+                "n": 34,
+                "word": "treinta y cuatro"
+              },
+              {
+                "n": 45,
+                "word": "cuarenta y cinco"
+              },
+              {
+                "n": 59,
+                "word": "cincuenta y nueve"
+              }
+            ]
+          },
+          "workLabel": "Trabajo",
+          "restLabel": "Descanso",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (04:30). Spanish uses Western Arabic digits natively. Pitfall: preserve the accents in the spelled word mode (dieciséis, veintidós, veintitrés, veintiséis) — a missing accent is a spelling error and undercuts the 'looks authentic' goal.",
+          "notes": "LTR, no shaping. Accents are mandatory: dieciséis, veintidós, veintitrés, veintiséis. '1' is uno in a bare count; it apocopates to 'un' before a masculine noun / 'una' before feminine (and veintiuno→veintiún/veintiuna), but with no noun on screen, uno/veintiuno is correct. In ALL-CAPS keep the accents (RAE recommends DIECISÉIS, not DIECISEIS). Distinct from Portuguese (dos/tres/seis vs dois/três/seis; fused twenties vs Portuguese 'vinte e um'). Alt fitness labels: Activo/Descanso or Esfuerzo/Descanso; Trabajo/Descanso chosen for clarity."
+        },
+        {
+          "name": "French",
+          "code": "fr",
+          "script": "Latin",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "zéro",
+              "un",
+              "deux",
+              "trois",
+              "quatre",
+              "cinq",
+              "six",
+              "sept",
+              "huit",
+              "neuf",
+              "dix",
+              "onze",
+              "douze",
+              "treize",
+              "quatorze",
+              "quinze",
+              "seize",
+              "dix-sept",
+              "dix-huit",
+              "dix-neuf",
+              "vingt"
+            ],
+            "tens": [
+              "vingt",
+              "trente",
+              "quarante",
+              "cinquante"
+            ],
+            "compositionRule": "tens = 20=vingt, 30=trente, 40=quarante, 50=cinquante. 21/31/41/51 use 'et un': TRADITIONAL spelling is three words with spaces and no hyphens (vingt et un, trente et un, quarante et un, cinquante et un); the 1990 rectified spelling allows fully-hyphenated vingt-et-un etc. — both correct, pick ONE and stay consistent. All OTHER compounds 22-29,32-39,42-49,52-59 are hyphenated tens-unit (vingt-deux, trente-quatre, quarante-cinq, cinquante-neuf). 17/18/19 are already hyphenated (dix-sept, dix-huit, dix-neuf).",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "vingt et un"
+              },
+              {
+                "n": 34,
+                "word": "trente-quatre"
+              },
+              {
+                "n": 45,
+                "word": "quarante-cinq"
+              },
+              {
+                "n": 59,
+                "word": "cinquante-neuf"
+              }
+            ]
+          },
+          "workLabel": "Effort",
+          "restLabel": "Repos",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (04:30). French uses Western Arabic digits. Pitfall: for a seconds stopwatch use the COLON, not the French time conventions 'h'/'min' (4h30 is wall-clock hours:minutes, wrong here). Keep the accent on zéro if a spelled 0 ever appears.",
+          "notes": "LTR, no shaping. Chosen 21 form is the traditional 'vingt et un' (matches spec); if you prefer the 1990 reform switch every X1 to hyphens (vingt-et-un) and be consistent. Accent on zéro. All-caps renders fine (accents optional on French capitals but keep them for style). Work label: 'Effort' is the idiomatic HIIT term; 'Travail' (literal 'work') also fine. Rest = Repos. Distinct from other Romance langs (quatre/cinq vs cuatro/cinco)."
+        },
+        {
+          "name": "German",
+          "code": "de",
+          "script": "Latin",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "null",
+              "eins",
+              "zwei",
+              "drei",
+              "vier",
+              "fünf",
+              "sechs",
+              "sieben",
+              "acht",
+              "neun",
+              "zehn",
+              "elf",
+              "zwölf",
+              "dreizehn",
+              "vierzehn",
+              "fünfzehn",
+              "sechzehn",
+              "siebzehn",
+              "achtzehn",
+              "neunzehn",
+              "zwanzig"
+            ],
+            "tens": [
+              "zwanzig",
+              "dreißig",
+              "vierzig",
+              "fünfzig"
+            ],
+            "compositionRule": "tens = 20=zwanzig, 30=dreißig (ß!), 40=vierzig, 50=fünfzig. For 21-59: unit + 'und' + tens, written as ONE joined word in REVERSED order — literally 'one-and-twenty' (einundzwanzig). Spelling traps: '1' loses its -s inside compounds → 'ein' not 'eins' (einundzwanzig, NOT einsundzwanzig); '6' is sech- (sechzehn/sechzig, dropped -s); '7' is sieb- (siebzehn/siebzig, dropped -en); 30 is dreißig with -ßig eszett so the thirties are e.g. vierunddreißig. Examples: fünfundvierzig (45), neunundfünfzig (59).",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "einundzwanzig"
+              },
+              {
+                "n": 34,
+                "word": "vierunddreißig"
+              },
+              {
+                "n": 45,
+                "word": "fünfundvierzig"
+              },
+              {
+                "n": 59,
+                "word": "neunundfünfzig"
+              }
+            ]
+          },
+          "workLabel": "Aktiv",
+          "restLabel": "Pause",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (04:30). German writes clock/stopwatch times with a colon, so this is natural. Pitfall: none for digits — but if you render the spelled word mode in ALL CAPS, the ß in dreißig-based thirties must map to 'SS' (DREISSIG) or the capital ẞ U+1E9E; a naïve uppercase of 'ß' can render wrong.",
+          "notes": "LTR, no shaping. Umlauts (ü in fünf/fünfzehn/fünfzig, ö in zwölf) and ß (dreißig) are essential glyphs — verify the font ships them. Number words are lowercase (not nouns), so no capitalization needed in word mode. The reversed unit-first order (ein-und-zwanzig) is the big visual surprise for bystanders. Labels: 'Aktiv'/'Pause' is clean and short; 'Belastung' (exertion)/'Pause' is the more literal gym term but long. 'Pause' is a noun → capital P."
+        },
+        {
+          "name": "Portuguese",
+          "code": "pt",
+          "script": "Latin",
+          "usesNativeDigits": false,
+          "digitGlyphs": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
+          "numberWords": {
+            "zeroToTwenty": [
+              "zero",
+              "um",
+              "dois",
+              "três",
+              "quatro",
+              "cinco",
+              "seis",
+              "sete",
+              "oito",
+              "nove",
+              "dez",
+              "onze",
+              "doze",
+              "treze",
+              "catorze",
+              "quinze",
+              "dezesseis",
+              "dezessete",
+              "dezoito",
+              "dezenove",
+              "vinte"
+            ],
+            "tens": [
+              "vinte",
+              "trinta",
+              "quarenta",
+              "cinquenta"
+            ],
+            "compositionRule": "tens = 20=vinte, 30=trinta, 40=quarenta, 50=cinquenta. For 21-59: tens + 'e' + unit, THREE separate words, in EVERY decade with no fusion (vinte e um, trinta e quatro, quarenta e cinco, cinquenta e nove). Key contrast with Spanish, which fuses the twenties (veintiuno) — Portuguese never does. Consistent across European and Brazilian Portuguese.",
+            "spotChecks": [
+              {
+                "n": 21,
+                "word": "vinte e um"
+              },
+              {
+                "n": 34,
+                "word": "trinta e quatro"
+              },
+              {
+                "n": 45,
+                "word": "quarenta e cinco"
+              },
+              {
+                "n": 59,
+                "word": "cinquenta e nove"
+              }
+            ]
+          },
+          "workLabel": "Trabalho",
+          "restLabel": "Descanso",
+          "clockRendering": "Keep Western digits, MM:SS with a colon (04:30). Portuguese uses Western Arabic digits. Pitfall: preserve the circumflex on 'três' in word mode; no accent on dezesseis/dezessete.",
+          "notes": "LTR, no shaping. VARIETY CHOICE: values above are Brazilian Portuguese (PT-BR): 16/17/19 = dezesseis/dezessete/dezenove. European Portuguese (PT-PT) uses the deza- link vowel: dezasseis/dezassete/dezanove — swap these three for EP. 14=catorze (valid in BOTH; quatorze is an accepted PT-BR variant). 18=dezoito (both). Accent: três (circumflex). DISTINCT FROM SPANISH: dois vs dos, três vs tres, sete vs siete, nove vs nueve, and 'e' throughout vs Spanish 'y' + fused twenties. Labels: Trabalho/Descanso (works in PT-BR and PT-PT); alt Ativo/Descanso."
+        }
+      ]
+    },
+    "verify": {
+      "languages": [
+        {
+          "name": "English",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Russian",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Spanish",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "French",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "German",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        },
+        {
+          "name": "Portuguese",
+          "verdict": "CONFIRMED",
+          "corrections": []
+        }
+      ]
+    }
+  }
+]

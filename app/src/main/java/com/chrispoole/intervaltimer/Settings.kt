@@ -1,0 +1,41 @@
+package com.chrispoole.intervaltimer
+
+import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+/**
+ * Local, prefs-backed app settings. Compose-observable so the UI reacts, and read live by the
+ * Beeper each time it plays. Single process, single user — a global object is the lazy right call.
+ */
+object Settings {
+    private const val PREFS = "settings"
+    private var prefs: android.content.SharedPreferences? = null
+
+    var volume by mutableStateOf(1f); private set
+    var muted by mutableStateOf(false); private set
+    var languageCode by mutableStateOf("en"); private set
+    var wordMode by mutableStateOf(true); private set
+    var pureScript by mutableStateOf(false); private set // hide the Western/numeric fallback entirely
+    var runInBackground by mutableStateOf(true); private set // keep the workout alive if the app is closed
+
+    fun init(context: Context) {
+        if (prefs != null) return
+        val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs = p
+        volume = p.getFloat("volume", 1f)
+        muted = p.getBoolean("muted", false)
+        languageCode = p.getString("lang", "en") ?: "en"
+        wordMode = p.getBoolean("wordMode", true)
+        pureScript = p.getBoolean("pureScript", false)
+        runInBackground = p.getBoolean("runInBackground", true)
+    }
+
+    fun updateVolume(v: Float) { volume = v.coerceIn(0f, 1f); prefs?.edit()?.putFloat("volume", volume)?.apply() }
+    fun updateMuted(m: Boolean) { muted = m; prefs?.edit()?.putBoolean("muted", m)?.apply() }
+    fun updateLanguage(code: String) { languageCode = code; prefs?.edit()?.putString("lang", code)?.apply() }
+    fun updateWordMode(w: Boolean) { wordMode = w; prefs?.edit()?.putBoolean("wordMode", w)?.apply() }
+    fun updatePureScript(p2: Boolean) { pureScript = p2; prefs?.edit()?.putBoolean("pureScript", p2)?.apply() }
+    fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit()?.putBoolean("runInBackground", b)?.apply() }
+}
