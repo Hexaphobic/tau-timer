@@ -20,6 +20,14 @@ object Settings {
     var pureScript by mutableStateOf(false); private set // hide the Western/numeric fallback entirely
     var runInBackground by mutableStateOf(true); private set // keep the workout alive if the app is closed
 
+    // Last values dialled in on the main screen, so a new workout starts from where you left off.
+    var workSec by mutableStateOf(30); private set
+    var restSec by mutableStateOf(15); private set
+    var rounds by mutableStateOf(8); private set
+
+    // Lead-in before the first work interval — long enough to get gloves on if you set it that way.
+    var prepareSec by mutableStateOf(5); private set
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -30,6 +38,10 @@ object Settings {
         wordMode = p.getBoolean("wordMode", true)
         pureScript = p.getBoolean("pureScript", false)
         runInBackground = p.getBoolean("runInBackground", true)
+        workSec = p.getInt("workSec", 30)
+        restSec = p.getInt("restSec", 15)
+        rounds = p.getInt("rounds", 8)
+        prepareSec = p.getInt("prepareSec", 5)
     }
 
     fun updateVolume(v: Float) { volume = v.coerceIn(0f, 1f); prefs?.edit()?.putFloat("volume", volume)?.apply() }
@@ -38,4 +50,11 @@ object Settings {
     fun updateWordMode(w: Boolean) { wordMode = w; prefs?.edit()?.putBoolean("wordMode", w)?.apply() }
     fun updatePureScript(p2: Boolean) { pureScript = p2; prefs?.edit()?.putBoolean("pureScript", p2)?.apply() }
     fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit()?.putBoolean("runInBackground", b)?.apply() }
+    fun updateWorkSec(s: Int) { workSec = s; prefs?.edit()?.putInt("workSec", s)?.apply() }
+    fun updateRestSec(s: Int) { restSec = s; prefs?.edit()?.putInt("restSec", s)?.apply() }
+    fun updateRounds(r: Int) { rounds = r; prefs?.edit()?.putInt("rounds", r)?.apply() }
+    fun updatePrepareSec(s: Int) {
+        prepareSec = s.coerceIn(0, 600)
+        prefs?.edit()?.putInt("prepareSec", prepareSec)?.apply()
+    }
 }

@@ -11,17 +11,18 @@ import com.chrispoole.intervaltimer.Settings
 enum class Cue { WARN, TICK, GO }
 
 /**
- * Loads the three cue tones and plays them on the ALARM stream (so they cut through
- * gym music and sound in Do-Not-Disturb), and transiently ducks the user's own music
- * only while a countdown cluster is sounding — one MAY_DUCK focus request held from the
- * 5s warning through the GO tone, then released, so music returns between clusters.
+ * Loads the three cue tones and plays them as MEDIA, so they follow the user's active
+ * media route (headphones, Bluetooth) exactly like the music does — not the phone's
+ * alarm speaker. In-app volume is independent, so we don't fight the media volume.
+ * A single MAY_DUCK focus request is held from the 5s warning through the GO tone, then
+ * released, so the user's own music ducks for the cluster and returns between clusters.
  */
 class Beeper(context: Context) {
 
     private val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private val playbackAttrs = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
         .build()
 
@@ -82,7 +83,9 @@ class Beeper(context: Context) {
             Cue.TICK -> tickId
             Cue.GO -> goId
         }
-        pool.play(id, v, v, 1, 0, 1f)
+        // The transition whoosh is the one that matters mid-set, so push it louder than the ticks.
+        val gain = if (cue == Cue.GO) (v * 1.6f).coerceAtMost(1f) else v
+        pool.play(id, gain, gain, 1, 0, 1f)
     }
 
     fun release() {

@@ -3,15 +3,18 @@ package com.chrispoole.intervaltimer.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.chrispoole.intervaltimer.MainActivity
 import com.chrispoole.intervaltimer.Settings
 import com.chrispoole.intervaltimer.model.TimerUiState
 import com.chrispoole.intervaltimer.model.Workout
@@ -64,6 +67,7 @@ class TimerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         Settings.init(this)
         beeper = Beeper(this)
     }
@@ -78,7 +82,14 @@ class TimerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Must call startForeground promptly after startForegroundService() to avoid an ANR.
-        startForeground(NOTIF_ID, buildNotification(TimerUiState.Idle), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // The specialUse FGS-type constant is API 34; below that, start untyped (the manifest
+        // foregroundServiceType, where supported, still applies).
+        val notif = buildNotification(TimerUiState.Idle)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
         return START_NOT_STICKY
     }
 
@@ -146,7 +157,9 @@ class TimerService : Service() {
     private fun fireDueCues(nowMs: Long) {
         while (cueIdx < cues.size && cues[cueIdx].atMs <= nowMs) {
             when (val cue = cues[cueIdx].cue) {
-                Cue.WARN, Cue.TICK -> { beeper?.duckStart(); beeper?.play(cue) }
+                // 5s warning beeps over the music untouched; ducking only kicks in at the final 3.
+                Cue.WARN -> beeper?.play(cue)
+                Cue.TICK -> { beeper?.duckStart(); beeper?.play(cue) }
                 Cue.GO -> { beeper?.play(Cue.GO); beeper?.duckEnd() }
             }
             cueIdx++
@@ -164,6 +177,9 @@ class TimerService : Service() {
                 if (done) {
                     releaseWakeLock()
                     stopForeground(STOP_FOREGROUND_REMOVE)
+                    // End the started-service lifetime so a finished workout doesn't linger forever.
+                    // A bound activity keeps the instance (and the Done state) alive until it unbinds.
+                    stopSelf()
                     break
                 }
                 delay(33L) // ~30fps state for smooth fraction; notification throttled to 1/sec, cues fire on overshoot
@@ -179,6 +195,7 @@ class TimerService : Service() {
             paused = paused,
             phase = p.phase,
             remainingMs = p.remainingMs,
+            intervalDurationMs = p.intervalDurationMs,
             fraction = p.fraction,
             round = p.round,
             totalRounds = totalRounds,
@@ -211,10 +228,18 @@ class TimerService : Service() {
             s.phase.name == "PREPARE" -> "Get ready · ${formatMs(s.remainingMs)}"
             else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
         }
+        // Tapping the notification reopens the app, which re-attaches to the live workout.
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Interval Timer")
             .setContentText(text)
+            .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
@@ -237,6 +262,7 @@ class TimerService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         tickJob?.cancel()
         scope.cancel()
         releaseWakeLock()
@@ -245,6 +271,14 @@ class TimerService : Service() {
     }
 
     companion object {
+        /**
+         * Whether a service instance is alive. The UI needs this to decide whether to re-attach:
+         * bindService()'s return value can NOT be used for that — it returns true whenever the
+         * component merely resolves, even with no running service.
+         */
+        @Volatile var isRunning = false
+            private set
+
         private const val CHANNEL_ID = "timer"
         private const val NOTIF_ID = 1
         // ponytail: 4h ceiling covers any real workout; re-acquire per interval only if someone runs marathons.

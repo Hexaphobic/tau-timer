@@ -13,8 +13,32 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import android.view.WindowManager
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,10 +65,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -65,22 +94,28 @@ import com.chrispoole.intervaltimer.model.Language
 import com.chrispoole.intervaltimer.model.Numbers
 import com.chrispoole.intervaltimer.model.Phase
 import com.chrispoole.intervaltimer.model.Preset
+import com.chrispoole.intervaltimer.model.SeqInterval
 import com.chrispoole.intervaltimer.model.TimerUiState
 import com.chrispoole.intervaltimer.model.Workout
 import com.chrispoole.intervaltimer.model.baseWorkout
 import com.chrispoole.intervaltimer.model.formatMs
+import com.chrispoole.intervaltimer.model.secLabel
 import com.chrispoole.intervaltimer.model.toWorkout
 import com.chrispoole.intervaltimer.service.TimerService
 import com.chrispoole.intervaltimer.ui.AuraBackground
+import com.chrispoole.intervaltimer.ui.DoneGray
 import com.chrispoole.intervaltimer.ui.EditorScreen
+import com.chrispoole.intervaltimer.ui.PrepPurple
+import com.chrispoole.intervaltimer.ui.RestBlue
+import com.chrispoole.intervaltimer.ui.rememberStepAccel
+import com.chrispoole.intervaltimer.ui.WorkGreen
 import com.chrispoole.intervaltimer.ui.GlassCircle
 import com.chrispoole.intervaltimer.ui.GlassFill
 import com.chrispoole.intervaltimer.ui.GlassPill
 import com.chrispoole.intervaltimer.ui.HomeBackground
-import com.chrispoole.intervaltimer.ui.PerimeterProgress
 import com.chrispoole.intervaltimer.ui.PresetsScreen
 import com.chrispoole.intervaltimer.ui.glassBorder
-import com.chrispoole.intervaltimer.ui.rememberDisplayCornerRadius
+import com.chrispoole.intervaltimer.ui.SplitProgress
 
 // Grayscale chrome — colour is reserved for communicating the interval phase in the timer.
 private val MonoScheme = darkColorScheme(
@@ -96,15 +131,21 @@ class MainActivity : ComponentActivity() {
     private var service by mutableStateOf<TimerService?>(null)
     private var pending: Workout? = null
 
+    private var bound = false
+    /** True while we're re-attaching to a workout already in progress, so we don't flash the setup screen. */
+    private var attaching by mutableStateOf(false)
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val svc = (binder as TimerService.LocalBinder).service
             service = svc
+            attaching = false
             pending?.let { svc.start(it); pending = null }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             service = null
+            attaching = false
         }
     }
 
@@ -118,13 +159,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         hideSystemBars()
         if (Build.VERSION.SDK_INT >= 33) requestNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        reattachToRunningWorkout()
 
         setContent {
             MaterialTheme(colorScheme = MonoScheme) {
                 val ui = service?.state?.collectAsStateWithLifecycle()?.value ?: TimerUiState.Idle
                 var screen by remember { mutableStateOf("setup") }
                 var editIndex by remember { mutableStateOf<Int?>(null) }
+                // A sequence carried in from the main screen's steppers (not a saved preset yet).
+                var seeded by remember { mutableStateOf<Preset?>(null) }
+                // Safety net: the re-attach placeholder can never be terminal, whatever goes wrong.
+                if (attaching) {
+                    LaunchedEffect(Unit) { delay(800); attaching = false }
+                }
                 when {
+                    // Reopening mid-workout lands straight back on the live timer, never the setup screen.
+                    attaching && service == null -> Box(Modifier.fillMaxSize().background(Color.Black))
                     ui.running -> TimerScreen(
                         ui = ui,
                         onPause = { service?.pause() },
@@ -134,13 +184,13 @@ class MainActivity : ComponentActivity() {
                     screen == "settings" -> SettingsScreen(onBack = { screen = "setup" })
                     screen == "presets" -> PresetsScreen(
                         onBack = { screen = "setup" },
-                        onStart = { launchWorkout(it.toWorkout()) },
-                        onNew = { editIndex = null; screen = "editor" },
-                        onEdit = { idx -> editIndex = idx; screen = "editor" },
+                        onStart = { launchWorkout(it.toWorkout(Settings.prepareSec * 1000L)) },
+                        onNew = { editIndex = null; seeded = null; screen = "editor" },
+                        onEdit = { idx -> editIndex = idx; seeded = null; screen = "editor" },
                     )
                     screen == "editor" -> EditorScreen(
-                        initial = editIndex?.let { PresetStore.saved.getOrNull(it) },
-                        onStart = { launchWorkout(it.toWorkout()) },
+                        initial = editIndex?.let { PresetStore.saved.getOrNull(it) } ?: seeded,
+                        onStart = { launchWorkout(it.toWorkout(Settings.prepareSec * 1000L)) },
                         onSave = { p ->
                             val idx = editIndex
                             if (idx == null) PresetStore.add(p) else PresetStore.update(idx, p)
@@ -152,7 +202,21 @@ class MainActivity : ComponentActivity() {
                         onGo = ::startWorkout,
                         onSettings = { screen = "settings" },
                         onPresets = { screen = "presets" },
-                        onCustom = { editIndex = null; screen = "editor" },
+                        onCustom = { wSec, rSec, rds ->
+                            editIndex = null
+                            // Full rounds including trailing rest, so the editor groups it as one
+                            // (work, rest) × rounds block. toWorkout drops a trailing rest at run time.
+                            seeded = Preset(
+                                "",
+                                buildList {
+                                    repeat(rds) {
+                                        add(SeqInterval(Phase.WORK, wSec))
+                                        if (rSec > 0) add(SeqInterval(Phase.REST, rSec))
+                                    }
+                                },
+                            )
+                            screen = "editor"
+                        },
                     )
                 }
             }
@@ -172,7 +236,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startWorkout(workMs: Long, restMs: Long, rounds: Int) {
-        launchWorkout(baseWorkout(prepareMs = 5_000, workMs = workMs, restMs = restMs, rounds = rounds))
+        launchWorkout(baseWorkout(prepareMs = Settings.prepareSec * 1000L, workMs = workMs, restMs = restMs, rounds = rounds))
+    }
+
+    /**
+     * Attach to a workout that's already running (app was closed and reopened).
+     *
+     * Gate on TimerService.isRunning, NOT on bindService()'s return value — that returns true
+     * whenever the component merely resolves, even with no live service, which would leave us
+     * waiting forever for an onServiceConnected that never comes.
+     */
+    private fun reattachToRunningWorkout() {
+        if (bound || !TimerService.isRunning) return
+        attaching = true
+        bound = bindService(Intent(this, TimerService::class.java), connection, 0)
+        if (!bound) attaching = false
     }
 
     private fun launchWorkout(workout: Workout) {
@@ -183,19 +261,27 @@ class MainActivity : ComponentActivity() {
             pending = workout
             val intent = Intent(this, TimerService::class.java)
             ContextCompat.startForegroundService(this, intent)
-            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            if (!bound) bound = bindService(intent, connection, Context.BIND_AUTO_CREATE)
         }
     }
 
     private fun endWorkout() {
         service?.stop()
-        runCatching { unbindService(connection) }
+        releaseBinding()
         service = null
         pending = null
+        attaching = false
+    }
+
+    private fun releaseBinding() {
+        if (bound) {
+            runCatching { unbindService(connection) }
+            bound = false
+        }
     }
 
     override fun onDestroy() {
-        runCatching { unbindService(connection) }
+        releaseBinding()
         super.onDestroy()
     }
 }
@@ -207,17 +293,20 @@ private fun SetupScreen(
     onGo: (workMs: Long, restMs: Long, rounds: Int) -> Unit,
     onSettings: () -> Unit,
     onPresets: () -> Unit,
-    onCustom: () -> Unit,
+    onCustom: (workSec: Int, restSec: Int, rounds: Int) -> Unit,
 ) {
-    var workSec by remember { mutableStateOf(30) }
-    var restSec by remember { mutableStateOf(15) }
-    var rounds by remember { mutableStateOf(8) }
+    // Seeded from (and written back to) Settings, so stopping and restarting keeps your last values.
+    val workSec = Settings.workSec
+    val restSec = Settings.restSec
+    val rounds = Settings.rounds
+    // Durations accelerate on repeated taps; rounds deliberately don't.
+    val workAccel = rememberStepAccel(5)
+    val restAccel = rememberStepAccel(5)
 
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().safeDrawingPadding()) {
             TextButton(onPresets, "Presets", Modifier.align(Alignment.TopStart).padding(4.dp))
-            TextButton(onCustom, "Custom", Modifier.align(Alignment.TopCenter).padding(4.dp))
             TextButton(onSettings, "Settings", Modifier.align(Alignment.TopEnd).padding(4.dp))
 
             Column(
@@ -226,14 +315,25 @@ private fun SetupScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("Δτ", color = Color.White, fontSize = 68.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Spacer(Modifier.height(44.dp))
-                Stepper("Work", "${workSec}s", { workSec = (workSec - 5).coerceAtLeast(5) }, { workSec += 5 })
+                Spacer(Modifier.height(40.dp))
+                Stepper(
+                    "Work", secLabel(workSec),
+                    { Settings.updateWorkSec((workSec - workAccel.step(-1)).coerceAtLeast(5)) },
+                    { Settings.updateWorkSec(workSec + workAccel.step(1)) },
+                )
                 Spacer(Modifier.height(16.dp))
-                Stepper("Rest", "${restSec}s", { restSec = (restSec - 5).coerceAtLeast(0) }, { restSec += 5 })
+                Stepper(
+                    "Rest", secLabel(restSec),
+                    { Settings.updateRestSec((restSec - restAccel.step(-1)).coerceAtLeast(0)) },
+                    { Settings.updateRestSec(restSec + restAccel.step(1)) },
+                )
                 Spacer(Modifier.height(16.dp))
-                Stepper("Rounds", "$rounds", { rounds = (rounds - 1).coerceAtLeast(1) }, { rounds += 1 })
-                Spacer(Modifier.height(44.dp))
+                Stepper("Rounds", "$rounds", { Settings.updateRounds((rounds - 1).coerceAtLeast(1)) }, { Settings.updateRounds(rounds + 1) })
+                Spacer(Modifier.height(32.dp))
                 GlassPill("GO", { onGo(workSec * 1000L, restSec * 1000L, rounds) }, Modifier.fillMaxWidth(), big = true)
+                Spacer(Modifier.height(12.dp))
+                // Carries these values into the editor: add more intervals, then save it as a preset.
+                GlassPill("+  Add intervals", { onCustom(workSec, restSec, rounds) }, Modifier.fillMaxWidth())
             }
         }
     }
@@ -275,6 +375,7 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
 private fun SettingsScreen(onBack: () -> Unit) {
     var langOpen by remember { mutableStateOf(false) }
     val current = Language.of(Settings.languageCode)
+    val prepAccel = rememberStepAccel(5)
     Box(Modifier.fillMaxSize()) {
       HomeBackground(Modifier.fillMaxSize())
       Column(
@@ -295,6 +396,32 @@ private fun SettingsScreen(onBack: () -> Unit) {
             VolumeSlider()
             Spacer(Modifier.height(16.dp))
             ToggleRow("Run in background", Settings.runInBackground, sub = "Keep the timer running if you close the app") { Settings.updateRunInBackground(it) }
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Get ready", color = Color.White, fontSize = 18.sp)
+                    Text(
+                        "Countdown before the first interval",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 13.sp,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GlassCircle("−", { Settings.updatePrepareSec(Settings.prepareSec - prepAccel.step(-1)) })
+                    Text(
+                        if (Settings.prepareSec == 0) "Off" else secLabel(Settings.prepareSec),
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(64.dp),
+                    )
+                    GlassCircle("+", { Settings.updatePrepareSec(Settings.prepareSec + prepAccel.step(1)) })
+                }
+            }
         }
         Spacer(Modifier.height(16.dp))
         SettingsCard("Fun") {
@@ -406,51 +533,304 @@ private fun ToggleRow(label: String, checked: Boolean, sub: String? = null, onCh
 
 // ---- Running timer ----
 
+/** Deliberate hold needed to pause, so a pocket brush or a stray palm can't stop a set. */
+private const val HOLD_TO_PAUSE_MS = 400L
+
+// Blue reads far dimmer than green at equal saturation, so rest uses a bright sky tone to stay
+// legible once the progress arms shrink.
 private fun glowColor(phase: Phase): Color = when (phase) {
-    Phase.PREPARE -> Color(0xFF8B5CF6) // violet (not yellow)
-    Phase.WORK -> Color(0xFF22E06A)
-    Phase.REST -> Color(0xFF3B82F6)
-    Phase.DONE -> Color(0xFF9CA3AF)
+    Phase.PREPARE -> PrepPurple
+    Phase.WORK -> WorkGreen
+    Phase.REST -> RestBlue
+    Phase.DONE -> DoneGray
 }
 
 @Composable
 private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> Unit, onEnd: () -> Unit) {
     val glow by animateColorAsState(glowColor(ui.phase), tween(700), label = "glow")
-    val corner = rememberDisplayCornerRadius()
-    val blurRadius by animateDpAsState(if (ui.paused || ui.done) 26.dp else 0.dp, tween(300), label = "blur")
     val lang = Language.of(Settings.languageCode)
 
+    // Hold the display awake AND at full brightness — keepScreenOn alone stops the sleep timer
+    // but not the OS's slow auto-dim, which was darkening the screen a few minutes in. Held for
+    // the whole screen including the Done state (releasing on `done` visibly dimmed the finish);
+    // both release when the screen leaves.
+    val view = LocalView.current
+    val window = (view.context as? android.app.Activity)?.window
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = 1f } }
+        onDispose {
+            view.keepScreenOn = false
+            window?.let { w ->
+                w.attributes = w.attributes.apply {
+                    screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+    }
+
+    // Pause is a deliberate hold, not a tap. A tap just says so.
+    var holding by remember { mutableStateOf(false) }
+    var showHint by remember { mutableStateOf(false) }
+    if (showHint) LaunchedEffect(showHint) { delay(1_600); showHint = false }
+
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().clickable(enabled = !ui.done) { if (!ui.paused) onPause() },
+        modifier = Modifier.fillMaxSize().pointerInput(ui.done, ui.paused) {
+            if (ui.done || ui.paused) return@pointerInput
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                showHint = false
+                holding = true
+                // Null means the timeout won: still held, so pause. A lift or a cancel returns
+                // Unit and counts as a tap.
+                val lifted = withTimeoutOrNull(HOLD_TO_PAUSE_MS) { waitForUpOrCancellation(); Unit }
+                holding = false
+                if (lifted == null) {
+                    onPause()
+                    waitForUpOrCancellation()
+                } else {
+                    showHint = true
+                }
+            }
+        },
         contentAlignment = Alignment.Center,
     ) {
         val w = maxWidth.value
-        val labelSize = (w / 7.0f).coerceIn(32f, 72f).sp
-        val counterSize = (w / 14f).coerceIn(18f, 34f).sp
+        val h = maxHeight.value
+        // Budgets are in dp but font sizes are sp, which the system font-scale multiplies. Divide it
+        // out so a user running large text doesn't blow past every fit we compute below.
+        val fontScale = LocalDensity.current.fontScale
+        val labelSize = (w / 7.0f / fontScale).coerceIn(24f, 72f).sp
+        val counterSize = (w / 14f / fontScale).coerceIn(14f, 34f).sp
 
-        // Background layer — blurs behind the pause glass.
-        Box(Modifier.fillMaxSize().blur(blurRadius)) {
-            AuraBackground(glow = glow, progress = ui.fraction, modifier = Modifier.fillMaxSize())
-            if (!ui.done) PerimeterProgress(remaining = 1f - ui.fraction, color = glow, cornerRadius = corner, modifier = Modifier.fillMaxSize())
+        // Pause and finish never blur or dim this — they only swap out the centre text, so the
+        // glow, the progress arms and the round counter stay exactly as they were.
+        Box(Modifier.fillMaxSize()) {
+            // Done keeps the glow at full bloom — letting the progress dim it made the whole
+            // finish read as the screen going dark.
+            AuraBackground(glow = glow, progress = if (ui.done) 1f else ui.fraction, modifier = Modifier.fillMaxSize())
+            if (!ui.done) SplitProgress(remaining = 1f - ui.fraction, color = glow, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                TimerContent(ui, ui.phase, lang, w, labelSize, counterSize)
+                TimerContent(ui, ui.phase, lang, w, h, labelSize, counterSize)
             }
         }
 
         if (ui.done) {
-            Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), contentAlignment = Alignment.BottomCenter) {
-                GlassPill("Done", onEnd, Modifier.fillMaxWidth(), big = true)
+            // Two overlapping streams rather than one, so shells land on top of each other.
+            ConfettiBurst(11L, 350, Modifier.fillMaxSize())
+            ConfettiBurst(77L, 900, Modifier.fillMaxSize())
+            // The whole screen dismisses — no aiming for a button when you're spent.
+            Box(
+                Modifier.fillMaxSize().noRippleClickable(onEnd),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Done", color = Color.White, fontSize = 64.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             }
         } else if (ui.paused) {
             PauseMenu(onResume, onEnd)
         }
+
+        // Bottom hint: fills while you hold so a 3s press reads as progress, not a dead screen.
+        if (!ui.done && !ui.paused && (holding || showHint)) {
+            val fill by animateFloatAsState(
+                targetValue = if (holding) 1f else 0f,
+                animationSpec = tween(if (holding) HOLD_TO_PAUSE_MS.toInt() else 180, easing = LinearEasing),
+                label = "hold",
+            )
+            HoldHint(fill, Modifier.align(Alignment.BottomCenter).padding(bottom = 44.dp))
+        }
     }
 }
 
+/** "Hold to pause" pill; [fill] 0..1 sweeps a brighter bar across it as the hold progresses. */
 @Composable
-private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Float, labelSize: androidx.compose.ui.unit.TextUnit, counterSize: androidx.compose.ui.unit.TextUnit) {
+private fun HoldHint(fill: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .border(1.dp, glassBorder(), RoundedCornerShape(50)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.matchParentSize().drawBehind {
+            drawRect(Color.White.copy(alpha = 0.22f), size = size.copy(width = size.width * fill))
+        })
+        Text(
+            "Hold to pause",
+            color = Color.White.copy(alpha = 0.9f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 11.dp),
+        )
+    }
+}
+
+/**
+ * Bold only where a real bold face exists. The system CJK fonts are Regular-only, so a bold
+ * request there gets synthesised by inflating the outline — which spikes at acute stroke joins.
+ */
+private fun glyphWeight(lang: Language): FontWeight =
+    if (lang.cjk) FontWeight.Normal else FontWeight.Bold
+
+/**
+ * The finish button. Dark and solid rather than the usual translucent glass — against a busy
+ * fireworks background, a see-through pill disappears into it.
+ */
+/**
+ * A big round glyph button in the app's tinted-glass language — the same treatment as the coloured
+ * pills elsewhere, just circular and scaled up for a thumb.
+ */
+@Composable
+private fun PauseAction(play: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(96.dp)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.22f))
+            .border(1.5.dp, accent.copy(alpha = 0.55f), CircleShape)
+            .noRippleClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(36.dp)) {
+            val s = size.minDimension
+            if (play) {
+                // Vertices chosen so the triangle's centroid — not its bounding box — lands on the
+                // centre. A box-centred play triangle always looks shifted left.
+                drawPath(
+                    Path().apply {
+                        moveTo(s * 0.267f, s * 0.11f)
+                        lineTo(s * 0.967f, s * 0.5f)
+                        lineTo(s * 0.267f, s * 0.89f)
+                        close()
+                    },
+                    Color.White,
+                )
+            } else {
+                val i = s * 0.10f
+                val w = s * 0.15f
+                drawLine(Color.White, Offset(i, i), Offset(s - i, s - i), w, StrokeCap.Round)
+                drawLine(Color.White, Offset(s - i, i), Offset(i, s - i), w, StrokeCap.Round)
+            }
+        }
+    }
+}
+
+/** Clickable without the ripple — a ripple across a whole screen (or under big type) looks wrong. */
+private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
+    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClick() }
+}
+
+private class Spark(val angle: Float, val speed: Float, val radius: Float, val color: Color)
+
+/**
+ * A one-shot firework at the finish: sparks thrown out from the centre, heavily blurred so they
+ * read as soft blooms of colour rather than confetti shapes, gone inside a second.
+ */
+@Composable
+private fun ConfettiBurst(seed: Long, startDelayMs: Long, modifier: Modifier = Modifier) {
+    // Each round is its own shell, launched from a different spot. Fixed seeds: it's decoration,
+    // and a stable pattern can't randomly land badly.
+    val shells = remember(seed) {
+        List(BURST_COUNT) { i ->
+            val rnd = Random(seed + i)
+            val palette = listOf(WorkGreen, RestBlue, PrepPurple, Color.White)
+            val sparks = List(38) {
+                Spark(
+                    angle = rnd.nextFloat() * 2f * PI.toFloat(),
+                    speed = 0.30f + rnd.nextFloat() * 0.70f,
+                    radius = 22f + rnd.nextFloat() * 46f,
+                    color = palette[rnd.nextInt(palette.size)],
+                )
+            }
+            sparks to Offset(rnd.nextFloat() * 0.6f - 0.3f, rnd.nextFloat() * 0.5f - 0.25f)
+        }
+    }
+    var shell by remember { mutableStateOf(0) }
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(seed) {
+        delay(startDelayMs) // let the blur settle, so the fireworks read as a reward not a transition
+        repeat(BURST_COUNT) { i ->
+            shell = i
+            progress.snapTo(0f)
+            progress.animateTo(1f, tween(durationMillis = 1_100, easing = LinearOutSlowInEasing))
+        }
+    }
+
+    val (sparks, origin) = shells[shell]
+    Canvas(modifier.blur(26.dp)) {
+        val p = progress.value
+        if (p <= 0f || p >= 1f) return@Canvas
+        val maxDist = size.minDimension * 0.55f
+        val from = Offset(center.x + size.width * origin.x, center.y + size.height * origin.y)
+        val alpha = (1f - p).coerceAtMost(0.6f)
+        sparks.forEach { s ->
+            val d = maxDist * s.speed * p
+            drawCircle(
+                color = s.color.copy(alpha = alpha),
+                radius = s.radius * (1f - 0.45f * p),
+                center = Offset(from.x + cos(s.angle) * d, from.y + sin(s.angle) * d),
+            )
+        }
+    }
+}
+
+/** Five one-second shells ≈ five seconds of fireworks, then it settles. */
+private const val BURST_COUNT = 5
+
+/**
+ * The stacked clock's separator: the colon turned on its side, drawn rather than typed so the dot
+ * size and the gaps above and below scale with [size] instead of inheriting a glyph's own metrics.
+ */
+@Composable
+private fun ColonDots(size: androidx.compose.ui.unit.TextUnit) {
+    val dot = with(LocalDensity.current) { size.toDp() * 0.10f }
+    Row(
+        modifier = Modifier.padding(vertical = dot * 1.6f),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(dot).background(Color.White, CircleShape))
+        Spacer(Modifier.width(dot * 1.4f))
+        Box(Modifier.size(dot).background(Color.White, CircleShape))
+    }
+}
+
+/**
+ * Largest font size (sp) at which [text] fits one line inside [availWPx] x [availHPx].
+ *
+ * Measured with the real font rather than estimated per-glyph: guessing widths kept under-sizing
+ * CJK/Hangul, which pushed the text past the edge and let it stack on itself. Text width scales
+ * linearly with font size, so one measurement at a reference size gives the exact ratio, and the
+ * measured px already include the user's font scale.
+ */
+private fun fittedSp(
+    measurer: androidx.compose.ui.text.TextMeasurer,
+    text: String,
+    family: FontFamily,
+    weight: FontWeight,
+    availWPx: Float,
+    availHPx: Float,
+    minSp: Float,
+    maxSp: Float,
+): Float {
+    if (text.isEmpty() || availWPx <= 0f || availHPx <= 0f) return minSp
+    val refSp = 100f
+    val measured = measurer.measure(
+        androidx.compose.ui.text.AnnotatedString(text),
+        style = androidx.compose.ui.text.TextStyle(fontSize = refSp.sp, fontWeight = weight, fontFamily = family),
+        maxLines = 1,
+        softWrap = false,
+    )
+    val wPx = measured.size.width.toFloat()
+    val hPx = measured.size.height.toFloat()
+    if (wPx <= 0f || hPx <= 0f) return minSp
+    return (refSp * minOf(availWPx / wPx, availHPx / hPx)).coerceIn(minSp, maxSp)
+}
+
+@Composable
+private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Float, hDp: Float, labelSize: androidx.compose.ui.unit.TextUnit, counterSize: androidx.compose.ui.unit.TextUnit) {
     val label = when {
-        ui.done -> "Done"
+        // Finished: the big centred "Done" is the whole message, so nothing rides up top.
+        ui.done -> ""
         phase == Phase.PREPARE -> lang.ready
         phase == Phase.WORK -> lang.work
         phase == Phase.REST -> lang.rest
@@ -461,33 +841,97 @@ private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Fl
     // Hindi, Chinese…) already look distinct, so just show the glyphs.
     val showWords = Settings.wordMode && underMinute && lang.digits == null
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        if (ui.round > 0) {
-            Text("${ui.round} / ${ui.totalRounds}", color = Color.White.copy(alpha = 0.80f), fontSize = counterSize, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
-            Spacer(Modifier.height(10.dp))
-        }
-        Text(label, color = Color.White, fontSize = labelSize, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(14.dp))
+    // Space the big number may occupy, in px. Width excludes the container's 14dp side padding;
+    // height is capped so a tall glyph can't collide with the labels up top (the Flip's cover
+    // screen is short enough for that to matter).
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = LocalDensity.current
+    val availWPx = with(density) { (wDp - 28f).coerceAtLeast(1f).dp.toPx() }
+    val availHPx = with(density) { (hDp * 0.42f).coerceAtLeast(1f).dp.toPx() }
 
-        if (showWords) {
-            val word = Numbers.words(ui.remainingMs, lang)
-            val wordSize = (wDp / (word.length.coerceAtLeast(3) * 0.62f)).coerceIn(30f, 120f).sp
-            Text(word, color = Color.White, fontSize = wordSize, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, softWrap = true)
-            if (!Settings.pureScript) {
-                Spacer(Modifier.height(8.dp))
-                Text(formatMs(ui.remainingMs), color = Color.White.copy(alpha = 0.5f), fontSize = 26.sp, fontFamily = FontFamily.Monospace)
+    Box(Modifier.fillMaxSize()) {
+        // The number owns the true middle of the screen, regardless of the labels riding up top.
+        // Finished or paused it steps aside entirely — the centred "Done"/"Paused" takes that spot.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (ui.done || ui.paused) Unit
+            else if (showWords) {
+                val word = Numbers.words(ui.remainingMs, lang)
+                val wordSize = fittedSp(measurer, word, FontFamily.Default, glyphWeight(lang), availWPx, availHPx, 24f, 150f).sp
+                Text(word, color = Color.White, fontSize = wordSize, fontWeight = glyphWeight(lang), textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
+            } else {
+                val lines = if (ui.done) listOf(Numbers.clock(0, lang)) else Numbers.clockLines(ui.remainingMs, lang)
+                val clockFont = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default
+                val clockWeight = glyphWeight(lang)
+                // Size to the biggest thing this interval can show, so the number holds a constant
+                // size the whole time instead of ballooning as digits drop. Han widths aren't
+                // monotonic in the value (二十九 out-widths 三十, so sizing only to the duration
+                // clipped the 20s), so measure every second of the countdown, once per interval.
+                // A stacked (2-line) clock gets a taller budget since it no longer fights for width.
+                val clockSize = remember(ui.intervalDurationMs, ui.done, lang, availWPx, availHPx) {
+                    val candidates = if (ui.done) listOf(lines)
+                    else (0..(ui.intervalDurationMs / 1000).toInt()).map { Numbers.clockLines(it * 1000L, lang) }
+                    candidates.minOf { c ->
+                        // Stacked: 30% more height to work with, less the room the dot separator
+                        // and its gaps take out of it.
+                        val perLineH =
+                            if (c.size > 1) availHPx * 1.3f / c.size * 0.87f else availHPx
+                        c.minOf { fittedSp(measurer, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f) }
+                    }
+                }.sp
+                val clockLine: @Composable (String) -> Unit = { line ->
+                    Text(
+                        line,
+                        color = Color.White,
+                        fontSize = clockSize,
+                        // No lineHeight override: forcing 1em disagreed with fittedSp, which
+                        // measures at the font's own metrics.
+                        fontWeight = glyphWeight(lang),
+                        fontFamily = clockFont,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                if (lines.size > 1) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        clockLine(lines[0])
+                        ColonDots(clockSize)
+                        clockLine(lines[1])
+                    }
+                } else {
+                    clockLine(lines[0])
+                }
             }
-        } else {
-            val isWide = lang == Language.ZH || lang == Language.JA
-            val clockSize = (wDp / (if (isWide) 5.6f else 3.1f)).coerceIn(52f, 150f).sp
-            val clockFont = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default
+        }
+
+        // Counter above label, up top. The counter slot is always reserved (rendered invisibly when
+        // there's no round, i.e. prepare) so the label never shifts between phases and the two can't
+        // overlap regardless of font size.
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val hasRound = ui.round > 0
             Text(
-                text = if (ui.done) Numbers.clock(0, lang) else Numbers.clock(ui.remainingMs, lang),
-                color = Color.White,
-                fontSize = clockSize,
-                fontWeight = FontWeight.Bold,
-                fontFamily = clockFont,
-                maxLines = 1,
+                if (hasRound) "${ui.round} / ${ui.totalRounds}" else " ",
+                color = Color.White.copy(alpha = if (hasRound) 0.80f else 0f),
+                fontSize = counterSize,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 2.sp,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(label, color = Color.White, fontSize = labelSize, fontWeight = glyphWeight(lang), textAlign = TextAlign.Center)
+        }
+
+        // Word mode's numeric readout is anchored to a fixed spot rather than stacked under the word —
+        // stacked, it slid up and down every time the word's length changed.
+        if (showWords && !Settings.pureScript) {
+            Text(
+                formatMs(ui.remainingMs),
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 26.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp),
             )
         }
     }
@@ -495,21 +939,17 @@ private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Fl
 
 @Composable
 private fun PauseMenu(onResume: () -> Unit, onEnd: () -> Unit) {
+    // Same voice as the finish screen: no panel, no scrim, nothing floating on top — this simply
+    // takes the place of the number, so the glow and progress arms behind it read as untouched.
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val shape = RoundedCornerShape(28.dp)
-        Column(
-            modifier = Modifier
-                .clip(shape)
-                .background(Color.White.copy(alpha = 0.08f))
-                .border(1.dp, glassBorder(), shape)
-                .padding(horizontal = 30.dp, vertical = 30.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Paused", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(26.dp))
-            GlassPill("Resume", onResume, Modifier.width(220.dp), tint = Color(0xFF22E06A))
-            Spacer(Modifier.height(14.dp))
-            GlassPill("End workout", onEnd, Modifier.width(220.dp), tint = Color(0xFFEF4444))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Paused", color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(40.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PauseAction(play = true, accent = WorkGreen, onClick = onResume)
+                Spacer(Modifier.width(28.dp))
+                PauseAction(play = false, accent = Color(0xFFFF4D4D), onClick = onEnd)
+            }
         }
     }
 }

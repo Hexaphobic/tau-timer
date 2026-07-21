@@ -13,14 +13,17 @@ import java.io.File
 /** User presets persisted as JSON in filesDir. Built-ins are always prepended, never persisted. */
 object PresetStore {
     private var file: File? = null
+    private var appContext: Context? = null
     val saved = mutableStateListOf<Preset>()
 
     fun init(context: Context) {
         if (file != null) return
+        appContext = context.applicationContext
         val f = File(context.applicationContext.filesDir, "presets.json")
         file = f
         saved.clear()
         saved.addAll(load(f))
+        pushToWatch() // sync whatever's already saved on launch
     }
 
     fun add(preset: Preset) { saved.add(preset); persist() }
@@ -36,6 +39,11 @@ object PresetStore {
             arr.put(JSONObject().put("name", p.name).put("intervals", ivs))
         }
         runCatching { f.writeText(arr.toString()) }
+        pushToWatch()
+    }
+
+    private fun pushToWatch() {
+        appContext?.let { WearSync.publish(it, saved) }
     }
 
     private fun load(f: File): List<Preset> {

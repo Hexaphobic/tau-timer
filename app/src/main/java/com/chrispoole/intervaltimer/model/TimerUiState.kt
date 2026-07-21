@@ -6,6 +6,7 @@ data class TimerUiState(
     val paused: Boolean = false,
     val phase: Phase = Phase.PREPARE,
     val remainingMs: Long = 0L,
+    val intervalDurationMs: Long = 0L,
     val fraction: Float = 0f,
     val round: Int = 0,
     val totalRounds: Int = 0,
@@ -16,8 +17,17 @@ data class TimerUiState(
     }
 }
 
-/** Ceil-to-second MM:SS so a fresh interval reads its full duration and only hits 00:00 at true zero. */
+/** A settable duration: "45s" under a minute, "1:30" at a minute or more. */
+fun secLabel(sec: Int): String =
+    if (sec < 60) "${sec}s" else "${sec / 60}:${(sec % 60).toString().padStart(2, '0')}"
+
+/**
+ * Ceil-to-second clock so a fresh interval reads its full duration and only hits 0 at true zero.
+ * Under a minute: bare seconds (16, 30). A minute or more: M:SS with no leading zero (1:20).
+ */
 fun formatMs(ms: Long): String {
     val totalSec = ((ms.coerceAtLeast(0L) + 999) / 1000).toInt()
-    return "%02d:%02d".format(totalSec / 60, totalSec % 60)
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return if (min == 0) sec.toString() else "$min:${sec.toString().padStart(2, '0')}"
 }

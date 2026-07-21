@@ -15,12 +15,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 val GlassFill = Color.White.copy(alpha = 0.10f)
+
+// Phase colours — one source for the timer glow, the editor, and the legend, so they can't drift.
+val WorkGreen = Color(0xFF22E06A)
+val RestBlue = Color(0xFF38BDF8)
+val PrepPurple = Color(0xFF8B5CF6)
+val DoneGray = Color(0xFF9CA3AF)
 
 fun glassBorder(): Brush =
     Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.06f)))
@@ -35,12 +42,10 @@ fun GlassPill(
     tint: Color? = null,
 ) {
     val shape = RoundedCornerShape(50)
-    val fill = if (tint != null) tint.copy(alpha = 0.16f) else GlassFill
-    val border = if (tint != null) {
-        Brush.verticalGradient(listOf(tint.copy(alpha = 0.75f), tint.copy(alpha = 0.20f)))
-    } else {
-        glassBorder()
-    }
+    // Tinted pills get a bit more body colour and a uniform border (even top-to-bottom, not a
+    // top-weighted gradient) so the colour sits evenly across the whole pill.
+    val fill = if (tint != null) tint.copy(alpha = 0.22f) else GlassFill
+    val border = if (tint != null) SolidColor(tint.copy(alpha = 0.55f)) else glassBorder()
     Box(
         modifier
             .clip(shape)
