@@ -22,7 +22,7 @@ object PresetStore {
         file = f
         saved.clear()
         saved.addAll(load(f))
-        pushToWatch(json()) // sync whatever's already saved on launch
+        pushToWatch() // sync whatever's already saved on launch
     }
 
     fun add(preset: Preset) { saved.add(preset); persist() }
@@ -41,13 +41,17 @@ object PresetStore {
     }
 
     private fun persist() {
-        val out = json()
-        file?.let { f -> runCatching { f.writeText(out) } }
-        pushToWatch(out)
+        file?.let { f -> runCatching { f.writeText(json()) } }
+        pushToWatch()
     }
 
-    private fun pushToWatch(out: String) {
-        appContext?.let { WearSync.publish(it, out) }
+    /**
+     * Sync the saved presets AND the set of hidden built-ins to the watch, so deleting a built-in on
+     * the phone hides it there too. Public so hiding a built-in (which doesn't touch presets.json)
+     * can still trigger a push.
+     */
+    fun pushToWatch() {
+        appContext?.let { WearSync.publish(it, json(), Settings.hiddenBuiltins) }
     }
 
     private fun load(f: File): List<Preset> {

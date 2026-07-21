@@ -11,8 +11,10 @@ class PhoneListenerService : WearableListenerService() {
     override fun onDataChanged(events: DataEventBuffer) {
         for (event in events) {
             if (event.type == DataEvent.TYPE_CHANGED && event.dataItem.uri.path == PATH) {
-                val json = DataMapItem.fromDataItem(event.dataItem).dataMap.getString("json") ?: continue
-                PresetRepo.setFromPhone(json, applicationContext)
+                val map = DataMapItem.fromDataItem(event.dataItem).dataMap
+                val json = map.getString("json") ?: continue
+                val hidden = map.getStringArrayList("hidden") ?: arrayListOf()
+                PresetRepo.setFromPhone(json, hidden, applicationContext)
             }
         }
     }

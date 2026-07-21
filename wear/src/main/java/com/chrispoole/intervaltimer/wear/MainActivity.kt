@@ -126,7 +126,10 @@ class MainActivity : ComponentActivity() {
         Wearable.getDataClient(this).dataItems.addOnSuccessListener { buffer ->
             for (item in buffer) {
                 if (item.uri.path == "/presets") {
-                    DataMapItem.fromDataItem(item).dataMap.getString("json")?.let { PresetRepo.setFromPhone(it, this) }
+                    val map = DataMapItem.fromDataItem(item).dataMap
+                    map.getString("json")?.let {
+                        PresetRepo.setFromPhone(it, map.getStringArrayList("hidden") ?: arrayListOf(), this)
+                    }
                 }
             }
             buffer.release()

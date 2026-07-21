@@ -80,7 +80,7 @@ fun PresetsScreen(
             // Anything in the list can be deleted. Built-ins are compiled in rather than stored, so
             // they're hidden by name instead of removed; saved ones are deleted outright.
             BUILTIN_PRESETS.filterNot { it.name in Settings.hiddenBuiltins }.forEach { p ->
-                PresetRow(p, onStart = { onStart(p) }, onEdit = null, onDelete = { Settings.hideBuiltin(p.name) })
+                PresetRow(p, onStart = { onStart(p) }, onEdit = null, onDelete = { Settings.hideBuiltin(p.name); PresetStore.pushToWatch() })
             }
             PresetStore.saved.forEachIndexed { index, p ->
                 PresetRow(p, onStart = { onStart(p) }, onEdit = { onEdit(index) }, onDelete = { PresetStore.deleteAt(index) })
