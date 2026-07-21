@@ -28,6 +28,10 @@ object Settings {
     // Lead-in before the first work interval — long enough to get gloves on if you set it that way.
     var prepareSec by mutableStateOf(5); private set
 
+    // Built-in presets the user has deleted. They don't live in presets.json (they're compiled in),
+    // so "deleting" one is remembering its name and filtering it out of the list.
+    var hiddenBuiltins by mutableStateOf(emptySet<String>()); private set
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -42,6 +46,12 @@ object Settings {
         restSec = p.getInt("restSec", 15)
         rounds = p.getInt("rounds", 8)
         prepareSec = p.getInt("prepareSec", 5)
+        hiddenBuiltins = p.getStringSet("hiddenBuiltins", emptySet()) ?: emptySet()
+    }
+
+    fun hideBuiltin(name: String) {
+        hiddenBuiltins = hiddenBuiltins + name
+        prefs?.edit()?.putStringSet("hiddenBuiltins", hiddenBuiltins)?.apply()
     }
 
     fun updateVolume(v: Float) { volume = v.coerceIn(0f, 1f); prefs?.edit()?.putFloat("volume", volume)?.apply() }

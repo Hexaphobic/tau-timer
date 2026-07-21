@@ -13,6 +13,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -267,6 +272,9 @@ private fun Preset.summary(): String {
     return "${intervals.size} · ${total / 60}:${(total % 60).toString().padStart(2, '0')}"
 }
 
+/** Deliberate hold to pause. Shorter than the phone's 400ms — a watch face gets brushed less. */
+private const val HOLD_TO_PAUSE_MS = 200L
+
 private fun phaseColor(phase: Phase): Color = when (phase) {
     Phase.PREPARE -> Color(0xFF7C3AED)
     Phase.WORK -> Color(0xFF16A34A)
@@ -290,7 +298,19 @@ private fun RunningScreen(ui: WearUiState, onPause: () -> Unit, onResume: () -> 
                 .fillMaxSize()
                 .blur(if (ui.paused) 18.dp else 0.dp)
                 .background(phaseColor(ui.phase))
-                .clickable(enabled = !ui.done && !ui.paused) { onPause() },
+                .pointerInput(ui.done, ui.paused) {
+                    if (ui.done || ui.paused) return@pointerInput
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        // Null means the timeout won: still held, so pause. A lift or a cancel
+                        // returns Unit and is ignored — a sleeve brush can't stop a set.
+                        val lifted = withTimeoutOrNull(HOLD_TO_PAUSE_MS) { waitForUpOrCancellation(); Unit }
+                        if (lifted == null) {
+                            onPause()
+                            waitForUpOrCancellation()
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

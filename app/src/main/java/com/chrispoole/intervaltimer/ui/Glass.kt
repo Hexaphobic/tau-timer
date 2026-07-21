@@ -28,6 +28,9 @@ val RestBlue = Color(0xFF38BDF8)
 val PrepPurple = Color(0xFF8B5CF6)
 val DoneGray = Color(0xFF9CA3AF)
 
+/** Destructive actions: ending a workout, deleting a preset. */
+val DangerRed = Color(0xFFFF4D4D)
+
 fun glassBorder(): Brush =
     Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.06f)))
 
@@ -54,6 +57,9 @@ fun GlassPill(
             color = Color.White.copy(alpha = if (enabled) 1f else 0.4f),
             fontSize = if (big) 22.sp else 16.sp,
             fontWeight = FontWeight.Bold,
+            // A pill's label is always one line — a crowded row must not fold "Start ▶" in half.
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }

@@ -2,7 +2,10 @@ package com.chrispoole.intervaltimer.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +24,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chrispoole.intervaltimer.PresetStore
+import com.chrispoole.intervaltimer.Settings
 import com.chrispoole.intervaltimer.model.BUILTIN_PRESETS
 import com.chrispoole.intervaltimer.model.Block
 import com.chrispoole.intervaltimer.model.flatten
@@ -70,9 +77,13 @@ fun PresetsScreen(
             }
             Spacer(Modifier.height(12.dp))
 
-            BUILTIN_PRESETS.forEach { p -> PresetRow(p, onStart = { onStart(p) }, onEdit = null) }
+            // Anything in the list can be deleted. Built-ins are compiled in rather than stored, so
+            // they're hidden by name instead of removed; saved ones are deleted outright.
+            BUILTIN_PRESETS.filterNot { it.name in Settings.hiddenBuiltins }.forEach { p ->
+                PresetRow(p, onStart = { onStart(p) }, onEdit = null, onDelete = { Settings.hideBuiltin(p.name) })
+            }
             PresetStore.saved.forEachIndexed { index, p ->
-                PresetRow(p, onStart = { onStart(p) }, onEdit = { onEdit(index) })
+                PresetRow(p, onStart = { onStart(p) }, onEdit = { onEdit(index) }, onDelete = { PresetStore.deleteAt(index) })
             }
 
             Spacer(Modifier.height(16.dp))
@@ -82,15 +93,17 @@ fun PresetsScreen(
 }
 
 @Composable
-private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?) {
+private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    // Delete takes two taps. Collapsing the row disarms it, so it can never sit armed unseen.
+    var armed by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .background(GlassFill, RoundedCornerShape(16.dp))
             .animateContentSize()
-            .clickable { expanded = !expanded }
+            .clickable { expanded = !expanded; armed = false }
             .padding(16.dp),
     ) {
         Row(
@@ -129,10 +142,31 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                if (onEdit != null) {
-                    TextButton(onClick = onEdit) { Text("Edit", color = Color.White.copy(alpha = 0.8f)) }
-                } else {
-                    Spacer(Modifier.width(1.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onEdit != null) {
+                        TextButton(onClick = onEdit) { Text("Edit", color = Color.White.copy(alpha = 0.8f)) }
+                    }
+                    // Tap the bin to arm, tap the red "Delete?" pill to commit. Both are kept narrow:
+                    // a wide confirm label squeezed the Start pill into wrapping onto a second line.
+                    if (armed) {
+                        val pill = RoundedCornerShape(50)
+                        Box(
+                            Modifier
+                                .clip(pill)
+                                .background(DangerRed.copy(alpha = 0.22f))
+                                .border(1.dp, DangerRed.copy(alpha = 0.55f), pill)
+                                .clickable { onDelete() }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                        ) {
+                            Text("Delete?", color = DangerRed, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Box(
+                            Modifier.clip(CircleShape).clickable { armed = true }.padding(8.dp),
+                        ) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "Delete preset", tint = DangerRed)
+                        }
+                    }
                 }
                 GlassPill("Start  ▶", onStart)
             }

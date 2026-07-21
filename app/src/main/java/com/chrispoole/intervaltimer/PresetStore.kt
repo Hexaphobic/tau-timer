@@ -27,6 +27,7 @@ object PresetStore {
 
     fun add(preset: Preset) { saved.add(preset); persist() }
     fun update(index: Int, preset: Preset) { if (index in saved.indices) { saved[index] = preset; persist() } }
+    fun deleteAt(index: Int) { if (index in saved.indices) { saved.removeAt(index); persist() } }
 
     /** One wire format for both the file and the watch, so the two can't drift apart. */
     private fun json(): String {

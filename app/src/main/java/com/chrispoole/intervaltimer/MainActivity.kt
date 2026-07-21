@@ -97,6 +97,7 @@ import com.chrispoole.intervaltimer.model.secLabel
 import com.chrispoole.intervaltimer.model.toWorkout
 import com.chrispoole.intervaltimer.service.TimerService
 import com.chrispoole.intervaltimer.ui.AuraBackground
+import com.chrispoole.intervaltimer.ui.DangerRed
 import com.chrispoole.intervaltimer.ui.DoneGray
 import com.chrispoole.intervaltimer.ui.EditorScreen
 import com.chrispoole.intervaltimer.ui.PrepPurple
@@ -942,7 +943,7 @@ private fun PauseMenu(onResume: () -> Unit, onEnd: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PauseAction(play = true, accent = WorkGreen, onClick = onResume)
                 Spacer(Modifier.width(28.dp))
-                PauseAction(play = false, accent = Color(0xFFFF4D4D), onClick = onEnd)
+                PauseAction(play = false, accent = DangerRed, onClick = onEnd)
             }
         }
     }
