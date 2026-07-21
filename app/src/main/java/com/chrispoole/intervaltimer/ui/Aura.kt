@@ -2,7 +2,6 @@ package com.chrispoole.intervaltimer.ui
 
 import android.graphics.RuntimeShader
 import android.os.Build
-import android.view.RoundedCorner
 import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -12,8 +11,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -23,8 +20,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -101,20 +96,6 @@ private fun rememberShaderTime(): State<Float> = produceState(0f) {
     }
 }
 
-/** The real display corner radius (px→dp), so the perimeter stroke hugs the actual corners. */
-@Composable
-fun rememberDisplayCornerRadius(fallback: Dp = 34.dp): Dp {
-    val view = LocalView.current
-    val density = LocalDensity.current
-    return remember(view) {
-        // getRoundedCorner is API 31+; below that we can't query it, so use the fallback radius.
-        val px = if (Build.VERSION.SDK_INT >= 31) {
-            view.rootWindowInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0
-        } else 0
-        if (px > 0) with(density) { px.toDp() } else fallback
-    }
-}
-
 /** Full-bleed animated glow over black. [glow] is the phase colour, [progress] 0..1 over the interval. */
 @Composable
 fun AuraBackground(glow: Color, progress: Float, modifier: Modifier = Modifier) {
@@ -158,44 +139,6 @@ fun HomeBackground(modifier: Modifier = Modifier) {
             onDrawBehind {
                 shader.setFloatUniform("iTime", time.value)
                 drawRect(brush)
-            }
-        }
-    )
-}
-
-/**
- * A glowing progress stroke tracing the rounded-rectangle screen perimeter, hugging the edge.
- * [remaining] 0..1 depletes over the interval (full at start).
- */
-@Composable
-fun PerimeterProgress(
-    remaining: Float,
-    color: Color,
-    cornerRadius: Dp = 34.dp,
-    inset: Dp = 3.dp,
-    strokeWidth: Dp = 4.dp,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier.drawWithCache {
-            val r = cornerRadius.toPx()
-            val i = inset.toPx()
-            val path = Path().apply {
-                addRoundRect(RoundRect(i, i, size.width - i, size.height - i, CornerRadius(r, r)))
-            }
-            val pm = PathMeasure().apply { setPath(path, true) }
-            val total = pm.length
-            val dst = Path()
-            val glowStroke = Stroke(width = (strokeWidth * 4f).toPx(), cap = StrokeCap.Round)
-            val midStroke = Stroke(width = (strokeWidth * 2f).toPx(), cap = StrokeCap.Round)
-            val crispStroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
-            onDrawBehind {
-                val len = total * remaining.coerceIn(0f, 1f)
-                dst.rewind()
-                pm.getSegment(0f, len, dst, true)
-                drawPath(dst, color.copy(alpha = 0.18f), style = glowStroke)
-                drawPath(dst, color.copy(alpha = 0.35f), style = midStroke)
-                drawPath(dst, color, style = crispStroke)
             }
         }
     )

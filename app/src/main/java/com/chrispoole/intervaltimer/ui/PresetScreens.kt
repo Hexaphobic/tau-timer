@@ -283,7 +283,7 @@ private fun BlockEditorCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            GlassCircle("−", { setItem(iv.copy(durationSec = (iv.durationSec - accel.step(-1)).coerceAtLeast(5))) }, Modifier)
+                            GlassCircle("−", { setItem(iv.copy(durationSec = (iv.durationSec - accel.step(-1)).coerceAtLeast(5))) })
                             // Fixed width so "5s" and "1:30" don't shove the +/- circles around.
                             Text(
                                 secLabel(iv.durationSec),
@@ -293,7 +293,7 @@ private fun BlockEditorCard(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.width(72.dp),
                             )
-                            GlassCircle("+", { setItem(iv.copy(durationSec = iv.durationSec + accel.step(1))) }, Modifier)
+                            GlassCircle("+", { setItem(iv.copy(durationSec = iv.durationSec + accel.step(1))) })
                         }
                         TextButton(onClick = {
                             if (block.items.size == 1) onDelete()
@@ -311,7 +311,7 @@ private fun BlockEditorCard(
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Repeat all of this", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
             Spacer(Modifier.width(12.dp))
-            GlassCircle("−", { onChange(block.copy(repeat = (block.repeat - 1).coerceAtLeast(1))) }, Modifier)
+            GlassCircle("−", { onChange(block.copy(repeat = (block.repeat - 1).coerceAtLeast(1))) })
             Text(
                 "× ${block.repeat}",
                 color = Color.White,
@@ -319,7 +319,7 @@ private fun BlockEditorCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 10.dp),
             )
-            GlassCircle("+", { onChange(block.copy(repeat = block.repeat + 1)) }, Modifier)
+            GlassCircle("+", { onChange(block.copy(repeat = block.repeat + 1)) })
         }
     }
 }

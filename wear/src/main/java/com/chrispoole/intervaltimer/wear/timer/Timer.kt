@@ -13,7 +13,6 @@ data class TimerProgress(
     val phase: Phase,
     val round: Int,
     val remainingMs: Long,
-    val intervalDurationMs: Long,
     val done: Boolean,
 )
 
@@ -23,18 +22,16 @@ class Workout(val intervals: List<Interval>) {
 
     fun progressAt(activeElapsedMs: Long): TimerProgress {
         if (intervals.isEmpty() || activeElapsedMs >= totalMs) {
-            val last = intervals.lastOrNull()
-            return TimerProgress(Phase.DONE, last?.round ?: 0, 0L, last?.durationMs ?: 0L, done = true)
+            return TimerProgress(Phase.DONE, intervals.lastOrNull()?.round ?: 0, 0L, done = true)
         }
         val t = activeElapsedMs.coerceAtLeast(0L)
         var acc = 0L
         for (iv in intervals) {
             val end = acc + iv.durationMs
-            if (t < end) return TimerProgress(iv.phase, iv.round, end - t, iv.durationMs, done = false)
+            if (t < end) return TimerProgress(iv.phase, iv.round, end - t, done = false)
             acc = end
         }
-        val last = intervals.last()
-        return TimerProgress(Phase.DONE, last.round, 0L, last.durationMs, done = true)
+        return TimerProgress(Phase.DONE, intervals.last().round, 0L, done = true)
     }
 }
 

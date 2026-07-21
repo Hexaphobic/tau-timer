@@ -8,15 +8,13 @@ object Numbers {
         if (lang.han) return hanClock(remainingMs, lang)
         val ascii = formatMs(remainingMs)
         val glyphs = lang.digits ?: return ascii
-        val sb = StringBuilder(ascii.length)
-        for (c in ascii) {
+        return ascii.map { c ->
             when {
-                c in '0'..'9' -> sb.append(glyphs[c - '0'])
-                c == ':' -> sb.append(lang.colon)
-                else -> sb.append(c)
+                c in '0'..'9' -> glyphs[c - '0']
+                c == ':' -> lang.colon
+                else -> c.toString()
             }
-        }
-        return sb.toString()
+        }.joinToString("")
     }
 
     /** Chinese/Japanese clock: proper Han numerals (十, 二十五) per component, not digit glyphs (一〇). */

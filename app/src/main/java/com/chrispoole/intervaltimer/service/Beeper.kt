@@ -45,20 +45,15 @@ class Beeper(context: Context) {
     private var tickId = 0
     private var goId = 0
 
-    @Volatile private var ready = false
     private var ducking = false
 
     init {
-        var pending = 3
-        pool.setOnLoadCompleteListener { _, _, status ->
-            if (status == 0 && --pending == 0) ready = true
-        }
+        // No load-completion tracking: play() on a still-loading sound is a silent no-op, and the
+        // three tones are loaded at service creation, well before the first cue can fire.
         warnId = pool.load(context, R.raw.warn5, 1)
         tickId = pool.load(context, R.raw.tick, 1)
         goId = pool.load(context, R.raw.go, 1)
     }
-
-    val isReady: Boolean get() = ready
 
     fun duckStart() {
         if (Settings.muted) return

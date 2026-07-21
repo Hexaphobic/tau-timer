@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,18 +38,13 @@ fun GlassPill(
     modifier: Modifier = Modifier,
     big: Boolean = false,
     enabled: Boolean = true,
-    tint: Color? = null,
 ) {
     val shape = RoundedCornerShape(50)
-    // Tinted pills get a bit more body colour and a uniform border (even top-to-bottom, not a
-    // top-weighted gradient) so the colour sits evenly across the whole pill.
-    val fill = if (tint != null) tint.copy(alpha = 0.22f) else GlassFill
-    val border = if (tint != null) SolidColor(tint.copy(alpha = 0.55f)) else glassBorder()
     Box(
         modifier
             .clip(shape)
-            .background(fill)
-            .border(1.dp, border, shape)
+            .background(GlassFill)
+            .border(1.dp, glassBorder(), shape)
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 24.dp, vertical = if (big) 18.dp else 12.dp),
         contentAlignment = Alignment.Center,

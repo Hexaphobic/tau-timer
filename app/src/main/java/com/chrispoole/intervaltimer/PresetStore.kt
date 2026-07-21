@@ -2,7 +2,6 @@ package com.chrispoole.intervaltimer
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
-import com.chrispoole.intervaltimer.model.BUILTIN_PRESETS
 import com.chrispoole.intervaltimer.model.Phase
 import com.chrispoole.intervaltimer.model.Preset
 import com.chrispoole.intervaltimer.model.SeqInterval
@@ -23,27 +22,31 @@ object PresetStore {
         file = f
         saved.clear()
         saved.addAll(load(f))
-        pushToWatch() // sync whatever's already saved on launch
+        pushToWatch(json()) // sync whatever's already saved on launch
     }
 
     fun add(preset: Preset) { saved.add(preset); persist() }
     fun update(index: Int, preset: Preset) { if (index in saved.indices) { saved[index] = preset; persist() } }
-    fun deleteAt(index: Int) { if (index in saved.indices) { saved.removeAt(index); persist() } }
 
-    private fun persist() {
-        val f = file ?: return
+    /** One wire format for both the file and the watch, so the two can't drift apart. */
+    private fun json(): String {
         val arr = JSONArray()
         for (p in saved) {
             val ivs = JSONArray()
             for (s in p.intervals) ivs.put(JSONObject().put("phase", s.phase.name).put("sec", s.durationSec))
             arr.put(JSONObject().put("name", p.name).put("intervals", ivs))
         }
-        runCatching { f.writeText(arr.toString()) }
-        pushToWatch()
+        return arr.toString()
     }
 
-    private fun pushToWatch() {
-        appContext?.let { WearSync.publish(it, saved) }
+    private fun persist() {
+        val out = json()
+        file?.let { f -> runCatching { f.writeText(out) } }
+        pushToWatch(out)
+    }
+
+    private fun pushToWatch(out: String) {
+        appContext?.let { WearSync.publish(it, out) }
     }
 
     private fun load(f: File): List<Preset> {
