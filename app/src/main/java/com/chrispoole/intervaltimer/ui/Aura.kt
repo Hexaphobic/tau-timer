@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
@@ -159,6 +160,11 @@ fun SplitProgress(
     strokeWidth: Dp = 6.dp,
     modifier: Modifier = Modifier,
 ) {
+    // Read inside onDrawBehind, never captured by the cache block. Captured, a new `remaining` every
+    // 33ms made drawWithCache rebuild two Paths and two native PathMeasures per frame — the exact
+    // trap RESEARCH.md §3.1 flags. Now the geometry is built once per size change.
+    val rem = rememberUpdatedState(remaining)
+    val col = rememberUpdatedState(color)
     Box(
         modifier.drawWithCache {
             val r = cornerRadius.toPx()
@@ -173,9 +179,9 @@ fun SplitProgress(
                 return Path().apply {
                     moveTo(left, midY)
                     lineTo(left, edgeY - vert * r)
-                    quadraticBezierTo(left, edgeY, left + r, edgeY)
+                    quadraticTo(left, edgeY, left + r, edgeY)
                     lineTo(right - r, edgeY)
-                    quadraticBezierTo(right, edgeY, right, edgeY - vert * r)
+                    quadraticTo(right, edgeY, right, edgeY - vert * r)
                     lineTo(right, midY)
                 }
             }
@@ -185,12 +191,13 @@ fun SplitProgress(
             val crisp = Stroke(strokeWidth.toPx(), cap = StrokeCap.Round)
             val seg = Path()
             fun DrawScope.arms(pm: PathMeasure) {
-                val len = (pm.length / 2f) * remaining.coerceIn(0f, 1f)
+                val c = col.value
+                val len = (pm.length / 2f) * rem.value.coerceIn(0f, 1f)
                 if (len <= 0f) return
                 seg.rewind(); pm.getSegment(0f, len, seg, true)          // arm from top-centre
-                drawPath(seg, color.copy(alpha = 0.20f), style = glow); drawPath(seg, color, style = crisp)
+                drawPath(seg, c.copy(alpha = 0.20f), style = glow); drawPath(seg, c, style = crisp)
                 seg.rewind(); pm.getSegment(pm.length - len, pm.length, seg, true) // arm from bottom-centre
-                drawPath(seg, color.copy(alpha = 0.20f), style = glow); drawPath(seg, color, style = crisp)
+                drawPath(seg, c.copy(alpha = 0.20f), style = glow); drawPath(seg, c, style = crisp)
             }
             onDrawBehind {
                 arms(pmRight)

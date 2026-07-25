@@ -4,7 +4,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.content.Context
-import androidx.compose.runtime.mutableStateListOf
 import com.chrispoole.intervaltimer.wear.timer.BUILTIN_PRESETS
 import com.chrispoole.intervaltimer.wear.timer.Phase
 import com.chrispoole.intervaltimer.wear.timer.Preset
@@ -16,28 +15,33 @@ import java.io.File
 object PresetRepo {
     private var file: File? = null
     private var hiddenFile: File? = null
-    val synced = mutableStateListOf<Preset>()
+    // One assignment instead of clear()+addAll(): setFromPhone runs on a Data Layer binder thread,
+    // and the two-step mutation let the UI observe an empty list mid-update.
+    private var synced by mutableStateOf<List<Preset>>(emptyList())
     // Built-in names the phone has deleted. Observable so a sync that only changes this still
     // recomposes the list. Persisted so a deletion survives the watch being offline.
     private var hidden by mutableStateOf(emptySet<String>())
 
+    @Synchronized
     fun init(context: Context) {
         if (file != null) return
         val dir = context.applicationContext.filesDir
         file = File(dir, "synced_presets.json")
         hiddenFile = File(dir, "hidden_builtins.json")
-        synced.clear()
-        synced.addAll(file?.takeIf { it.exists() }?.let { parse(it.readText()) } ?: emptyList())
+        synced = file?.takeIf { it.exists() }?.let { parse(it.readText()) } ?: emptyList()
         hidden = hiddenFile?.takeIf { it.exists() }?.let { parseNames(it.readText()) } ?: emptySet()
     }
 
     fun all(): List<Preset> = BUILTIN_PRESETS.filterNot { it.name in hidden } + synced
 
-    /** Called by the Data Layer listener when the phone pushes its preset list + hidden built-ins. */
+    /**
+     * Called by the Data Layer listener when the phone pushes its preset list + hidden built-ins.
+     * Synchronized with init(): both run on different threads and both write the same fields.
+     */
+    @Synchronized
     fun setFromPhone(json: String, hiddenNames: List<String>, context: Context) {
         init(context)
-        synced.clear()
-        synced.addAll(parse(json))
+        synced = parse(json)
         file?.let { runCatching { it.writeText(json) } }
         hidden = hiddenNames.toSet()
         hiddenFile?.let { runCatching { it.writeText(JSONArray(hiddenNames).toString()) } }

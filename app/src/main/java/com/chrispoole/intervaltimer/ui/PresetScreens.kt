@@ -94,9 +94,12 @@ fun PresetsScreen(
 
 @Composable
 private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?, onDelete: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+    // Keyed on the preset, not the slot: these rows live in a plain Column, so remember state is
+    // positional. Deleting one used to shift the row below into its slot and hand it the armed
+    // "Delete?" state, where one more tap deleted the wrong preset.
+    var expanded by remember(preset) { mutableStateOf(false) }
     // Delete takes two taps. Collapsing the row disarms it, so it can never sit armed unseen.
-    var armed by remember { mutableStateOf(false) }
+    var armed by remember(preset) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -220,10 +223,12 @@ fun EditorScreen(
                     block = block,
                     index = i,
                     groupCount = blocks.size,
-                    onChange = { blocks[i] = it },
-                    onUp = { if (i > 0) { val t = blocks[i - 1]; blocks[i - 1] = blocks[i]; blocks[i] = t } },
+                    // Every callback captures i, so a second tap that lands before recomposition
+                    // indexes a list that already shrank — bounds-check at the point of use.
+                    onChange = { if (i <= blocks.lastIndex) blocks[i] = it },
+                    onUp = { if (i in 1..blocks.lastIndex) { val t = blocks[i - 1]; blocks[i - 1] = blocks[i]; blocks[i] = t } },
                     onDown = { if (i < blocks.lastIndex) { val t = blocks[i + 1]; blocks[i + 1] = blocks[i]; blocks[i] = t } },
-                    onDelete = { blocks.removeAt(i) },
+                    onDelete = { if (i <= blocks.lastIndex) blocks.removeAt(i) },
                 )
             }
 

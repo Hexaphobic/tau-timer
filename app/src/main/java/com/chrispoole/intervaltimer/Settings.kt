@@ -54,7 +54,10 @@ object Settings {
         prefs?.edit()?.putStringSet("hiddenBuiltins", hiddenBuiltins)?.apply()
     }
 
-    fun updateVolume(v: Float) { volume = v.coerceIn(0f, 1f); prefs?.edit()?.putFloat("volume", volume)?.apply() }
+    // Split so a slider drag doesn't queue a prefs write per touch sample. Beeper reads `volume`
+    // live, so playback follows the drag either way; only the on-disk value waits for the lift.
+    fun updateVolume(v: Float) { volume = v.coerceIn(0f, 1f) }
+    fun persistVolume() { prefs?.edit()?.putFloat("volume", volume)?.apply() }
     fun updateMuted(m: Boolean) { muted = m; prefs?.edit()?.putBoolean("muted", m)?.apply() }
     fun updateLanguage(code: String) { languageCode = code; prefs?.edit()?.putString("lang", code)?.apply() }
     fun updateWordMode(w: Boolean) { wordMode = w; prefs?.edit()?.putBoolean("wordMode", w)?.apply() }

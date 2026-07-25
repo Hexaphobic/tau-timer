@@ -17,8 +17,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import kotlin.math.PI
 import kotlin.math.cos
@@ -153,7 +151,14 @@ class MainActivity : ComponentActivity() {
         PresetStore.init(this)
         enableEdgeToEdge()
         hideSystemBars()
-        if (Build.VERSION.SDK_INT >= 33) requestNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        // Only ask when we don't already have it: onCreate runs again on every Activity recreation,
+        // and re-launching the request popped the system dialog over a live workout.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         reattachToRunningWorkout()
 
         setContent {
@@ -276,6 +281,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // "Run in background" off means closing the app ends the workout, but onTaskRemoved only
+        // fires on a swipe from recents — a back-press finishes the Activity and left the timer
+        // running regardless of the setting. isFinishing keeps a config change from stopping it.
+        if (isFinishing && !Settings.runInBackground) service?.stop()
         releaseBinding()
         super.onDestroy()
     }
@@ -486,6 +495,7 @@ private fun VolumeSlider() {
             if (Settings.muted && v > 0f) Settings.updateMuted(false)
             Settings.updateVolume(v)
         },
+        onValueChangeFinished = { Settings.persistVolume() },
         valueRange = 0f..1f,
         thumb = {
             Box(
@@ -606,7 +616,7 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
             AuraBackground(glow = glow, progress = if (ui.done) 1f else ui.fraction, modifier = Modifier.fillMaxSize())
             if (!ui.done) SplitProgress(remaining = 1f - ui.fraction, color = glow, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                TimerContent(ui, ui.phase, lang, w, h, labelSize, counterSize)
+                TimerContent(ui, lang, w, h, labelSize, counterSize)
             }
         }
 
@@ -668,10 +678,6 @@ private fun glyphWeight(lang: Language): FontWeight =
     if (lang.cjk) FontWeight.Normal else FontWeight.Bold
 
 /**
- * The finish button. Dark and solid rather than the usual translucent glass — against a busy
- * fireworks background, a see-through pill disappears into it.
- */
-/**
  * A big round glyph button in the app's tinted-glass language — the same treatment as the coloured
  * pills elsewhere, just circular and scaled up for a thumb.
  */
@@ -711,9 +717,8 @@ private fun PauseAction(play: Boolean, accent: Color, onClick: () -> Unit) {
 }
 
 /** Clickable without the ripple — a ripple across a whole screen (or under big type) looks wrong. */
-private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
-    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClick() }
-}
+private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
+    clickable(interactionSource = null, indication = null) { onClick() }
 
 private class Spark(val angle: Float, val speed: Float, val radius: Float, val color: Color)
 
@@ -822,13 +827,13 @@ private fun fittedSp(
 }
 
 @Composable
-private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Float, hDp: Float, labelSize: androidx.compose.ui.unit.TextUnit, counterSize: androidx.compose.ui.unit.TextUnit) {
+private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Float, labelSize: androidx.compose.ui.unit.TextUnit, counterSize: androidx.compose.ui.unit.TextUnit) {
     val label = when {
         // Finished: the big centred "Done" is the whole message, so nothing rides up top.
         ui.done -> ""
-        phase == Phase.PREPARE -> lang.ready
-        phase == Phase.WORK -> lang.work
-        phase == Phase.REST -> lang.rest
+        ui.phase == Phase.PREPARE -> lang.ready
+        ui.phase == Phase.WORK -> lang.work
+        ui.phase == Phase.REST -> lang.rest
         else -> ""
     }
     val underMinute = !ui.done && ui.remainingMs < 60_000
@@ -848,30 +853,46 @@ private fun TimerContent(ui: TimerUiState, phase: Phase, lang: Language, wDp: Fl
         // The number owns the true middle of the screen, regardless of the labels riding up top.
         // Finished or paused it steps aside entirely — the centred "Done"/"Paused" takes that spot.
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // Everything below this point runs only while the clock is live: done and paused both
+            // step aside for the centred "Done"/"Paused", so ui.done is always false from here.
             if (ui.done || ui.paused) Unit
             else if (showWords) {
                 val word = Numbers.words(ui.remainingMs, lang)
-                val wordSize = fittedSp(measurer, word, FontFamily.Default, glyphWeight(lang), availWPx, availHPx, 24f, 150f).sp
+                // Remembered on the word: the state ticks at 30fps but the word changes once a
+                // second, and fittedSp is a real main-thread text layout.
+                val wordSize = remember(word, lang, availWPx, availHPx) {
+                    fittedSp(measurer, word, FontFamily.Default, glyphWeight(lang), availWPx, availHPx, 24f, 150f)
+                }.sp
                 Text(word, color = Color.White, fontSize = wordSize, fontWeight = glyphWeight(lang), textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
             } else {
-                val lines = if (ui.done) listOf(Numbers.clock(0, lang)) else Numbers.clockLines(ui.remainingMs, lang)
+                val lines = Numbers.clockLines(ui.remainingMs, lang)
                 val clockFont = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default
                 val clockWeight = glyphWeight(lang)
-                // Size to the biggest thing this interval can show, so the number holds a constant
-                // size the whole time instead of ballooning as digits drop. Han widths aren't
-                // monotonic in the value (二十九 out-widths 三十, so sizing only to the duration
-                // clipped the 20s), so measure every second of the countdown, once per interval.
-                // A stacked (2-line) clock gets a taller budget since it no longer fights for width.
-                val clockSize = remember(ui.intervalDurationMs, ui.done, lang, availWPx, availHPx) {
-                    val candidates = if (ui.done) listOf(lines)
-                    else (0..(ui.intervalDurationMs / 1000).toInt()).map { Numbers.clockLines(it * 1000L, lang) }
-                    candidates.minOf { c ->
-                        // Stacked: 30% more height to work with, less the room the dot separator
-                        // and its gaps take out of it.
-                        val perLineH =
-                            if (c.size > 1) availHPx * 1.3f / c.size * 0.87f else availHPx
-                        c.minOf { fittedSp(measurer, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f) }
-                    }
+                // Hold one constant size for the whole interval instead of ballooning as digits
+                // drop, by sizing to the widest second the interval can reach. Han widths aren't
+                // monotonic in the value (二十九 out-widths 三十), so the duration alone isn't
+                // enough — every second is a candidate. Only candidates laying out to the same
+                // number of lines count: folding the much smaller stacked forms in shrank the
+                // under-a-minute single line of a long interval below the same seconds in a short
+                // one. A stacked (2-line) clock gets a taller budget, since it stops fighting for
+                // width.
+                val clockSize = remember(ui.intervalDurationMs, lang, availWPx, availHPx, lines.size) {
+                    // Constant across candidates now that they all have lines.size lines: stacked
+                    // gets 30% more height, less the dot separator and its gaps.
+                    val perLineH =
+                        if (lines.size > 1) availHPx * 1.3f / lines.size * 0.87f else availHPx
+                    // Measure each *distinct* string once, not once per second: min is idempotent
+                    // over duplicates, so the resulting size is identical, and a 20-minute interval
+                    // drops from ~1200 main-thread text layouts at every boundary to a handful.
+                    // Monospace advances are uniform, so there equal length means equal width.
+                    val mono = clockFont == FontFamily.Monospace
+                    (0..(ui.intervalDurationMs / 1000).toInt())
+                        .map { Numbers.clockLines(it * 1000L, lang) }
+                        .filter { it.size == lines.size }
+                        .flatten()
+                        .distinctBy { if (mono) it.length else it }
+                        .ifEmpty { lines } // whole-second durations make this unreachable; cheap insurance
+                        .minOf { fittedSp(measurer, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f) }
                 }.sp
                 val clockLine: @Composable (String) -> Unit = { line ->
                     Text(

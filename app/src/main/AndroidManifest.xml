@@ -13,9 +13,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.IntervalTimer">
 
+        <!--
+            Handle fold/unfold and rotation in-process. Without this the Flip's fold destroys the
+            Activity, and the editor's in-progress sequence (plain `remember` state) is gone. Compose
+            re-lays out and refreshes LocalDensity/LocalConfiguration from onConfigurationChanged,
+            and hideSystemBars is re-applied via onWindowFocusChanged. This is a mitigation, not
+            persistence: it does not cover process death or a font-scale change.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboardHidden"
             android:theme="@style/Theme.IntervalTimer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

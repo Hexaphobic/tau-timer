@@ -41,7 +41,13 @@ object PresetStore {
     }
 
     private fun persist() {
-        file?.let { f -> runCatching { f.writeText(json()) } }
+        // Write-then-rename, not truncate-in-place: writeText leaves a partial file if the process
+        // dies before writeback, load() turns any unreadable file into emptyList(), and the next
+        // persist() then makes that loss permanent — and pushes it to the watch. Replace-via-rename
+        // gets the data out before the name flips.
+        file?.let { f ->
+            runCatching { File(f.parentFile, "${f.name}.tmp").apply { writeText(json()) }.renameTo(f) }
+        }
         pushToWatch()
     }
 

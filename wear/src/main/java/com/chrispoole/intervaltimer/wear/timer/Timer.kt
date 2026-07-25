@@ -50,9 +50,12 @@ data class SeqInterval(val phase: Phase, val durationSec: Int)
 data class Preset(val name: String, val intervals: List<SeqInterval>)
 
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
+    // Must match the phone's Preset.toWorkout exactly, or the same synced preset runs a different
+    // workout on each device: a rest after the very last work interval is dropped at run time.
+    val seq = if (intervals.size > 1 && intervals.last().phase == Phase.REST) intervals.dropLast(1) else intervals
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
-        intervals.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
+        seq.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
     }
     return Workout(list)
 }
