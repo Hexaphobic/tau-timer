@@ -25,6 +25,7 @@ import kotlin.random.Random
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.draw.drawBehind
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -98,14 +100,15 @@ import com.chrispoole.intervaltimer.ui.AuraBackground
 import com.chrispoole.intervaltimer.ui.DangerRed
 import com.chrispoole.intervaltimer.ui.DoneGray
 import com.chrispoole.intervaltimer.ui.EditorScreen
-import com.chrispoole.intervaltimer.ui.PrepPurple
-import com.chrispoole.intervaltimer.ui.RestBlue
-import com.chrispoole.intervaltimer.ui.rememberStepAccel
-import com.chrispoole.intervaltimer.ui.WorkGreen
+import com.chrispoole.intervaltimer.ui.PrepColor
+import com.chrispoole.intervaltimer.ui.RestColor
+import com.chrispoole.intervaltimer.ui.WorkColor
 import com.chrispoole.intervaltimer.ui.GlassCircle
 import com.chrispoole.intervaltimer.ui.GlassFill
 import com.chrispoole.intervaltimer.ui.GlassPill
 import com.chrispoole.intervaltimer.ui.HomeBackground
+import com.chrispoole.intervaltimer.ui.noRippleClickable
+import com.chrispoole.intervaltimer.ui.Palette
 import com.chrispoole.intervaltimer.ui.PresetsScreen
 import com.chrispoole.intervaltimer.ui.glassBorder
 import com.chrispoole.intervaltimer.ui.SplitProgress
@@ -303,9 +306,6 @@ private fun SetupScreen(
     val workSec = Settings.workSec
     val restSec = Settings.restSec
     val rounds = Settings.rounds
-    // Durations accelerate on repeated taps; rounds deliberately don't.
-    val workAccel = rememberStepAccel(5)
-    val restAccel = rememberStepAccel(5)
 
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
@@ -322,17 +322,24 @@ private fun SetupScreen(
                 Spacer(Modifier.height(40.dp))
                 Stepper(
                     "Work", secLabel(workSec),
-                    { Settings.updateWorkSec((workSec - workAccel.step(-1)).coerceAtLeast(5)) },
-                    { Settings.updateWorkSec(workSec + workAccel.step(1)) },
+                    { m -> Settings.updateWorkSec((workSec - 5 * m).coerceAtLeast(5)) },
+                    { m -> Settings.updateWorkSec(workSec + 5 * m) },
+                    onReset = { Settings.updateWorkSec(DEFAULT_WORK_SEC) },
                 )
                 Spacer(Modifier.height(16.dp))
                 Stepper(
                     "Rest", secLabel(restSec),
-                    { Settings.updateRestSec((restSec - restAccel.step(-1)).coerceAtLeast(0)) },
-                    { Settings.updateRestSec(restSec + restAccel.step(1)) },
+                    { m -> Settings.updateRestSec((restSec - 5 * m).coerceAtLeast(0)) },
+                    { m -> Settings.updateRestSec(restSec + 5 * m) },
+                    onReset = { Settings.updateRestSec(DEFAULT_REST_SEC) },
                 )
                 Spacer(Modifier.height(16.dp))
-                Stepper("Rounds", "$rounds", { Settings.updateRounds((rounds - 1).coerceAtLeast(1)) }, { Settings.updateRounds(rounds + 1) })
+                Stepper(
+                    "Rounds", "$rounds",
+                    { m -> Settings.updateRounds((rounds - m).coerceAtLeast(1)) },
+                    { m -> Settings.updateRounds(rounds + m) },
+                    onReset = { Settings.updateRounds(DEFAULT_ROUNDS) },
+                )
                 Spacer(Modifier.height(32.dp))
                 GlassPill("GO", { onGo(workSec * 1000L, restSec * 1000L, rounds) }, Modifier.fillMaxWidth(), big = true)
                 Spacer(Modifier.height(12.dp))
@@ -350,8 +357,15 @@ private fun TextButton(onClick: () -> Unit, text: String, modifier: Modifier = M
     }
 }
 
+/** Double-tapping the number puts it back to the stock value — the way out of a hold that overshot. */
 @Composable
-private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+private fun Stepper(
+    label: String,
+    value: String,
+    onMinus: (Int) -> Unit,
+    onPlus: (Int) -> Unit,
+    onReset: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -365,7 +379,9 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(96.dp),
+                modifier = Modifier
+                    .width(96.dp)
+                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onReset() }) },
                 textAlign = TextAlign.Center,
             )
             GlassCircle("+", onPlus)
@@ -379,7 +395,6 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
 private fun SettingsScreen(onBack: () -> Unit) {
     var langOpen by remember { mutableStateOf(false) }
     val current = Language.of(Settings.languageCode)
-    val prepAccel = rememberStepAccel(5)
     Box(Modifier.fillMaxSize()) {
       HomeBackground(Modifier.fillMaxSize())
       Column(
@@ -415,20 +430,34 @@ private fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    GlassCircle("−", { Settings.updatePrepareSec(Settings.prepareSec - prepAccel.step(-1)) })
+                    GlassCircle("−", { m -> Settings.updatePrepareSec(Settings.prepareSec - 5 * m) })
                     Text(
                         if (Settings.prepareSec == 0) "Off" else secLabel(Settings.prepareSec),
                         color = Color.White,
                         fontSize = 17.sp,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.width(64.dp),
+                        modifier = Modifier
+                            .width(64.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onDoubleTap = { Settings.updatePrepareSec(DEFAULT_PREPARE_SEC) })
+                            },
                     )
-                    GlassCircle("+", { Settings.updatePrepareSec(Settings.prepareSec + prepAccel.step(1)) })
+                    GlassCircle("+", { m -> Settings.updatePrepareSec(Settings.prepareSec + 5 * m) })
                 }
             }
         }
         Spacer(Modifier.height(16.dp))
         SettingsCard("Fun") {
+            PalettePicker()
+            Spacer(Modifier.height(18.dp))
+            // Orthogonal to the palette on purpose: Minimal + Vesper is a black timer with Vesper
+            // on the edge. Pick Mono as well and you get the plain black-and-white one.
+            ToggleRow(
+                "Minimal",
+                Settings.minimalBg,
+                sub = "Black background, colour only on the edge",
+            ) { Settings.updateMinimalBg(it) }
+            Spacer(Modifier.height(20.dp))
             Row(
                 Modifier.fillMaxWidth().clickable { langOpen = !langOpen }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -457,6 +486,64 @@ private fun SettingsScreen(onBack: () -> Unit) {
             }
         }
       }
+    }
+}
+
+/**
+ * Theme picker: each swatch is the palette's own work/rest/prepare colours, in that order, so you
+ * choose by looking at the actual thing rather than by reading a name you've never heard of.
+ *
+ * Three across, growing downward. Plain Rows over a chunked list rather than a LazyVerticalGrid:
+ * this sits inside the settings screen's verticalScroll, which hands children unbounded height and
+ * would crash a lazy grid outright — and with a fixed couple of dozen swatches there is nothing to
+ * be lazy about anyway.
+ */
+@Composable
+private fun PalettePicker() {
+    Text("Theme", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(14.dp))
+    Palette.entries.chunked(3).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            row.forEach { p -> PaletteSwatch(p, Modifier.weight(1f)) }
+            // Keeps a short final row left-aligned at the same cell width instead of stretching it.
+            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+        Spacer(Modifier.height(14.dp))
+    }
+}
+
+@Composable
+private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
+    val selected = p == Settings.palette
+    val shape = RoundedCornerShape(12.dp)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(shape)
+                .border(
+                    if (selected) 2.dp else 1.dp,
+                    if (selected) Color.White else Color.White.copy(alpha = 0.18f),
+                    shape,
+                )
+                .clickable { Settings.updatePalette(p) }
+                .padding(3.dp)
+                .clip(RoundedCornerShape(9.dp)),
+        ) {
+            listOf(p.work, p.rest, p.prep).forEach { c ->
+                Box(Modifier.weight(1f).fillMaxHeight().background(c))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            p.label,
+            color = Color.White.copy(alpha = if (selected) 1f else 0.5f),
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -544,9 +631,9 @@ private const val HOLD_TO_PAUSE_MS = 400L
 // Blue reads far dimmer than green at equal saturation, so rest uses a bright sky tone to stay
 // legible once the progress arms shrink.
 private fun glowColor(phase: Phase): Color = when (phase) {
-    Phase.PREPARE -> PrepPurple
-    Phase.WORK -> WorkGreen
-    Phase.REST -> RestBlue
+    Phase.PREPARE -> PrepColor
+    Phase.WORK -> WorkColor
+    Phase.REST -> RestColor
     Phase.DONE -> DoneGray
 }
 
@@ -716,9 +803,6 @@ private fun PauseAction(play: Boolean, accent: Color, onClick: () -> Unit) {
     }
 }
 
-/** Clickable without the ripple — a ripple across a whole screen (or under big type) looks wrong. */
-private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
-    clickable(interactionSource = null, indication = null) { onClick() }
 
 private class Spark(val angle: Float, val speed: Float, val radius: Float, val color: Color)
 
@@ -733,7 +817,7 @@ private fun ConfettiBurst(seed: Long, startDelayMs: Long, modifier: Modifier = M
     val shells = remember(seed) {
         List(BURST_COUNT) { i ->
             val rnd = Random(seed + i)
-            val palette = listOf(WorkGreen, RestBlue, PrepPurple, Color.White)
+            val palette = listOf(WorkColor, RestColor, PrepColor, Color.White)
             val sparks = List(38) {
                 Spark(
                     angle = rnd.nextFloat() * 2f * PI.toFloat(),
@@ -868,31 +952,23 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
                 val lines = Numbers.clockLines(ui.remainingMs, lang)
                 val clockFont = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default
                 val clockWeight = glyphWeight(lang)
-                // Hold one constant size for the whole interval instead of ballooning as digits
-                // drop, by sizing to the widest second the interval can reach. Han widths aren't
-                // monotonic in the value (二十九 out-widths 三十), so the duration alone isn't
-                // enough — every second is a candidate. Only candidates laying out to the same
-                // number of lines count: folding the much smaller stacked forms in shrank the
-                // under-a-minute single line of a long interval below the same seconds in a short
-                // one. A stacked (2-line) clock gets a taller budget, since it stops fighting for
-                // width.
-                val clockSize = remember(ui.intervalDurationMs, lang, availWPx, availHPx, lines.size) {
-                    // Constant across candidates now that they all have lines.size lines: stacked
-                    // gets 30% more height, less the dot separator and its gaps.
+                // Size to what's on screen right now, so the count fills the width the whole way
+                // down — 二十七 is three glyphs and 十 is one, and holding one size for the interval
+                // left the short values as a small mark in the middle of a lot of black.
+                //
+                // This is a deliberate reversal: it used to pin one size for the interval, measured
+                // against the widest second the interval could reach, specifically so the number
+                // wouldn't balloon as digits dropped. Growing is the point now.
+                //
+                // Keyed on `lines`, so it re-measures once a second rather than once a frame. Both
+                // lines of a stacked clock take the smaller of the two fits, or MM and SS would
+                // disagree. A stacked clock gets a taller budget, since it stops fighting for width.
+                val clockSize = remember(lines, lang, availWPx, availHPx) {
                     val perLineH =
                         if (lines.size > 1) availHPx * 1.3f / lines.size * 0.87f else availHPx
-                    // Measure each *distinct* string once, not once per second: min is idempotent
-                    // over duplicates, so the resulting size is identical, and a 20-minute interval
-                    // drops from ~1200 main-thread text layouts at every boundary to a handful.
-                    // Monospace advances are uniform, so there equal length means equal width.
-                    val mono = clockFont == FontFamily.Monospace
-                    (0..(ui.intervalDurationMs / 1000).toInt())
-                        .map { Numbers.clockLines(it * 1000L, lang) }
-                        .filter { it.size == lines.size }
-                        .flatten()
-                        .distinctBy { if (mono) it.length else it }
-                        .ifEmpty { lines } // whole-second durations make this unreachable; cheap insurance
-                        .minOf { fittedSp(measurer, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f) }
+                    lines.minOf {
+                        fittedSp(measurer, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f)
+                    }
                 }.sp
                 val clockLine: @Composable (String) -> Unit = { line ->
                     Text(
@@ -962,7 +1038,7 @@ private fun PauseMenu(onResume: () -> Unit, onEnd: () -> Unit) {
             Text("Paused", color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(Modifier.height(40.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PauseAction(play = true, accent = WorkGreen, onClick = onResume)
+                PauseAction(play = true, accent = WorkColor, onClick = onResume)
                 Spacer(Modifier.width(28.dp))
                 PauseAction(play = false, accent = DangerRed, onClick = onEnd)
             }

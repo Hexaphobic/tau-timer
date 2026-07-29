@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.chrispoole.intervaltimer.Settings
 
 private const val HASH = """
 float hash(float2 p) {
@@ -31,6 +32,7 @@ float hash(float2 p) {
     return fract(p.x * p.y);
 }
 """
+
 
 // Timer: near-black canvas with soft, drifting, phase-colored glow blooms + animated film grain.
 // Deep blacks (pow), wide/blurry blooms, movement. The colour IS light, not a fill.
@@ -68,6 +70,9 @@ half4 main(float2 fragCoord) {
 private val HOME_AGSL = """
 uniform float2 iResolution;
 uniform float iTime;
+layout(color) uniform half4 cWork;
+layout(color) uniform half4 cPrep;
+layout(color) uniform half4 cRest;
 $HASH
 float curtain(float2 uv, float base, float amp, float freq, float speed) {
     float x = base + amp * sin(uv.y * freq + iTime * speed) + amp * 0.5 * cos(uv.y * freq * 2.1 - iTime * speed * 0.6);
@@ -78,10 +83,12 @@ float curtain(float2 uv, float base, float amp, float freq, float speed) {
 half4 main(float2 fragCoord) {
     float2 uv = fragCoord / iResolution;
     half3 col = half3(0.0);   // AMOLED black
-    // three faint, blurred curtains — a subtle background feature, not the subject
-    col += half3(0.14, 0.85, 0.55) * curtain(uv, 0.30, 0.16, 4.5, 0.40) * 0.32; // green
-    col += half3(0.55, 0.28, 0.95) * curtain(uv, 0.60, 0.18, 4.0, 0.30) * 0.28; // purple
-    col += half3(0.18, 0.50, 0.95) * curtain(uv, 0.82, 0.14, 5.0, 0.50) * 0.24; // blue
+    // Three faint, blurred curtains — a subtle background feature, not the subject. They're the
+    // palette's own three phase colours, so the home screen always previews the theme you picked.
+    col += cWork.rgb * curtain(uv, 0.30, 0.16, 4.5, 0.40) * 0.32;
+    col += cPrep.rgb * curtain(uv, 0.60, 0.18, 4.0, 0.30) * 0.28;
+    col += cRest.rgb * curtain(uv, 0.82, 0.14, 5.0, 0.50) * 0.24;
+    col *= 1.2;                       // user-set: 20% brighter than the original curtains
     col = col / (col + half3(1.6));   // much dimmer, deep black base
     float g = hash(fragCoord + fract(iTime) * 100.0) - 0.5;
     col += g * 0.012;
@@ -100,6 +107,12 @@ private fun rememberShaderTime(): State<Float> = produceState(0f) {
 /** Full-bleed animated glow over black. [glow] is the phase colour, [progress] 0..1 over the interval. */
 @Composable
 fun AuraBackground(glow: Color, progress: Float, modifier: Modifier = Modifier) {
+    // Minimal: no bloom, no grain, no shader running at 60fps. Just black, so the only things on
+    // screen are the count and the perimeter line ticking down.
+    if (Settings.minimalBg) {
+        Box(modifier.background(Color.Black))
+        return
+    }
     if (Build.VERSION.SDK_INT < 33) {
         // AGSL RuntimeShader is API 33+. Fallback: a phase-coloured radial glow over near-black,
         // brightening with progress like the shader does.
@@ -123,12 +136,24 @@ fun AuraBackground(glow: Color, progress: Float, modifier: Modifier = Modifier) 
     )
 }
 
-/** Flowing purple/green/blue gradient background for the home + settings chrome. */
+/** Distant weaving aurora over AMOLED black, in the current palette's colours. */
 @Composable
 fun HomeBackground(modifier: Modifier = Modifier) {
+    val work = WorkColor
+    val prep = PrepColor
+    val rest = RestColor
+    // Deliberately NOT gated on Settings.minimalBg. Minimal is about the running timer — the screen
+    // you actually stare at mid-set. Home, presets and settings keep their aurora; the only way to
+    // lose colour here is to pick a palette that hasn't got any.
     if (Build.VERSION.SDK_INT < 33) {
-        // AGSL fallback: a subtle dark aurora-tinted gradient over AMOLED black.
-        Box(modifier.background(Brush.verticalGradient(listOf(Color(0xFF0C0916), Color(0xFF070B0C), Color(0xFF060608)))))
+        // AGSL fallback: the same three colours as a barely-there vertical wash over black.
+        Box(
+            modifier.background(
+                Brush.verticalGradient(
+                    listOf(prep.copy(alpha = 0.10f), work.copy(alpha = 0.06f), Color(0xFF060608)),
+                ),
+            ),
+        )
         return
     }
     val time = rememberShaderTime()
@@ -139,6 +164,9 @@ fun HomeBackground(modifier: Modifier = Modifier) {
             shader.setFloatUniform("iResolution", size.width, size.height)
             onDrawBehind {
                 shader.setFloatUniform("iTime", time.value)
+                shader.setColorUniform("cWork", work.toArgb())
+                shader.setColorUniform("cPrep", prep.toArgb())
+                shader.setColorUniform("cRest", rest.toArgb())
                 drawRect(brush)
             }
         }
@@ -169,39 +197,47 @@ fun SplitProgress(
         modifier.drawWithCache {
             val r = cornerRadius.toPx()
             val i = inset.toPx()
-            val left = i
-            val right = size.width - i
-            val midY = size.height / 2f
-            // Half-perimeter path from left-middle, over the top (vert=-1) or under the bottom (vert=+1),
-            // to right-middle. Its length-midpoint lands exactly on that edge's centre.
-            fun halfPath(vert: Int): Path {
-                val edgeY = if (vert > 0) size.height - i else i
+            val cx = size.width / 2f
+            val top = i
+            val bottom = size.height - i
+            // One path per SIDE: top-edge centre, round the corner, down the whole side, round the
+            // bottom corner, back to the bottom-edge centre. It's symmetric about the horizontal
+            // centre line, so its length-midpoint lands exactly on that side's mid-point.
+            //
+            // Sliced by side rather than by half — which is the fix for the dot that used to sit at
+            // each side's middle. Four arms sliced top/bottom put two segment ENDS on that point, and
+            // a round cap on each drew two half-discs back to back: a permanent circle. One stroke
+            // per side runs straight through the mid-point, so there is no cap there to draw.
+            fun sidePath(horiz: Int): Path {
+                val edgeX = if (horiz > 0) size.width - i else i
                 return Path().apply {
-                    moveTo(left, midY)
-                    lineTo(left, edgeY - vert * r)
-                    quadraticTo(left, edgeY, left + r, edgeY)
-                    lineTo(right - r, edgeY)
-                    quadraticTo(right, edgeY, right, edgeY - vert * r)
-                    lineTo(right, midY)
+                    moveTo(cx, top)
+                    lineTo(edgeX - horiz * r, top)
+                    quadraticTo(edgeX, top, edgeX, top + r)
+                    lineTo(edgeX, bottom - r)
+                    quadraticTo(edgeX, bottom, edgeX - horiz * r, bottom)
+                    lineTo(cx, bottom)
                 }
             }
-            val pmRight = PathMeasure().apply { setPath(halfPath(-1), false) } // top half
-            val pmLeft = PathMeasure().apply { setPath(halfPath(1), false) }   // bottom half
+            val pmLeft = PathMeasure().apply { setPath(sidePath(-1), false) }
+            val pmRight = PathMeasure().apply { setPath(sidePath(1), false) }
             val glow = Stroke((strokeWidth * 3f).toPx(), cap = StrokeCap.Round)
             val crisp = Stroke(strokeWidth.toPx(), cap = StrokeCap.Round)
             val seg = Path()
-            fun DrawScope.arms(pm: PathMeasure) {
+            // Grows outward from the side's mid-point in both directions at once, so the two visible
+            // tips travel toward the top and bottom edge centres and retreat back as time runs out.
+            fun DrawScope.arm(pm: PathMeasure) {
                 val c = col.value
-                val len = (pm.length / 2f) * rem.value.coerceIn(0f, 1f)
-                if (len <= 0f) return
-                seg.rewind(); pm.getSegment(0f, len, seg, true)          // arm from top-centre
-                drawPath(seg, c.copy(alpha = 0.20f), style = glow); drawPath(seg, c, style = crisp)
-                seg.rewind(); pm.getSegment(pm.length - len, pm.length, seg, true) // arm from bottom-centre
-                drawPath(seg, c.copy(alpha = 0.20f), style = glow); drawPath(seg, c, style = crisp)
+                val mid = pm.length / 2f
+                val half = mid * rem.value.coerceIn(0f, 1f)
+                if (half <= 0f) return
+                seg.rewind(); pm.getSegment(mid - half, mid + half, seg, true)
+                drawPath(seg, c.copy(alpha = 0.20f), style = glow)
+                drawPath(seg, c, style = crisp)
             }
             onDrawBehind {
-                arms(pmRight)
-                arms(pmLeft)
+                arm(pmLeft)
+                arm(pmRight)
             }
         }
     )

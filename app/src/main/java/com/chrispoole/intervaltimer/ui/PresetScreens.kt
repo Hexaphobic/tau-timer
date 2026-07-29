@@ -106,7 +106,7 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
             .padding(vertical = 6.dp)
             .background(GlassFill, RoundedCornerShape(16.dp))
             .animateContentSize()
-            .clickable { expanded = !expanded; armed = false }
+            .noRippleClickable { expanded = !expanded; armed = false }
             .padding(16.dp),
     ) {
         Row(
@@ -122,21 +122,29 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
         }
         if (expanded) {
             Spacer(Modifier.height(12.dp))
+            // One tinted band per interval, full width — same treatment as the editor, so a preset
+            // looks like the thing you'd edit. The old version indented rest and left work short,
+            // which made the two read as different kinds of row rather than the same row in two
+            // colours.
             preset.intervals.forEach { iv ->
                 val isWork = iv.phase == Phase.WORK
+                val c = if (isWork) WorkColor else RestColor
                 Row(
-                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .background(c.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // Rest rows are indented so work sits left, rest right — a quick visual rhythm.
-                    if (!isWork) Spacer(Modifier.width(56.dp))
                     Text(
                         if (isWork) "Work" else "Rest",
-                        color = (if (isWork) WorkGreen else RestBlue).copy(alpha = 0.95f),
+                        color = c,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.Bold,
                     )
-                    Text("  ${secLabel(iv.durationSec)}", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+                    Text(secLabel(iv.durationSec), color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp)
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -246,7 +254,7 @@ fun EditorScreen(
 @Composable
 private fun PhaseLegend() {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        listOf(WorkGreen to "Work", RestBlue to "Rest").forEach { (c, label) ->
+        listOf(WorkColor to "Work", RestColor to "Rest").forEach { (c, label) ->
             Box(Modifier.size(10.dp).background(c, RoundedCornerShape(3.dp)))
             Spacer(Modifier.width(6.dp))
             Text(label, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
@@ -304,7 +312,6 @@ private fun BlockEditorCard(
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 block.items.forEachIndexed { j, iv ->
                     val isWork = iv.phase == Phase.WORK
-                    val accel = rememberStepAccel(5)
                     fun setItem(v: SeqInterval) = onChange(block.copy(items = block.items.toMutableList().also { it[j] = v }))
                     // The row's own colour says work or rest — no label to make the widths uneven.
                     // Tapping the band swaps the phase.
@@ -313,16 +320,16 @@ private fun BlockEditorCard(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .background(
-                                (if (isWork) WorkGreen else RestBlue).copy(alpha = 0.20f),
+                                (if (isWork) WorkColor else RestColor).copy(alpha = 0.20f),
                                 RoundedCornerShape(12.dp),
                             )
-                            .clickable { setItem(iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) }
+                            .noRippleClickable { setItem(iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) }
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            GlassCircle("−", { setItem(iv.copy(durationSec = (iv.durationSec - accel.step(-1)).coerceAtLeast(5))) })
+                            GlassCircle("−", { m -> setItem(iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(5))) })
                             // Fixed width so "5s" and "1:30" don't shove the +/- circles around.
                             Text(
                                 secLabel(iv.durationSec),
@@ -332,7 +339,7 @@ private fun BlockEditorCard(
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.width(72.dp),
                             )
-                            GlassCircle("+", { setItem(iv.copy(durationSec = iv.durationSec + accel.step(1))) })
+                            GlassCircle("+", { m -> setItem(iv.copy(durationSec = iv.durationSec + 5 * m)) })
                         }
                         TextButton(onClick = {
                             if (block.items.size == 1) onDelete()
@@ -350,7 +357,7 @@ private fun BlockEditorCard(
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Repeat all of this", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
             Spacer(Modifier.width(12.dp))
-            GlassCircle("−", { onChange(block.copy(repeat = (block.repeat - 1).coerceAtLeast(1))) })
+            GlassCircle("−", { m -> onChange(block.copy(repeat = (block.repeat - m).coerceAtLeast(1))) })
             Text(
                 "× ${block.repeat}",
                 color = Color.White,
@@ -358,7 +365,7 @@ private fun BlockEditorCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 10.dp),
             )
-            GlassCircle("+", { onChange(block.copy(repeat = block.repeat + 1)) })
+            GlassCircle("+", { m -> onChange(block.copy(repeat = block.repeat + m)) })
         }
     }
 }
