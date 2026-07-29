@@ -20,6 +20,10 @@ object Settings {
     var pureScript by mutableStateOf(false); private set // hide the Western/numeric fallback entirely
     var runInBackground by mutableStateOf(true); private set // keep the workout alive if the app is closed
 
+    // Two rests in a row is one longer rest with extra steps. On (the default), the editor won't
+    // build one; off, you're free to (a stretch-then-breathe cooldown, say).
+    var noDoubleRest by mutableStateOf(true); private set
+
     // Last values dialled in on the main screen, so a new workout starts from where you left off.
     var workSec by mutableStateOf(30); private set
     var restSec by mutableStateOf(15); private set
@@ -42,6 +46,7 @@ object Settings {
         wordMode = p.getBoolean("wordMode", true)
         pureScript = p.getBoolean("pureScript", false)
         runInBackground = p.getBoolean("runInBackground", true)
+        noDoubleRest = p.getBoolean("noDoubleRest", true)
         workSec = p.getInt("workSec", 30)
         restSec = p.getInt("restSec", 15)
         rounds = p.getInt("rounds", 8)
@@ -60,6 +65,7 @@ object Settings {
     fun updateWordMode(w: Boolean) { wordMode = w; prefs?.edit()?.putBoolean("wordMode", w)?.apply() }
     fun updatePureScript(p2: Boolean) { pureScript = p2; prefs?.edit()?.putBoolean("pureScript", p2)?.apply() }
     fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit()?.putBoolean("runInBackground", b)?.apply() }
+    fun updateNoDoubleRest(b: Boolean) { noDoubleRest = b; prefs?.edit()?.putBoolean("noDoubleRest", b)?.apply() }
     fun updateWorkSec(s: Int) { workSec = s; prefs?.edit()?.putInt("workSec", s)?.apply() }
     fun updateRestSec(s: Int) { restSec = s; prefs?.edit()?.putInt("restSec", s)?.apply() }
     fun updateRounds(r: Int) { rounds = r; prefs?.edit()?.putInt("rounds", r)?.apply() }

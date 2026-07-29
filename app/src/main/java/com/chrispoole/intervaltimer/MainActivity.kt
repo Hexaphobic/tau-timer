@@ -108,6 +108,7 @@ import com.chrispoole.intervaltimer.ui.GlassCircle
 import com.chrispoole.intervaltimer.ui.GlassFill
 import com.chrispoole.intervaltimer.ui.GlassPill
 import com.chrispoole.intervaltimer.ui.HomeBackground
+import com.chrispoole.intervaltimer.ui.NoticePill
 import com.chrispoole.intervaltimer.ui.PresetsScreen
 import com.chrispoole.intervaltimer.ui.glassBorder
 import com.chrispoole.intervaltimer.ui.SplitProgress
@@ -163,6 +164,11 @@ class MainActivity : ComponentActivity() {
                 var editIndex by remember { mutableStateOf<Int?>(null) }
                 // A sequence carried in from the main screen's steppers (not a saved preset yet).
                 var seeded by remember { mutableStateOf<Preset?>(null) }
+                // Where the editor was opened from. Building a sequence off the home screen is not
+                // a trip into the preset library, so saving or cancelling goes back where you were.
+                var editorFrom by remember { mutableStateOf("setup") }
+                var savedFlash by remember { mutableStateOf(false) }
+                if (savedFlash) LaunchedEffect(Unit) { delay(2200); savedFlash = false }
                 // Safety net: the re-attach placeholder can never be terminal, whatever goes wrong.
                 if (attaching) {
                     LaunchedEffect(Unit) { delay(800); attaching = false }
@@ -180,8 +186,8 @@ class MainActivity : ComponentActivity() {
                     screen == "presets" -> PresetsScreen(
                         onBack = { screen = "setup" },
                         onStart = { launchWorkout(it.toWorkout(Settings.prepareSec * 1000L)) },
-                        onNew = { editIndex = null; seeded = null; screen = "editor" },
-                        onEdit = { idx -> editIndex = idx; seeded = null; screen = "editor" },
+                        onNew = { editIndex = null; seeded = null; editorFrom = "presets"; screen = "editor" },
+                        onEdit = { idx -> editIndex = idx; seeded = null; editorFrom = "presets"; screen = "editor" },
                     )
                     screen == "editor" -> EditorScreen(
                         initial = editIndex?.let { PresetStore.saved.getOrNull(it) } ?: seeded,
@@ -189,30 +195,44 @@ class MainActivity : ComponentActivity() {
                         onSave = { p ->
                             val idx = editIndex
                             if (idx == null) PresetStore.add(p) else PresetStore.update(idx, p)
-                            screen = "presets"
+                            // Coming from home, saving is a side errand — say it landed and stay put.
+                            savedFlash = editorFrom == "setup"
+                            screen = editorFrom
                         },
-                        onCancel = { screen = "setup" },
+                        onCancel = { screen = editorFrom },
+                        saveLabel = if (editIndex == null) "Save to presets" else "Save",
                     )
-                    else -> SetupScreen(
-                        onGo = ::startWorkout,
-                        onSettings = { screen = "settings" },
-                        onPresets = { screen = "presets" },
-                        onCustom = { wSec, rSec, rds ->
-                            editIndex = null
-                            // Full rounds including trailing rest, so the editor groups it as one
-                            // (work, rest) × rounds block. toWorkout drops a trailing rest at run time.
-                            seeded = Preset(
-                                "",
-                                buildList {
-                                    repeat(rds) {
-                                        add(SeqInterval(Phase.WORK, wSec))
-                                        if (rSec > 0) add(SeqInterval(Phase.REST, rSec))
-                                    }
-                                },
+                    else -> Box(Modifier.fillMaxSize()) {
+                        SetupScreen(
+                            onGo = ::startWorkout,
+                            onSettings = { screen = "settings" },
+                            onPresets = { screen = "presets" },
+                            onCustom = { wSec, rSec, rds ->
+                                editIndex = null
+                                editorFrom = "setup"
+                                // Full rounds including trailing rest, so the editor groups it as one
+                                // (work, rest) × rounds block. toWorkout drops a trailing rest at run time.
+                                seeded = Preset(
+                                    "",
+                                    buildList {
+                                        repeat(rds) {
+                                            add(SeqInterval(Phase.WORK, wSec))
+                                            if (rSec > 0) add(SeqInterval(Phase.REST, rSec))
+                                        }
+                                    },
+                                )
+                                screen = "editor"
+                            },
+                        )
+                        // Saving from here doesn't leave the screen, so this is the only sign the
+                        // preset landed.
+                        if (savedFlash) {
+                            NoticePill(
+                                "Saved to presets",
+                                Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 28.dp),
                             )
-                            screen = "editor"
-                        },
-                    )
+                        }
+                    }
                 }
             }
         }
@@ -391,6 +411,12 @@ private fun SettingsScreen(onBack: () -> Unit) {
             VolumeSlider()
             Spacer(Modifier.height(16.dp))
             ToggleRow("Run in background", Settings.runInBackground, sub = "Keep the timer running if you close the app") { Settings.updateRunInBackground(it) }
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
+                "No back-to-back rests",
+                Settings.noDoubleRest,
+                sub = "Stops the editor putting two rests in a row",
+            ) { Settings.updateNoDoubleRest(it) }
             Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth(),

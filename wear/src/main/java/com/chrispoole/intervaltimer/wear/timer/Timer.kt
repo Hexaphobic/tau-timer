@@ -47,12 +47,18 @@ fun baseWorkout(prepareMs: Long, workMs: Long, restMs: Long, rounds: Int): Worko
 }
 
 data class SeqInterval(val phase: Phase, val durationSec: Int)
-data class Preset(val name: String, val intervals: List<SeqInterval>)
+
+/** [repeatAll] plays the whole sequence through that many times; the phone syncs it in the JSON. */
+data class Preset(val name: String, val intervals: List<SeqInterval>, val repeatAll: Int = 1)
+
+/** The sequence as it actually plays: the whole of it, [repeatAll] times over. */
+fun Preset.expanded(): List<SeqInterval> =
+    if (repeatAll <= 1) intervals else List(repeatAll) { intervals }.flatten()
 
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
-        intervals.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
+        expanded().forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
     }
     return Workout(list)
 }

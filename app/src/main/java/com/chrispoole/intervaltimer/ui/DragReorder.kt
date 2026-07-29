@@ -1,0 +1,281 @@
+package com.chrispoole.intervaltimer.ui
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListItemInfo
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+
+/**
+ * Drag-to-reorder for a lazy list.
+ *
+ * The list itself stays the source of truth: the moment the dragged card's middle crosses into a
+ * neighbour's slot, the move is committed to the backing list and everything else slides aside
+ * through the lazy list's own `animateItem` placement animation — nothing is faked.
+ *
+ * The card under the finger is then drawn at `pickedUpAt + dragged`, an absolute viewport position
+ * that ignores where its slot has moved to. That one line is what makes it feel solid: the card
+ * stays pinned to the finger however many times it swaps places and however far the list
+ * auto-scrolls underneath it.
+ *
+ * Indices here are *list* indices, headers and footers included — [rememberDragDropState] takes the
+ * range that may be reordered, and the caller maps that range onto its own data.
+ */
+@Stable
+class DragDropState internal constructor(
+    private val listState: LazyListState,
+    private val scope: CoroutineScope,
+    private val draggable: () -> IntRange,
+    private val onMove: (from: Int, to: Int) -> Boolean,
+    private val onPickUp: () -> Unit,
+    private val onSwap: () -> Unit,
+    private val edgePx: Float,
+    private val maxScrollPerFrame: Float,
+) {
+    private var draggingKey by mutableStateOf<Any?>(null)
+    private var draggingIndex = -1
+    private var pickedUpAt = 0
+    private var dragged by mutableFloatStateOf(0f)
+    private var lastDelta = 0f
+
+    // A lift that just snapped back to its slot would undo the whole illusion, so the card keeps
+    // its offset for one last animation home after the finger goes. The offset is handed over
+    // synchronously on release — waiting for the coroutine to start would flash the card into its
+    // slot for a frame first.
+    private var settlingKey by mutableStateOf<Any?>(null)
+    private var settleOffset by mutableFloatStateOf(0f)
+    private var settleJob: Job? = null
+
+    val isDragging: Boolean get() = draggingKey != null
+
+    /** True while [key] is under the finger — the card is lifted and should look it. */
+    fun isLifted(key: Any): Boolean = key == draggingKey
+
+    /** True while [key] is drawn out of its slot, either held or easing back into it. */
+    fun isFloating(key: Any): Boolean = key == draggingKey || key == settlingKey
+
+    /** Pixels to shift [key]'s card by so it tracks the finger. */
+    fun offsetFor(key: Any): Float = when (key) {
+        draggingKey -> infoFor(key)?.let { pickedUpAt + dragged - it.offset } ?: 0f
+        settlingKey -> settleOffset
+        else -> 0f
+    }
+
+    private fun infoFor(key: Any?): LazyListItemInfo? =
+        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
+
+    fun onDragStart(key: Any) {
+        val info = infoFor(key) ?: return
+        settleJob?.cancel()
+        settlingKey = null
+        settleOffset = 0f
+        draggingKey = key
+        draggingIndex = info.index
+        pickedUpAt = info.offset
+        dragged = 0f
+        lastDelta = 0f
+        onPickUp()
+    }
+
+    fun onDrag(deltaY: Float) {
+        if (draggingKey == null) return
+        dragged += deltaY
+        if (deltaY != 0f) lastDelta = deltaY
+    }
+
+    fun onDragEnd() {
+        val key = draggingKey ?: return
+        val restingAt = offsetFor(key)
+        draggingKey = null
+        draggingIndex = -1
+        dragged = 0f
+        if (restingAt == 0f) return
+        settleOffset = restingAt
+        settlingKey = key
+        settleJob = scope.launch {
+            Animatable(restingAt).animateTo(
+                targetValue = 0f,
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+            ) { settleOffset = value }
+            if (settlingKey == key) {
+                settlingKey = null
+                settleOffset = 0f
+            }
+        }
+    }
+
+    /**
+     * One frame of the drag: swap if the card has travelled into a neighbour, then scroll if it's
+     * being held against an edge. Driven by frames rather than by pointer events so that holding
+     * still at the top or bottom keeps scrolling instead of stalling.
+     */
+    internal suspend fun onFrame() {
+        val info = infoFor(draggingKey) ?: return
+        val top = pickedUpAt + dragged
+        // Skip a frame if the last swap hasn't been laid out yet, otherwise the same move gets
+        // applied twice off one stale reading.
+        if (info.index == draggingIndex) {
+            val middle = top + info.size / 2f
+            val target = listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.index != draggingIndex &&
+                    it.index in draggable() &&
+                    middle >= it.offset &&
+                    middle <= it.offset + it.size
+            }
+            // A move the owner refuses (it would break a rule of its own) leaves the card where it
+            // is: it keeps tracking the finger, and springs back on release.
+            if (target != null && onMove(draggingIndex, target.index)) {
+                draggingIndex = target.index
+                onSwap()
+            }
+        }
+        val scroll = edgeScroll(top, info.size)
+        if (scroll != 0f) listState.scrollBy(scroll)
+    }
+
+    /** Auto-scroll speed, ramping up over the last [edgePx] of the viewport. */
+    private fun edgeScroll(top: Float, size: Int): Float {
+        val layout = listState.layoutInfo
+        val pastBottom = (top + size) - (layout.viewportEndOffset - edgePx)
+        val pastTop = (layout.viewportStartOffset + edgePx) - top
+        // A card taller than the viewport is past both edges at once; the direction of travel breaks
+        // the tie so it doesn't just pick one and run away.
+        return when {
+            pastBottom > 0f && (pastTop <= 0f || lastDelta > 0f) ->
+                (pastBottom / edgePx).coerceAtMost(1f) * maxScrollPerFrame
+            pastTop > 0f -> -(pastTop / edgePx).coerceAtMost(1f) * maxScrollPerFrame
+            else -> 0f
+        }
+    }
+}
+
+/**
+ * @param draggable the list indices that may be reordered (skip headers and footers).
+ * @param onMove commit a move from one list index to another — the list must reflect it immediately.
+ *   Return false to refuse it, and the drag carries on as if the card had never crossed.
+ */
+@Composable
+fun rememberDragDropState(
+    listState: LazyListState,
+    draggable: IntRange,
+    onMove: (from: Int, to: Int) -> Boolean,
+): DragDropState {
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val range by rememberUpdatedState(draggable)
+    val move by rememberUpdatedState(onMove)
+    val state = remember(listState) {
+        DragDropState(
+            listState = listState,
+            scope = scope,
+            draggable = { range },
+            onMove = { from, to -> move(from, to) },
+            onPickUp = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+            onSwap = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
+            edgePx = with(density) { 72.dp.toPx() },
+            maxScrollPerFrame = with(density) { 14.dp.toPx() },
+        )
+    }
+    LaunchedEffect(state.isDragging) {
+        if (!state.isDragging) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            state.onFrame()
+        }
+    }
+    return state
+}
+
+/**
+ * The grab point for a draggable card. A dedicated handle rather than a long-press on the card
+ * itself: the cards are full of steppers and toggles, and a handle can't be triggered by mistake.
+ *
+ * Keyed on the card's identity rather than its position — keying on the index would tear the
+ * gesture down the instant the card swapped slots, dropping it mid-drag.
+ */
+@Composable
+fun DragHandle(
+    key: Any,
+    label: String,
+    state: DragDropState,
+    modifier: Modifier = Modifier,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+) {
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .pointerInput(key) {
+                detectDragGestures(
+                    onDragStart = { state.onDragStart(key) },
+                    onDragEnd = { state.onDragEnd() },
+                    onDragCancel = { state.onDragEnd() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        state.onDrag(amount.y)
+                    },
+                )
+            }
+            // Dragging is a gesture TalkBack can't perform, so the same two moves are offered as
+            // accessibility actions on the handle.
+            .semantics {
+                contentDescription = "Reorder $label"
+                customActions = listOfNotNull(
+                    onMoveUp?.let { CustomAccessibilityAction("Move up") { it(); true } },
+                    onMoveDown?.let { CustomAccessibilityAction("Move down") { it(); true } },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        GripDots()
+    }
+}
+
+/** The universal "grab me" mark. Drawn rather than typed — no font is guaranteed to have it. */
+@Composable
+fun GripDots(modifier: Modifier = Modifier, alpha: Float = 0.55f, height: androidx.compose.ui.unit.Dp = 20.dp) {
+    Canvas(modifier.size(width = height * 0.6f, height = height)) {
+        val r = size.height / 12f
+        val columns = listOf(size.width * 0.25f, size.width * 0.75f)
+        val rows = listOf(size.height * 0.16f, size.height * 0.5f, size.height * 0.84f)
+        columns.forEach { x ->
+            rows.forEach { y -> drawCircle(Color.White.copy(alpha = alpha), r, Offset(x, y)) }
+        }
+    }
+}
