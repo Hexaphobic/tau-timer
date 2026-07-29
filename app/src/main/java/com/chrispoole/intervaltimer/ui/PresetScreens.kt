@@ -74,13 +74,14 @@ import com.chrispoole.intervaltimer.Settings
 import com.chrispoole.intervaltimer.model.BUILTIN_PRESETS
 import com.chrispoole.intervaltimer.model.Block
 import com.chrispoole.intervaltimer.model.backToBackRests
-import com.chrispoole.intervaltimer.model.expanded
 import com.chrispoole.intervaltimer.model.flatten
 import com.chrispoole.intervaltimer.model.groupIntervals
 import com.chrispoole.intervaltimer.model.Phase
+import com.chrispoole.intervaltimer.model.playbackIntervals
 import com.chrispoole.intervaltimer.model.Preset
 import com.chrispoole.intervaltimer.model.SeqInterval
 import com.chrispoole.intervaltimer.model.secLabel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -88,7 +89,7 @@ import kotlin.math.roundToInt
 private fun clock(totalSec: Int): String = "${totalSec / 60}:${(totalSec % 60).toString().padStart(2, '0')}"
 
 private fun Preset.summary(): String {
-    val seq = expanded()
+    val seq = playbackIntervals()
     return "${seq.size} intervals · ${clock(seq.sumOf { it.durationSec })}"
 }
 
@@ -255,6 +256,10 @@ fun EditorScreen(
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeSeq by remember { mutableIntStateOf(0) }
     fun flash(message: String) {
+        // A refused drag asks again on every frame it's held there. Re-arming the timer each time
+        // would pin the pill open and recompose the whole editor at 60fps, so a message already on
+        // screen is left to run out its own clock.
+        if (notice == message) return
         notice = message
         noticeSeq++
     }
@@ -286,9 +291,14 @@ fun EditorScreen(
 
     fun replace(i: Int, b: Block): List<Block> = current().mapIndexed { k, x -> if (k == i) b else x }
 
-    /** Every rule-checked edit to a group goes through here. Deletes deliberately don't. */
-    fun change(i: Int, next: Block) {
-        if (allow(replace(i, next))) blocks[i] = UiBlock(blocks[i].id, next)
+    /**
+     * Every rule-checked edit to a group goes through here; deletes deliberately don't. Returns
+     * whether it landed, so a refused drag knows to put the row back where it came from.
+     */
+    fun change(i: Int, next: Block): Boolean {
+        if (!allow(replace(i, next))) return false
+        blocks[i] = UiBlock(blocks[i].id, next)
+        return true
     }
 
     fun addInterval(i: Int) {
@@ -316,6 +326,9 @@ fun EditorScreen(
     }
 
     fun moveGroup(from: Int, to: Int): Boolean {
+        // The drag tracks list indices of its own; a group deleted by a second finger mid-drag would
+        // otherwise take them out of range.
+        if (from !in blocks.indices || to !in blocks.indices) return false
         val candidate = current().toMutableList().apply { add(to, removeAt(from)) }
         if (!allow(candidate)) return false
         blocks.add(to, blocks.removeAt(from))
@@ -460,9 +473,15 @@ private fun PhaseLegend() {
 private fun TotalsLine(blocks: List<Block>, repeatAll: Int) {
     val once = flatten(blocks)
     val groups = if (blocks.size == 1) "1 group" else "${blocks.size} groups"
+    // Counted the way it will be played, without building the expanded list: the whole thing × N,
+    // less the trailing rest the timer drops.
+    val count = once.size * repeatAll
+    val trailingRest = if (count > 1 && once.lastOrNull()?.phase == Phase.REST) once.last().durationSec else 0
+    val played = if (trailingRest > 0) count - 1 else count
+    val seconds = once.sumOf { it.durationSec } * repeatAll - trailingRest
     Column {
         Text(
-            "$groups · ${once.size * repeatAll} intervals · ${clock(once.sumOf { it.durationSec } * repeatAll)}",
+            "$groups · $played intervals · ${clock(seconds)}",
             color = Color.White.copy(alpha = 0.55f),
             fontSize = 13.sp,
         )
@@ -521,7 +540,8 @@ private fun BlockEditorCard(
     lifted: Boolean,
     canRest: (Int) -> Boolean,
     handle: @Composable () -> Unit,
-    onChange: (Block) -> Unit,
+    /** Returns whether the edit was accepted — a reorder that isn't has to spring back. */
+    onChange: (Block) -> Boolean,
     onAddItem: () -> Unit,
     onRemoveItem: (Int) -> Unit,
     onDeleteGroup: () -> Unit,
@@ -609,13 +629,18 @@ private fun IntervalRows(
     canRest: (Int) -> Boolean,
     onSet: (Int, SeqInterval) -> Unit,
     onRemove: (Int) -> Unit,
-    onMove: (Int, Int) -> Unit,
+    onMove: (Int, Int) -> Boolean,
 ) {
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var from by remember { mutableIntStateOf(-1) }
     var dragged by remember { mutableFloatStateOf(0f) }
     var pitch by remember { mutableFloatStateOf(0f) }
+    // The row easing home after the drop, tracked apart from the one under the finger so a second
+    // grab during the spring is a clean new drag rather than a fight over the same offset.
+    var settling by remember { mutableIntStateOf(-1) }
+    var settleOffset by remember { mutableFloatStateOf(0f) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
 
     // The gesture detector is set up once and must outlive every recomposition — re-keying it would
     // tear down a drag in progress, since dragging recomposes these rows on every frame. So the
@@ -629,24 +654,37 @@ private fun IntervalRows(
         if (from < 0 || pitch <= 0f) -1
         else (from + (dragged / pitch).roundToInt()).coerceIn(0, liveItems.lastIndex)
 
+    fun grab(j: Int) {
+        settleJob?.cancel()
+        settling = -1
+        settleOffset = 0f
+        from = j
+        dragged = 0f
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
     fun commit() {
         val start = from
-        val end = target()
         if (start < 0) return
-        if (end < 0) {
-            from = -1
-            dragged = 0f
-            return
-        }
-        scope.launch {
-            // Ride the last few pixels into the slot instead of snapping, so the drop lands.
-            Animatable(dragged).animateTo(
-                (end - start) * pitch,
-                spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
-            ) { dragged = value }
-            if (end != start) liveMove(start, end)
-            from = -1
-            dragged = 0f
+        val end = target()
+        // The move lands now, on release — never from indices captured before an animation, which by
+        // the time it finished could point at a row that had since been deleted. What's left to
+        // animate is the handful of pixels between the finger and the slot it dropped into, and a
+        // move the rule turns down simply rides back to where it came from. The bounds check covers
+        // the one index that can still go stale: a second finger deleting a row mid-drag.
+        val moved = end >= 0 && end != start && start in liveItems.indices && liveMove(start, end)
+        val landedAt = if (moved) end else start
+        settleOffset = dragged - (landedAt - start) * pitch
+        settling = landedAt
+        from = -1
+        dragged = 0f
+        settleJob = scope.launch {
+            Animatable(settleOffset).animateTo(
+                targetValue = 0f,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
+            ) { settleOffset = value }
+            settling = -1
+            settleOffset = 0f
         }
     }
 
@@ -670,12 +708,18 @@ private fun IntervalRows(
             val tint = (if (isWork) WorkGreen else RestBlue).copy(alpha = if (dragging) 0.34f else 0.20f)
             Row(
                 Modifier
-                    .zIndex(if (dragging) 1f else 0f)
+                    .zIndex(if (dragging || j == settling) 1f else 0f)
                     .onSizeChanged { if (it.height > 0) pitch = it.height.toFloat() }
                     .graphicsLayer {
-                        // Once the drop has been committed the slide is done by the layout itself,
-                        // so the offset has to be dropped in the same frame, not animated away.
-                        translationY = if (dragging) dragged else if (from >= 0) animatedSlide else 0f
+                        // The rows that stood aside are back in their real slots the moment the drop
+                        // lands, so their offset is dropped in that same frame rather than animated
+                        // away on top of a layout that has already moved them.
+                        translationY = when {
+                            dragging -> dragged
+                            j == settling -> settleOffset
+                            from >= 0 -> animatedSlide
+                            else -> 0f
+                        }
                     }
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
@@ -689,11 +733,7 @@ private fun IntervalRows(
                             .size(30.dp)
                             .pointerInput(Unit) {
                                 detectDragGestures(
-                                    onDragStart = {
-                                        from = j
-                                        dragged = 0f
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
+                                    onDragStart = { grab(j) },
                                     onDragEnd = { commit() },
                                     onDragCancel = { commit() },
                                     onDrag = { change, amount ->

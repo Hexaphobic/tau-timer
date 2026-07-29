@@ -19,16 +19,26 @@ data class Preset(
 fun Preset.expanded(): List<SeqInterval> =
     if (repeatAll <= 1) intervals else List(repeatAll) { intervals }.flatten()
 
+/**
+ * A rest after the very last work interval is pointless — drop it, so presets can stay as clean
+ * (work, rest) × N groups. Always applied to a fully expanded sequence, so the rest *between* two
+ * passes survives and only the one that would end the workout goes.
+ *
+ * One definition, used by the clock and by every count shown for a sequence: a screen that advertises
+ * an interval the timer never plays is just wrong.
+ */
+fun playable(intervals: List<SeqInterval>): List<SeqInterval> =
+    if (intervals.size > 1 && intervals.last().phase == Phase.REST) intervals.dropLast(1) else intervals
+
+/** The sequence as the timer will run it: repeats expanded, trailing rest dropped. */
+fun Preset.playbackIntervals(): List<SeqInterval> = playable(expanded())
+
 /** Playing time in seconds, repeats included. */
-fun Preset.totalSec(): Int = expanded().sumOf { it.durationSec }
+fun Preset.totalSec(): Int = playbackIntervals().sumOf { it.durationSec }
 
 /** Build a runnable Workout: a PREPARE lead-in, then the sequence (round = 1-based position). */
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
-    val full = expanded()
-    // A rest after the very last work interval is pointless — drop it at run time so presets
-    // can stay as clean (work, rest) × N groups. Dropped after the repeats are expanded, so the
-    // rest *between* two passes survives; only the one that would end the workout goes.
-    val seq = if (full.size > 1 && full.last().phase == Phase.REST) full.dropLast(1) else full
+    val seq = playbackIntervals()
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
         seq.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }

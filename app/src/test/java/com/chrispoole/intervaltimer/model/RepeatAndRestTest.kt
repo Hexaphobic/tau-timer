@@ -14,7 +14,17 @@ class RepeatAndRestTest {
     @Test fun repeatAllPlaysTheWholeSequenceAgain() {
         val p = Preset("t", listOf(w(30), r(15)), repeatAll = 3)
         assertEquals(listOf(w(30), r(15), w(30), r(15), w(30), r(15)), p.expanded())
-        assertEquals(135, p.totalSec())
+        // The rest that would end the workout never plays, so it isn't counted either.
+        assertEquals(listOf(w(30), r(15), w(30), r(15), w(30)), p.playbackIntervals())
+        assertEquals(120, p.totalSec())
+    }
+
+    @Test fun playableOnlyDropsATrailingRest() {
+        assertEquals(listOf(w(30), r(15), w(20)), playable(listOf(w(30), r(15), w(20))))
+        assertEquals(listOf(w(30), r(15), w(20)), playable(listOf(w(30), r(15), w(20), r(10))))
+        // A lone rest is the whole sequence — dropping it would leave nothing to run.
+        assertEquals(listOf(r(10)), playable(listOf(r(10))))
+        assertEquals(emptyList<SeqInterval>(), playable(emptyList()))
     }
 
     @Test fun onceThroughIsUntouched() {

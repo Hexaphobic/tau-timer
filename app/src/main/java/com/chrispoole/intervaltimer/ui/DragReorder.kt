@@ -100,9 +100,13 @@ class DragDropState internal constructor(
 
     fun onDragStart(key: Any) {
         val info = infoFor(key) ?: return
-        settleJob?.cancel()
-        settlingKey = null
-        settleOffset = 0f
+        // Only this card's own settle is interrupted — cancelling another card's would teleport it
+        // the rest of the way home for no reason.
+        if (settlingKey == key) {
+            settleJob?.cancel()
+            settlingKey = null
+            settleOffset = 0f
+        }
         draggingKey = key
         draggingIndex = info.index
         pickedUpAt = info.offset
@@ -124,6 +128,8 @@ class DragDropState internal constructor(
         draggingIndex = -1
         dragged = 0f
         if (restingAt == 0f) return
+        // One settle at a time: two coroutines writing the same offset would fight over it.
+        settleJob?.cancel()
         settleOffset = restingAt
         settlingKey = key
         settleJob = scope.launch {
@@ -149,22 +155,43 @@ class DragDropState internal constructor(
         // Skip a frame if the last swap hasn't been laid out yet, otherwise the same move gets
         // applied twice off one stale reading.
         if (info.index == draggingIndex) {
-            val middle = top + info.size / 2f
-            val target = listState.layoutInfo.visibleItemsInfo.firstOrNull {
-                it.index != draggingIndex &&
-                    it.index in draggable() &&
-                    middle >= it.offset &&
-                    middle <= it.offset + it.size
-            }
+            val target = neighbourToSwapWith(top, info.size)
             // A move the owner refuses (it would break a rule of its own) leaves the card where it
             // is: it keeps tracking the finger, and springs back on release.
-            if (target != null && onMove(draggingIndex, target.index)) {
-                draggingIndex = target.index
+            if (target >= 0 && onMove(draggingIndex, target)) {
+                draggingIndex = target
                 onSwap()
             }
         }
         val scroll = edgeScroll(top, info.size)
-        if (scroll != 0f) listState.scrollBy(scroll)
+        // Never scroll the card's own slot off the screen. It can fall behind the finger — a move
+        // the owner keeps refusing pins it in place — and once the lazy list stops composing that
+        // slot there is nothing left to draw the card with, so it would vanish mid-drag.
+        val slotWouldLeave = (scroll > 0f && info.offset <= listState.layoutInfo.viewportStartOffset) ||
+            (scroll < 0f && info.offset + info.size >= listState.layoutInfo.viewportEndOffset)
+        if (scroll != 0f && !slotWouldLeave) listState.scrollBy(scroll)
+    }
+
+    /**
+     * The neighbour the card has travelled far enough to trade places with, or -1.
+     *
+     * Deliberately *not* "is the card's middle inside the neighbour's slot": with cards of different
+     * heights that test is not stable. Swapping past a taller neighbour leaves the middle inside the
+     * slot that neighbour has just moved into, so it swaps straight back, and the card sits there
+     * flickering between two positions.
+     *
+     * An edge against the neighbour's midpoint is self-consistent instead: the reverse test is
+     * exactly the complement of the forward one, so a swap can never immediately undo itself,
+     * whatever the two heights are.
+     */
+    private fun neighbourToSwapWith(top: Float, size: Int): Int {
+        val range = draggable()
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val next = visible.firstOrNull { it.index == draggingIndex + 1 && it.index in range }
+        if (next != null && top + size > next.offset + next.size / 2f) return next.index
+        val previous = visible.firstOrNull { it.index == draggingIndex - 1 && it.index in range }
+        if (previous != null && top < previous.offset + previous.size / 2f) return previous.index
+        return -1
     }
 
     /** Auto-scroll speed, ramping up over the last [edgePx] of the viewport. */
