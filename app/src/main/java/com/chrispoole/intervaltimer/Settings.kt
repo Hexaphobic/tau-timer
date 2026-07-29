@@ -31,6 +31,10 @@ object Settings {
     // Orthogonal to the palette: kills the aura and leaves a black screen, whichever colours are on.
     var minimalBg by mutableStateOf(false); private set
 
+    // Two rests in a row is one longer rest with extra steps. On (the default), the editor won't
+    // build one; off, you're free to (a stretch-then-breathe cooldown, say).
+    var noDoubleRest by mutableStateOf(true); private set
+
     // Last values dialled in on the main screen, so a new workout starts from where you left off.
     var workSec by mutableStateOf(DEFAULT_WORK_SEC); private set
     var restSec by mutableStateOf(DEFAULT_REST_SEC); private set
@@ -56,6 +60,7 @@ object Settings {
         // Stored by name, so a palette dropped in a later version degrades to Default instead of
         // throwing on launch.
         palette = runCatching { Palette.valueOf(p.getString("palette", "") ?: "") }.getOrDefault(Palette.DEFAULT)
+        noDoubleRest = p.getBoolean("noDoubleRest", true)
         workSec = p.getInt("workSec", DEFAULT_WORK_SEC)
         restSec = p.getInt("restSec", DEFAULT_REST_SEC)
         rounds = p.getInt("rounds", DEFAULT_ROUNDS)
@@ -80,6 +85,7 @@ object Settings {
     fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit()?.putBoolean("runInBackground", b)?.apply() }
     fun updatePalette(p2: Palette) { palette = p2; prefs?.edit()?.putString("palette", p2.name)?.apply() }
     fun updateMinimalBg(b: Boolean) { minimalBg = b; prefs?.edit()?.putBoolean("minimalBg", b)?.apply() }
+    fun updateNoDoubleRest(b: Boolean) { noDoubleRest = b; prefs?.edit()?.putBoolean("noDoubleRest", b)?.apply() }
     fun updateWorkSec(s: Int) { workSec = s; prefs?.edit()?.putInt("workSec", s)?.apply() }
     fun updateRestSec(s: Int) { restSec = s; prefs?.edit()?.putInt("restSec", s)?.apply() }
     fun updateRounds(r: Int) { rounds = r; prefs?.edit()?.putInt("rounds", r)?.apply() }

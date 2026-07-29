@@ -52,10 +52,15 @@ object PresetRepo {
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val ivs = o.getJSONArray("intervals")
-            Preset(o.getString("name"), (0 until ivs.length()).map { j ->
-                val s = ivs.getJSONObject(j)
-                SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
-            })
+            Preset(
+                o.getString("name"),
+                (0 until ivs.length()).map { j ->
+                    val s = ivs.getJSONObject(j)
+                    SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
+                },
+                // Absent on anything saved before overall repeats existed — that's a plain once-through.
+                o.optInt("repeatAll", 1).coerceAtLeast(1),
+            )
         }
     }.getOrDefault(emptyList())
 

@@ -8,6 +8,7 @@ A minimalist, dark-mode interval timer for Android, built for the Samsung Galaxy
 
 - **Work / Rest / Rounds** — the classic interval timer, set with 5-second steppers.
 - **Sequences & presets** — build custom interval sequences on the fly, save and name them; built-in Ladder, Pyramid, Tabata, and EMOM presets.
+- **Drag to rearrange** — groups and the intervals inside them are dragged into place by their grip, and everything else slides out of the way. Each group repeats ×N, and the whole sequence can repeat ×N over the top of that. The editor won't put two rests back to back unless you ask it to (Settings).
 - **Audio cues** — a distinct warning tone at 5s, ticks at 3/2/1, and a "go" tone at every transition. Plays as media so it follows your active route (headphones, Bluetooth) instead of the phone's speaker, and ducks your music only while a cue sounds.
 - **Multilingual countdown** — the numbers and Work/Rest labels render in 12 languages using native glyphs (中文, हिन्दी, العربية, বাংলা, ไทย, བོད་ཡིག, …). Languages that share Western numerals (e.g. Russian) can spell the count out instead, so it still reads as foreign at a glance.
 - **Drift-free timing** — the clock lives in a foreground service anchored to `elapsedRealtime()`, so it stays accurate across backgrounding, and keeps beeping with the screen off. Toggle background-running off if you'd rather it stop when you close the app.

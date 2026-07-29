@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chrispoole.intervaltimer.Settings
@@ -135,9 +136,17 @@ private const val DOUBLE_AFTER_MS = 1_000L
  * [onStep] is handed a multiplier — 1 normally, 2 once you've held past [DOUBLE_AFTER_MS] — so a
  * long hold tops out at twice the speed and no further. Deliberately a hard ceiling: the old
  * tap-streak escalation could reach 6x and would blow straight past the number you were aiming for.
+ *
+ * [size] shrinks the whole control, glyph included — the editor's interval rows carry a stepper,
+ * a phase switch and a delete on one line, which the full-size circle can't fit on a narrow phone.
  */
 @Composable
-fun GlassCircle(glyph: String, onStep: (multiplier: Int) -> Unit, modifier: Modifier = Modifier) {
+fun GlassCircle(
+    glyph: String,
+    onStep: (multiplier: Int) -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 54.dp,
+) {
     // rememberUpdatedState: pointerInput(Unit) captures onStep once, and the steppers pass a fresh
     // lambda closing over the *current* value every recomposition. Without this, a hold would keep
     // re-applying the step to the value as it was when the gesture started, and 30s + 5s would come
@@ -145,7 +154,7 @@ fun GlassCircle(glyph: String, onStep: (multiplier: Int) -> Unit, modifier: Modi
     val step = rememberUpdatedState(onStep)
     Box(
         modifier
-            .size(54.dp)
+            .size(size)
             .clip(CircleShape)
             .background(GlassFill)
             .border(1.dp, glassBorder(), CircleShape)
@@ -166,6 +175,31 @@ fun GlassCircle(glyph: String, onStep: (multiplier: Int) -> Unit, modifier: Modi
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        Text(
+            glyph,
+            color = Color.White,
+            fontSize = (size.value * 0.44f).sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * A short, self-dismissing explanation. The editor refuses a few edits (a rest that would land on
+ * another rest); refusing silently would just read as a broken button, so it says why.
+ */
+@Composable
+fun NoticePill(text: String, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        modifier
+            .clip(shape)
+            .background(Color.Black.copy(alpha = 0.75f))
+            .border(1.dp, glassBorder(), shape)
+            .padding(horizontal = 18.dp, vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }

@@ -64,6 +64,7 @@ import com.chrispoole.intervaltimer.wear.timer.WearTimerService
 import com.chrispoole.intervaltimer.wear.timer.WearUiState
 import com.chrispoole.intervaltimer.wear.timer.Workout
 import com.chrispoole.intervaltimer.wear.timer.baseWorkout
+import com.chrispoole.intervaltimer.wear.timer.playbackIntervals
 import com.chrispoole.intervaltimer.wear.timer.formatMs
 import com.chrispoole.intervaltimer.wear.timer.toWorkout
 import com.google.android.gms.wearable.DataMapItem
@@ -271,8 +272,9 @@ private fun PresetListScreen(onStart: (Preset) -> Unit, onBack: () -> Unit) {
 }
 
 private fun Preset.summary(): String {
-    val total = intervals.sumOf { it.durationSec }
-    return "${intervals.size} · ${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+    val seq = playbackIntervals()
+    val total = seq.sumOf { it.durationSec }
+    return "${seq.size} · ${total / 60}:${(total % 60).toString().padStart(2, '0')}"
 }
 
 /** Deliberate hold to pause. Shorter than the phone's 400ms — a watch face gets brushed less. */
