@@ -13,9 +13,24 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.IntervalTimer">
 
+        <!--
+            Handle fold/unfold and rotation in-process. Without this the Flip's fold destroys the
+            Activity, and the editor's in-progress sequence (plain `remember` state) is gone. Compose
+            re-lays out and refreshes LocalDensity/LocalConfiguration from onConfigurationChanged,
+            and hideSystemBars is re-applied via onWindowFocusChanged. This is a mitigation, not
+            persistence: it does not cover process death or a font-scale change.
+        -->
+        <!--
+            Portrait only. The whole layout — perimeter progress arms, the auto-fitted clock, the
+            cover-screen budget — is built for a tall window; landscape has nothing to gain and a
+            timer that flips mid-set while you're moving is worse than useless. configChanges stays:
+            it still catches the fold, which is a size change, not a rotation.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboardHidden"
             android:theme="@style/Theme.IntervalTimer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

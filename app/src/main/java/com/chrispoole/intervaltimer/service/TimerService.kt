@@ -57,7 +57,9 @@ class TimerService : Service() {
     private var totalRounds = 0
     private var startElapsed = 0L        // elapsedRealtime that maps to activeElapsed == 0
     private var pausedActive = 0L        // frozen active-elapsed while paused
-    private var paused = false
+    // Written on the main thread (pause/resume), read on the tick dispatcher. Volatile so the tick
+    // sees the flip — and, since pausedActive is written first, sees that too.
+    @Volatile private var paused = false
     private var lastNotifText = ""
 
     private var cues: List<ScheduledCue> = emptyList()
@@ -70,6 +72,8 @@ class TimerService : Service() {
         isRunning = true
         Settings.init(this)
         beeper = Beeper(this)
+        // Once per service, not once per notification — buildNotification runs every second.
+        ensureChannel()
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -114,6 +118,9 @@ class TimerService : Service() {
         tickJob?.cancel()
         beeper?.duckEnd()
         publish(w)
+        // An FGS alone doesn't keep the CPU awake, but a held wake lock does — and a paused clock
+        // has nothing to keep awake for. resume() re-acquires.
+        releaseWakeLock()
     }
 
     fun resume() {
@@ -201,11 +208,19 @@ class TimerService : Service() {
             totalRounds = totalRounds,
             done = p.done,
         )
+        // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()
+        // flipped it can still land here afterwards. Dropping that stale snapshot is what stops it
+        // overwriting the paused one and stranding the UI on a frozen, running-looking timer.
+        if (paused && !s.paused) return false
         _state.value = s
-        val text = if (s.done) "Done" else formatMs(s.remainingMs)
-        if (text != lastNotifText) {
-            lastNotifText = text
-            notify(buildNotification(s))
+        // Nothing to notify on the last tick: loop() tears the notification down immediately after,
+        // so posting "Done" here only made it flash.
+        if (!s.done) {
+            val text = formatMs(s.remainingMs)
+            if (text != lastNotifText) {
+                lastNotifText = text
+                notify(buildNotification(s))
+            }
         }
         return p.done
     }
@@ -220,21 +235,24 @@ class TimerService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
     }
 
+    /** Rebuilt every second, so everything invariant about it is hoisted out. */
+    private val openApp: PendingIntent by lazy {
+        // Tapping the notification reopens the app, which re-attaches to the live workout.
+        PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     private fun buildNotification(s: TimerUiState): Notification {
-        ensureChannel()
         val text = when {
             !s.running -> "Ready"
             s.done -> "Done"
             s.phase.name == "PREPARE" -> "Get ready · ${formatMs(s.remainingMs)}"
             else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
         }
-        // Tapping the notification reopens the app, which re-attaches to the live workout.
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Interval Timer")

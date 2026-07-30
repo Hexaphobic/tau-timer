@@ -53,6 +53,17 @@ fun cistercian(n: Int): List<Stroke> {
     return out
 }
 
+/**
+ * A countdown's remaining milliseconds as the number to draw: whole seconds, rounded up so a
+ * fresh interval reads its full duration and only shows 0 at true zero — the same rule [formatMs]
+ * uses, so the two clocks never disagree by a second.
+ *
+ * Clamped, because the numeral system stops at 9999 and [cistercian] throws past it. That's a
+ * 2h46m interval; a wrong glyph beats a crash on the one workout that reaches it.
+ */
+fun cistercianSeconds(remainingMs: Long): Int =
+    ((remainingMs.coerceAtLeast(0L) + 999) / 1000).coerceAtMost(9999L).toInt()
+
 /** Draws [number] as a single Cistercian glyph, scaled to fill the composable's bounds. */
 @Composable
 fun CistercianNumeral(

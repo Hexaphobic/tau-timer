@@ -49,7 +49,9 @@ class WearTimerService : Service() {
     private var totalRounds = 0
     private var startElapsed = 0L
     private var pausedActive = 0L
-    private var paused = false
+    // Written on the main thread (pause/resume), read on the tick dispatcher. Volatile so the tick
+    // sees the flip — and, since pausedActive is written first, sees that too.
+    @Volatile private var paused = false
     private var lastNotif = ""
 
     private var cues: List<Cue> = emptyList()
@@ -61,6 +63,8 @@ class WearTimerService : Service() {
         super.onCreate()
         isRunning = true
         vibrations = Vibrations(this)
+        // Once per service, not once per notification — buildNotification runs every second.
+        ensureChannel()
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -96,6 +100,8 @@ class WearTimerService : Service() {
         paused = true
         tickJob?.cancel()
         publish(w)
+        // Nothing to keep the (much smaller) watch CPU awake for while frozen. resume() re-acquires.
+        releaseWakeLock()
     }
 
     fun resume() {
@@ -155,6 +161,11 @@ class WearTimerService : Service() {
                 if (publish(w)) {
                     releaseWakeLock()
                     stopForeground(STOP_FOREGROUND_REMOVE)
+                    // End the started-service lifetime, matching the phone: dropping foreground
+                    // status alone leaves the instance (and isRunning) alive forever, so the next
+                    // launch would re-attach to a stale Done screen. A bound activity keeps the
+                    // instance until it unbinds, so tapping Done still works.
+                    stopSelf()
                     break
                 }
                 delay(40L)
@@ -165,7 +176,7 @@ class WearTimerService : Service() {
     /** Emits the snapshot; returns true when done. */
     private fun publish(w: Workout): Boolean {
         val p = w.progressAt(activeElapsed())
-        _state.value = WearUiState(
+        val s = WearUiState(
             running = true,
             paused = paused,
             phase = p.phase,
@@ -174,10 +185,18 @@ class WearTimerService : Service() {
             totalRounds = totalRounds,
             done = p.done,
         )
-        val text = if (p.done) "Done" else formatMs(p.remainingMs)
-        if (text != lastNotif) {
-            lastNotif = text
-            notify(buildNotification(_state.value))
+        // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()
+        // flipped it can still land here afterwards. Dropping that stale snapshot is what stops it
+        // overwriting the paused one and stranding the UI on a frozen, running-looking timer.
+        if (paused && !s.paused) return false
+        _state.value = s
+        // Nothing to notify on the last tick: loop() tears the notification down immediately after.
+        if (!p.done) {
+            val text = formatMs(p.remainingMs)
+            if (text != lastNotif) {
+                lastNotif = text
+                notify(buildNotification(s))
+            }
         }
         return p.done
     }
@@ -192,11 +211,14 @@ class WearTimerService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
     }
 
-    private fun buildNotification(s: WearUiState): Notification {
+    private fun ensureChannel() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Timer", NotificationManager.IMPORTANCE_LOW))
         }
+    }
+
+    private fun buildNotification(s: WearUiState): Notification {
         val text = when {
             !s.running -> "Ready"
             s.done -> "Done"

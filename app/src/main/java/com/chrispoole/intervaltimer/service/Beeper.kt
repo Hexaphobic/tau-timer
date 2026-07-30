@@ -55,6 +55,10 @@ class Beeper(context: Context) {
         goId = pool.load(context, R.raw.go, 1)
     }
 
+    // duckStart runs on the tick dispatcher, duckEnd on both it and the main thread (pause/stop).
+    // Unsynchronised, the two can interleave so that nobody abandons focus and the user's music
+    // stays ducked for good.
+    @Synchronized
     fun duckStart() {
         if (Settings.muted) return
         if (!ducking) {
@@ -63,6 +67,7 @@ class Beeper(context: Context) {
         }
     }
 
+    @Synchronized
     fun duckEnd() {
         if (ducking) {
             am.abandonAudioFocusRequest(focusRequest)
@@ -83,6 +88,7 @@ class Beeper(context: Context) {
         pool.play(id, gain, gain, 1, 0, 1f)
     }
 
+    @Synchronized
     fun release() {
         duckEnd()
         pool.release()

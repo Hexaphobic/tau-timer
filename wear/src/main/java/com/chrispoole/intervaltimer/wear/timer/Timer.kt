@@ -47,12 +47,31 @@ fun baseWorkout(prepareMs: Long, workMs: Long, restMs: Long, rounds: Int): Worko
 }
 
 data class SeqInterval(val phase: Phase, val durationSec: Int)
-data class Preset(val name: String, val intervals: List<SeqInterval>)
+
+/** [repeatAll] plays the whole sequence through that many times; the phone syncs it in the JSON. */
+data class Preset(val name: String, val intervals: List<SeqInterval>, val repeatAll: Int = 1)
+
+/** The sequence as it actually plays: the whole of it, [repeatAll] times over. */
+fun Preset.expanded(): List<SeqInterval> =
+    if (repeatAll <= 1) intervals else List(repeatAll) { intervals }.flatten()
+
+/**
+ * What the watch will run. Mirrors the phone, including dropping a rest that would end the workout —
+ * the same preset has to play the same on both, and it didn't: the watch was tacking a final rest
+ * onto every sequence the phone ends cleanly.
+ */
+fun Preset.playbackIntervals(): List<SeqInterval> {
+    val full = expanded()
+    return if (full.size > 1 && full.last().phase == Phase.REST) full.dropLast(1) else full
+}
 
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
+    // Must match the phone's Preset.toWorkout exactly, or the same synced preset runs a different
+    // workout on each device: a rest after the very last work interval is dropped at run time.
+    val seq = playbackIntervals()
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
-        intervals.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
+        seq.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
     }
     return Workout(list)
 }
