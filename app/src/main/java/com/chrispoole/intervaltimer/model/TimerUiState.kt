@@ -12,6 +12,7 @@ data class TimerUiState(
     val totalRounds: Int = 0,
     val done: Boolean = false,
 ) {
+
     companion object {
         val Idle = TimerUiState()
     }

@@ -28,7 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chrispoole.intervaltimer.Settings
 
-val GlassFill = Color.White.copy(alpha = 0.10f)
+// Every glass surface in the app reads from these two, so contrast is tuned here rather than per
+// screen. Raised from 0.10/0.45 once the plain home lost its phase colours: with nothing tinted,
+// the steppers were the only thing separating the controls from the black behind them.
+val GlassFill = Color.White.copy(alpha = 0.16f)
 
 /**
  * Selectable colour palettes, named after the monkeytype themes they're taken from.
@@ -42,27 +45,33 @@ val GlassFill = Color.White.copy(alpha = 0.10f)
  * pale one has no dark channel to keep the background black with — monkeytype's miami yellow
  * (#FFF591) turned the whole timer into a flat olive field on device. So hexes are the originals
  * where they hold up, and pushed toward saturation where they don't.
+ *
+ * Two rules decide whether a theme earns its place, and four were cut for failing them: work and
+ * rest must be far enough apart in hue to tell apart at a glance mid-set (Aurora was 33°), and a
+ * theme must not be a near-copy of one already here (Aurora sat 23° from Default, Solarized 15°
+ * from Laser). Gruvbox and Rosé Pine went for saturation — 0.21 and 0.28 — which reads as mud
+ * once a colour fills a whole row or screen rather than edging one. Joker went the same way as
+ * Aurora: lime-and-purple was Grape's pairing already.
  */
+// Declaration order IS the order of the picker, so it's hand-set rather than alphabetical: the
+// strongest and most distinct themes lead, and Mono sits third rather than exiled to the end —
+// it's a deliberate choice, not the leftover at the bottom of the list.
 enum class Palette(val label: String, val work: Color, val rest: Color, val prep: Color) {
+    // Dracula went the way of Aurora: 15° from Default is the same theme with a different name.
     DEFAULT("Default", Color(0xFF22E06A), Color(0xFF38BDF8), Color(0xFF8B5CF6)),
-    DRACULA("Dracula", Color(0xFF50FA7B), Color(0xFF8BE9FD), Color(0xFFBD93F9)),
-    GRUVBOX("Gruvbox", Color(0xFFB8BB26), Color(0xFF83A598), Color(0xFFD3869B)),
-    ROSE_PINE("Rosé Pine", Color(0xFF9CCFD8), Color(0xFFC4A7E7), Color(0xFFF6C177)),
-    SOLARIZED("Solarized", Color(0xFF859900), Color(0xFF2AA198), Color(0xFFD33682)),
-    AURORA("Aurora", Color(0xFF00E980), Color(0xFF2EC5D6), Color(0xFFB94DA1)),
-    MIAMI("Miami", Color(0xFFFF2D8F), Color(0xFF05DFD7), Color(0xFFFFC400)),
-    LASER("Laser", Color(0xFFA8D400), Color(0xFF22C9DC), Color(0xFFFF3D7F)),
-    TRANCE("Trance", Color(0xFF02D3B0), Color(0xFF6C8BE8), Color(0xFFE51376)),
-    GRAPE("Grape", Color(0xFFFF8F00), Color(0xFFB14EFF), Color(0xFFFF4081)),
-    JOKER("Joker", Color(0xFF99DE1E), Color(0xFF9B6FE0), Color(0xFFFF5C5C)),
-    SPIDEY("Spidey", Color(0xFFE23636), Color(0xFF0476F2), Color(0xFFFFD400)),
-    TRON("Tron", Color(0xFFFF6600), Color(0xFF00D4FF), Color(0xFFF0E800)),
     VESPER("Vesper", Color(0xFF99FFE4), Color(0xFFFFC799), Color(0xFFFF8080)),
 
     // No hue at all. Paired with the Minimal switch this is the plain black-and-white timer; on its
     // own it's a white aura. Work and rest look identical here — that is the whole point, but it
     // does mean the preset list and editor lose their colour coding while it's selected.
     MONO("Mono", Color.White, Color.White, Color.White),
+
+    MIAMI("Miami", Color(0xFFFF2D8F), Color(0xFF05DFD7), Color(0xFFFFC400)),
+    TRANCE("Trance", Color(0xFF02D3B0), Color(0xFF6C8BE8), Color(0xFFE51376)),
+    GRAPE("Grape", Color(0xFFFF8F00), Color(0xFFB14EFF), Color(0xFFFF4081)),
+    SPIDEY("Spidey", Color(0xFFE23636), Color(0xFF0476F2), Color(0xFFFFD400)),
+    LASER("Laser", Color(0xFFA8D400), Color(0xFF22C9DC), Color(0xFFFF3D7F)),
+    TRON("Tron", Color(0xFFFF6600), Color(0xFF00D4FF), Color(0xFFF0E800)),
 }
 
 // Phase colours — one source for the timer glow, the home aurora, the editor and the legend, so
@@ -88,7 +97,7 @@ fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier =
     clickable(interactionSource = null, indication = null) { onClick() }
 
 fun glassBorder(): Brush =
-    Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.06f)))
+    Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.60f), Color.White.copy(alpha = 0.14f)))
 
 @Composable
 fun GlassPill(

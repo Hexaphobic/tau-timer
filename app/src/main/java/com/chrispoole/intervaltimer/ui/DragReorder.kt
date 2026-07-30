@@ -119,6 +119,26 @@ class DragDropState internal constructor(
         if (draggingKey == null) return
         dragged += deltaY
         if (deltaY != 0f) lastDelta = deltaY
+        clampToRegion()
+    }
+
+    /**
+     * Keep the floating card inside the reorderable region: it can't be carried over the header
+     * above the first card or the buttons below the last one. When either end of the region is
+     * scrolled out of view its position is unknowable, so the viewport edge stands in — which is
+     * also exactly where auto-scroll takes over.
+     */
+    private fun clampToRegion() {
+        val info = infoFor(draggingKey) ?: return
+        val layout = listState.layoutInfo
+        val range = draggable()
+        val visible = layout.visibleItemsInfo
+        val lo = visible.firstOrNull { it.index == range.first }?.offset?.toFloat()
+            ?: layout.viewportStartOffset.toFloat()
+        val hi = (visible.firstOrNull { it.index == range.last }?.let { it.offset + it.size }
+            ?: layout.viewportEndOffset).toFloat() - info.size
+        val top = pickedUpAt + dragged
+        dragged += top.coerceIn(lo, hi.coerceAtLeast(lo)) - top
     }
 
     fun onDragEnd() {
@@ -170,6 +190,9 @@ class DragDropState internal constructor(
         val slotWouldLeave = (scroll > 0f && info.offset <= listState.layoutInfo.viewportStartOffset) ||
             (scroll < 0f && info.offset + info.size >= listState.layoutInfo.viewportEndOffset)
         if (scroll != 0f && !slotWouldLeave) listState.scrollBy(scroll)
+        // Auto-scroll moves the region under a stationary finger, so re-clamp here too — the
+        // pointer callback alone only runs while the finger moves.
+        clampToRegion()
     }
 
     /**

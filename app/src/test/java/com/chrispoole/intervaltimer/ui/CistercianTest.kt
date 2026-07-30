@@ -27,6 +27,14 @@ class CistercianTest {
         assertEquals(12 + 1, cistercian(9999).size) // 9 is three strokes per quadrant
     }
 
+    @Test fun `seconds round up and stay in range`() {
+        assertEquals(30, cistercianSeconds(30_000))      // a fresh interval reads its full duration
+        assertEquals(1, cistercianSeconds(1))            // and only hits 0 at true zero
+        assertEquals(0, cistercianSeconds(0))
+        assertEquals(0, cistercianSeconds(-5_000))
+        cistercian(cistercianSeconds(9_999_000_000L))    // clamped, not thrown
+    }
+
     @Test fun `all strokes stay inside the unit box`() {
         for (n in 0..9999) {
             assertTrue(cistercian(n).all { it.x1 in -1f..1f && it.y1 in -1f..1f && it.x2 in -1f..1f && it.y2 in -1f..1f })

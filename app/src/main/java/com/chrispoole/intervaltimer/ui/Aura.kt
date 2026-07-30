@@ -136,6 +136,55 @@ fun AuraBackground(glow: Color, progress: Float, modifier: Modifier = Modifier) 
     )
 }
 
+/**
+ * Mid-interval: what a phase looks like for most of the time you're staring at it. The swatch is
+ * frozen here rather than at either end, where the glow is still building or already peaked.
+ */
+private const val SWATCH_PROGRESS = 0.5f
+
+/**
+ * The timer's own aura, shrunk to a swatch. Deliberately [AURA_AGSL] itself — the same shader the
+ * running workout draws — so a theme previews as what GO actually shows instead of as a hand-tuned
+ * imitation of it that drifts the first time the real one is touched.
+ *
+ * Frozen, not animated: a grid of these would otherwise run a dozen shaders at 60fps to show drift
+ * nobody is watching. Minimal mode is ignored on purpose — honouring it would render nine black
+ * rectangles, which is accurate and useless for picking a theme.
+ *
+ * [seed] picks WHICH frame of the drift each swatch is frozen at, fed straight to iTime. The four
+ * blooms orbit on periods of roughly 17.5s, 21s, 26s and 32s, and those don't divide into each
+ * other, so separated seeds give genuinely different compositions rather than the same picture
+ * twice. Left at 0 every swatch is the identical frame, which is what made a grid of them read as
+ * one image stamped out repeatedly. Deliberately not routed through iProgress: that is only a
+ * brightness multiplier, so varying it would make some themes look brighter than others for
+ * reasons that have nothing to do with the theme.
+ */
+@Composable
+fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float = 0f) {
+    if (Build.VERSION.SDK_INT < 33) {
+        // Same fallback as the timer, so the two still agree on pre-33 devices. The seed is
+        // ignored here: there's no shader to re-time, and pre-33 devices get identical swatches
+        // rather than a second bespoke gradient to keep in sync. ponytail: API 33 is the floor
+        // this app is really built for.
+        val prog = 0.55f + 0.45f * SWATCH_PROGRESS
+        Box(modifier.background(Brush.radialGradient(listOf(glow.copy(alpha = 0.5f * prog), Color(0xFF070709)))))
+        return
+    }
+    val shader = remember { RuntimeShader(AURA_AGSL) }
+    val brush = remember { ShaderBrush(shader) }
+    Box(
+        modifier.drawWithCache {
+            shader.setFloatUniform("iResolution", size.width, size.height)
+            onDrawBehind {
+                shader.setFloatUniform("iTime", seed)
+                shader.setFloatUniform("iProgress", SWATCH_PROGRESS)
+                shader.setColorUniform("glow", glow.toArgb())
+                drawRect(brush)
+            }
+        }
+    )
+}
+
 /** Distant weaving aurora over AMOLED black, in the current palette's colours. */
 @Composable
 fun HomeBackground(modifier: Modifier = Modifier) {

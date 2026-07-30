@@ -5,7 +5,7 @@ object Numbers {
 
     /** MM:SS with native digit glyphs + colon when the language has them, else Western. */
     fun clock(remainingMs: Long, lang: Language): String {
-        if (lang.han) return hanClock(remainingMs, lang)
+        if (lang.stacks) return stackedClock(remainingMs, lang)
         val ascii = formatMs(remainingMs)
         val glyphs = lang.digits ?: return ascii
         return ascii.map { c ->
@@ -17,21 +17,53 @@ object Numbers {
         }.joinToString("")
     }
 
-    /** Chinese/Japanese clock: proper Han numerals (十, 二十五) per component, not digit glyphs (一〇). */
-    private fun hanClock(remainingMs: Long, lang: Language): String =
+    /** Composed numerals per component (十, 二十五 / 십, 이십오) rather than digit glyphs (一〇). */
+    private fun stackedClock(remainingMs: Long, lang: Language): String =
         clockLines(remainingMs, lang).joinToString(lang.colon)
 
+    /** A composing language's numeral for [n]: Han for Chinese/Japanese, Sino-Korean for Korean. */
+    private fun numeral(n: Int, lang: Language): String =
+        if (lang.han) han(n, lang) else korean(n)
+
     /**
-     * The clock split into display lines. Han minute forms are wide — 一：三十 is four full-width
-     * glyphs — so minutes and seconds stack, letting each line roughly double in size on the same
-     * screen. The caller draws its own separator between them. Everything else is one line.
+     * The clock split into display lines. Composed minute forms are wide — 一：三十 is four
+     * full-width glyphs — so minutes and seconds stack, letting each line roughly double in size on
+     * the same screen. The caller draws its own separator between them. Everything else is one line.
      */
     fun clockLines(remainingMs: Long, lang: Language): List<String> {
-        if (!lang.han) return listOf(clock(remainingMs, lang))
+        if (!lang.stacks) return listOf(clock(remainingMs, lang))
         val total = ((remainingMs.coerceAtLeast(0L) + 999) / 1000).toInt()
         val min = total / 60
         val sec = total % 60
-        return if (min == 0) listOf(han(sec, lang)) else listOf(han(min, lang), han(sec, lang))
+        return if (min == 0) listOf(numeral(sec, lang))
+        else listOf(numeral(min, lang), numeral(sec, lang))
+    }
+
+    /**
+     * A plain whole number in the language's own numerals — for the round counter, which used to
+     * print Western digits whatever language you were in. Han languages get proper numerals
+     * (十六, not 一六); scripts with their own digit glyphs get those; everyone else keeps 0-9.
+     */
+    fun count(n: Int, lang: Language): String {
+        if (lang.stacks) return numeral(n, lang)
+        val g = lang.digits ?: return n.toString()
+        return buildString { for (c in n.toString()) append(g[c - '0']) }
+    }
+
+    /**
+     * The widest strings this interval will ever show, so the clock can be sized once and held
+     * there instead of refitting every second.
+     *
+     * Minutes only ever shrink, so the interval's own minute count is the widest it gets. Seconds
+     * pass through 59 on the way down whenever the interval runs a minute or more — which is the
+     * real point: 三十九 is three glyphs and 四十 is two, so a size fitted to whatever is on screen
+     * jumps every time the count crosses a ten.
+     */
+    fun widestClockLines(intervalMs: Long, lang: Language): List<String> {
+        val totalSec = (intervalMs.coerceAtLeast(0L) / 1000).toInt()
+        if (!lang.stacks) return listOf(clock(intervalMs, lang))
+        if (totalSec < 60) return listOf(numeral(totalSec, lang))
+        return listOf(numeral(totalSec / 60, lang), numeral(59, lang))
     }
 
     /** Han cardinal for 0..99 (clock components); glyphs supply 0-9, 十 is ten. */
@@ -48,7 +80,7 @@ object Numbers {
     /**
      * The remaining seconds spelled out in the language, for word mode under a minute.
      * Word mode only fires under a minute, so the range is 0..60 — small enough to spell by
-     * hand for the five non-glyph languages, which is why the app carries no ICU library.
+     * hand for the four spelling languages, which is why the app carries no ICU library.
      */
     fun words(remainingMs: Long, lang: Language): String {
         val n = ((remainingMs.coerceAtLeast(0L) + 999) / 1000).toInt().coerceIn(0, 60)
@@ -56,7 +88,6 @@ object Numbers {
             "es" -> spanish(n)
             "fr" -> french(n)
             "ru" -> russian(n)
-            "ko" -> korean(n)
             else -> english(n)
         }
     }
@@ -108,13 +139,18 @@ object Numbers {
         else -> "${ruTens[n / 10]} ${ruUnder20[n % 10]}"
     }
 
-    // Sino-Korean (used for clock time): 일 이 삼…, 십 for ten, composed without spaces.
+    // Sino-Korean (used for clock time): 일 이 삼…, 십 for ten, 백 for hundred, composed without
+    // spaces. The leading 일 is dropped at both scales — ten is 십, not 일십; a hundred is 백.
     private val koOnes = arrayOf("영", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구")
     private fun korean(n: Int): String = when {
         n < 10 -> koOnes[n]
-        else -> {
+        n < 100 -> {
             val tens = if (n / 10 == 1) "십" else koOnes[n / 10] + "십"
             if (n % 10 == 0) tens else tens + koOnes[n % 10]
+        }
+        else -> {
+            val hundreds = if (n / 100 == 1) "백" else koOnes[n / 100] + "백"
+            if (n % 100 == 0) hundreds else hundreds + korean(n % 100)
         }
     }
 }

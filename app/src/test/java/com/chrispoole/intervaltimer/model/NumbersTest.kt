@@ -60,7 +60,19 @@ class NumbersTest {
         assertEquals("двадцать один", w(21, Language.RU))
         assertEquals("сорок", w(40, Language.RU))
 
-        assertEquals("십", w(10, Language.KO))
-        assertEquals("이십일", w(21, Language.KO))
+    }
+
+    // Korean composes numerals of its own, so it takes the stacked clock with Chinese and Japanese
+    // rather than the speller — 1:30 is two short lines, not one growing word.
+    @Test fun sinoKoreanComposesAndStacks() {
+        assertEquals("십", Numbers.clock(10_000, Language.KO))        // 10, not 일십
+        assertEquals("이십일", Numbers.clock(21_000, Language.KO))
+        assertEquals("오십구", Numbers.clock(59_000, Language.KO))
+        assertEquals(listOf("일", "삼십"), Numbers.clockLines(90_000, Language.KO))
+        assertEquals(listOf("십", "영"), Numbers.clockLines(600_000, Language.KO))  // 10:00
+        // Past ninety-nine the hundreds form kicks in, so a long interval's minute line holds up.
+        assertEquals("백오십", Numbers.count(150, Language.KO))
+        // One size for the interval: seconds always pass through 59 on the way down.
+        assertEquals(listOf("일", "오십구"), Numbers.widestClockLines(90_000, Language.KO))
     }
 }

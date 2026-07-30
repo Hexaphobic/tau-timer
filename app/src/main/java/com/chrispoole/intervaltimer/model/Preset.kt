@@ -46,6 +46,21 @@ fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     return Workout(list)
 }
 
+/** One home-screen section: its own work/rest pair, run [rounds] times over. */
+data class HomeBlock(val workSec: Int, val restSec: Int, val rounds: Int)
+
+/** The home screen's sequence: each section's (work, rest) × rounds, played in order. */
+fun homePreset(blocks: List<HomeBlock>): Preset =
+    Preset("", flatten(blocks.map { b ->
+        Block(
+            buildList {
+                add(SeqInterval(Phase.WORK, b.workSec))
+                if (b.restSec > 0) add(SeqInterval(Phase.REST, b.restSec))
+            },
+            b.rounds,
+        )
+    }))
+
 /** A repeated run of intervals — the editor's unit. Flat storage stays the source of truth. */
 data class Block(val items: List<SeqInterval>, val repeat: Int)
 

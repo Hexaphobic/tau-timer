@@ -25,7 +25,6 @@ object Settings {
     var muted by mutableStateOf(false); private set
     var languageCode by mutableStateOf("en"); private set
     var wordMode by mutableStateOf(true); private set
-    var pureScript by mutableStateOf(false); private set // hide the Western/numeric fallback entirely
     var runInBackground by mutableStateOf(true); private set // keep the workout alive if the app is closed
     var palette by mutableStateOf(Palette.DEFAULT); private set // phase colours + home aurora
     // Orthogonal to the palette: kills the aura and leaves a black screen, whichever colours are on.
@@ -55,7 +54,6 @@ object Settings {
         muted = p.getBoolean("muted", false)
         languageCode = p.getString("lang", "en") ?: "en"
         wordMode = p.getBoolean("wordMode", true)
-        pureScript = p.getBoolean("pureScript", false)
         runInBackground = p.getBoolean("runInBackground", true)
         // Stored by name, so a palette dropped in a later version degrades to Default instead of
         // throwing on launch.
@@ -81,7 +79,6 @@ object Settings {
     fun updateMuted(m: Boolean) { muted = m; prefs?.edit()?.putBoolean("muted", m)?.apply() }
     fun updateLanguage(code: String) { languageCode = code; prefs?.edit()?.putString("lang", code)?.apply() }
     fun updateWordMode(w: Boolean) { wordMode = w; prefs?.edit()?.putBoolean("wordMode", w)?.apply() }
-    fun updatePureScript(p2: Boolean) { pureScript = p2; prefs?.edit()?.putBoolean("pureScript", p2)?.apply() }
     fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit()?.putBoolean("runInBackground", b)?.apply() }
     fun updatePalette(p2: Palette) { palette = p2; prefs?.edit()?.putString("palette", p2.name)?.apply() }
     fun updateMinimalBg(b: Boolean) { minimalBg = b; prefs?.edit()?.putBoolean("minimalBg", b)?.apply() }
