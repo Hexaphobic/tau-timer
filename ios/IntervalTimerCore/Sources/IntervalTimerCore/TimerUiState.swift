@@ -10,6 +10,8 @@ public struct TimerUiState: Equatable, Sendable {
     public var fraction: Double
     public var round: Int
     public var totalRounds: Int
+    /// Work sets in one pass, 0 when the workout runs once — the pips' row width. See `Workout`.
+    public var roundsPerPass: Int
     public var done: Bool
 
     public init(
@@ -21,6 +23,7 @@ public struct TimerUiState: Equatable, Sendable {
         fraction: Double = 0,
         round: Int = 0,
         totalRounds: Int = 0,
+        roundsPerPass: Int = 0,
         done: Bool = false
     ) {
         self.running = running
@@ -31,6 +34,7 @@ public struct TimerUiState: Equatable, Sendable {
         self.fraction = fraction
         self.round = round
         self.totalRounds = totalRounds
+        self.roundsPerPass = roundsPerPass
         self.done = done
     }
 

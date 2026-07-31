@@ -212,9 +212,9 @@ this whole section that many times.
   dialling a rest to 0 is still how you drop it there.
 - **Rest may still be 0.** The interval stays in the section so the number is there to dial back up;
   `homePreset` drops zero-length intervals at playback. Work keeps its 5s floor.
-- **The round counter** still reads "3 / 8" for the classic shape and only that: `Block.isBasic` is
-  what decides whether GO builds a `baseWorkout` or a sequence. Two sections, or one holding
-  work/work/rest, have no single round to count and fall to interval positions.
+- **The round counter** reads "3 / 8" for the classic shape: `Block.isBasic` is what decides whether
+  GO builds a `baseWorkout` or a sequence. Two sections, or one holding work/work/rest, fall to the
+  sequence path — which counted *interval positions* until §32 taught it to count work sets too.
 
 ### 16. The whole home layout persists — both platforms
 
@@ -622,12 +622,228 @@ work/rest colour correlation.
 
 ---
 
-## Not built — design question
+## Fifth pass — 2026-07-31, what the pips are counting
+
+### 32. A pip is a work set, and a row is a pass — all three targets
+
+> three blocks, the first repeated twice, all of it twice · "you just show up 15. You should only
+> show eight… it should just be two rows of four" · "I think it's counting rest blocks as a block"
+
+The diagnosis was right, and it was one line. `Preset.toWorkout` numbered `Interval.round` by
+**position** in the played sequence, so every rest was a round of its own: four work sets a pass ×
+two passes = 8 work + 8 rest = 16, less the closing rest the timer drops = **15**. The counter said
+"1 / 15" and the grid wrapped fifteen squares into rows of 6/5/4 — a shape that answers no question
+anyone was asking.
+
+Rounds now count work. A rest carries the round of the work it follows; anything before the first
+work is 0. That is exactly how `baseWorkout` has numbered the plain home since the beginning, so the
+two paths finally count the same thing and "3 / 8" means the same wherever you see it. Mirrored into
+Wear's own `Timer.kt` — presets sync, and a watch counting to 15 beside a phone counting to 8 is the
+worst possible version of this bug.
+
+**This is item 10 below, settled by the user picking option 3.** Rows are the workout's own shape:
+`Workout.roundsPerPass` carries the work-sets-in-one-pass through `TimerUiState` to the grid, and
+`Pips.rows(total, perRow)` draws one row per pass instead of wrapping by count. The worry recorded
+in item 10 — that per-group rows fight the even split from item 1 — is handled by falling back to
+the wrap whenever the shape wouldn't draw: one pass (no shape to show), one pip per row (a column,
+not a shape), a row past `SINGLE_ROW_MAX` (a wall), or more rows than `MAX_ROWS` (taller than the
+timer screen reserves). So the grid is never taller than it was, and `OverallProgress`'s existing
+two-term cell arithmetic already sized rows wider than eight — the single-row case needed it.
+
+Third piece, asked for in the same breath: **the home now shows the whole workout's time above GO**.
+The section headers each show their own share and none of them adds up to the total. It is measured
+off `homePreset(blocks, repeatAll).playbackIntervals()` — the exact sequence GO builds — rather than
+re-derived from the blocks, so it cannot drift from what runs: same zero-length drop, same trailing
+rest, same outer ×N. The prepare lead-in is deliberately excluded, or the total would disagree with
+the section times stacked directly above it. Always M:SS, because a bare "45" reads as a count.
+
+**What the adversarial review of §32 caught.** Twenty-four agents over the diff; every finding they
+raised was refuted on inspection except one, which a probe found by sweeping the whole state space
+instead of guessing cases. The total was measured off `homePreset`, but GO branches: a single basic
+section takes `baseWorkout` instead. The two disagree exactly once — a single basic section of
+**Work 0 / Rest 15 at one round**, where `baseWorkout` plays a lone zero-length work and nothing
+else, while the sequence builder drops the empty work, is left holding one rest, and keeps it
+because a lone interval is the whole sequence. Label said 15s over a button that ran 0s.
+
+Reachable, which is what makes it real: Work's floor is 5s so you cannot dial it to zero, but you
+*can* dial a Rest to 0 and tap its label to make it a Work — the flip doesn't re-apply the floor.
+
+Fixed by deleting the second builder rather than patching the arithmetic. `homeWorkout(blocks,
+repeatAll, prepareMs)` now lives in the model on both platforms, GO calls it, and `homeSeconds` is
+its `totalMs` — so the number and the button are the same object and cannot describe different
+workouts. `theTotalOverGoIsTheWorkoutGoRuns` sweeps every one- and two-section home built from
+{work, rest} × {0s, 5s, 30s} × {×1, ×2} at every repeatAll 1–3, mirrored in both suites. Confirmed
+it bites: restoring the old formula reddens it on `[Work 0, Rest 5] ×1`, expected 0 but was 5000.
+
+Verified on the iOS simulator, the user's exact case: three sections (first ×2), Rounds 2 →
+home total **6:25** = 3:20 + 1:40 + 1:25, and GO gives **"1 / 8"** over **two rows of four**.
+Both platforms' unit tests pin the case, including the 15-interval playback list unchanged and the
+`[1,1,2,2,3,3,4,4,5,5,6,6,7,7,8]` numbering. Android builds green with identical model code but the
+phone was not attached — **eyeball it in the morning smoke pass** (LAUNCH.md step 2), same as §31.
+
+### 33. The set you're on breathes — both platforms
+
+> "similar to how agents are displayed inside Claude… the squares that are active are kind of like
+> flashing, glowing in and out… subtle, just enough to know, 'Oh, that's actively being done'"
+
+The grid said how far; it didn't say *where*. The current pip now pulses between 0.45 and 1.0 on a
+1.6s cycle — the trough deliberately sits above the unlit 0.22, so a live pip never reads as one you
+haven't reached, and the peak goes brighter than the flat 0.85 of the ones behind it. Only the
+current pip moves. It stops on pause and on finish: a pip still pulsing on a paused timer is the
+screen claiming something is running when nothing is.
+
+The two platforms need genuinely different mechanisms, and the iOS one is the interesting half.
+
+- **Android** — `rememberInfiniteTransition` with `RepeatMode.Reverse`, created only when the
+  workout is live, the same bargain the `Stepper` glow makes. The alpha is *computed* from a
+  continuously-animating float, so whichever pip is current reads whatever the wave is doing at that
+  moment. Read inside `drawBehind`, not passed to `background()`: a state read at draw time
+  invalidates the drawing only, where reading it in composition would rebuild all thirty-two boxes
+  sixty times a second in order to change one of them.
+- **iOS** — `TimelineView(.animation(paused:))` sampling a cosine off the clock. The obvious SwiftUI
+  spelling — flip a `@State` Bool inside `withAnimation(.repeatForever)` — is wrong here in a way
+  that only shows up on round 2: the animation attaches at the instant the flag changes, so exactly
+  one pip ever pulses, the one that happened to be current when the view appeared, and every later
+  round inherits a settled value and sits still. Sampling time has no edge to miss. (Same family as
+  the §28–30 drop bug: do not build visual continuity out of something that only happens at a
+  transaction boundary.)
+
+Measured from a 6s screen recording at 10fps, mid-workout: the current pip's grey walks
+189 → 252 → 189 with troughs 16 frames apart — **1.6s**, as specified — while the completed pips
+hold flat at 232 and the unlit ones at 162. At the round boundary the old pip locks to 232 in one
+frame and the next pip picks the wave up **mid-cycle** (enters at 253, descends to 173, climbs
+again), which is the exact behaviour the Bool-flag version would have failed.
+
+Not pulsed: the >32-round bar fallback. It is already the degraded case and has no "current" square
+to point at.
+
+### 34. What each number on the home is *about* — both platforms
+
+> "I want just the total, not the total rounds. I want that time to be the total of the block." ·
+> "for the total time of all blocks combined, including how many rounds total, that should not be at
+> the bottom. That should be at the top, just below where it says 'Save as preset'."
+
+Three corrections to §32, all of them the same correction: a number has to describe the thing it
+sits next to.
+
+- **The block header time is now the block, full stop** — its intervals, run its own × N. It used to
+  be the block's *share of the workout*: multiplied by the home's Rounds as well, and with the last
+  block docking the closing rest the timer won't play. Both were defensible and both were wrong in
+  that row, because the number sits beside the block's own "× 2" and has to mean what that means.
+  Multiplying by the outer rounds made a block's length change when you touched a control somewhere
+  else entirely; docking the rest made two identical blocks read as different lengths depending on
+  which one happened to be last.
+- **The summary moved to the top**, under "Save as preset", and carries both halves: `8 sets · 6:05`.
+  It was a bare time sitting on the GO button, which is where you look last.
+- **M:SS everywhere on this screen.** Block times are block-sized now rather than workout-sized, so
+  most are under a minute, and `formatMs` renders those bare — a lone "50" in a column under "1:30"
+  reads as anything but fifty seconds.
+
+**Sets, not rounds**, deliberately, though the ask said rounds. "Rounds" is already the label on the
+control directly below, where it means the outer ×N — 2, in the example. This is the other number, 8,
+the one the timer counts you through and the pips draw. Two meanings for one word on one screen is
+worse than borrowing the word the user themselves used first ("there are four total sets and the
+rounds go over twice"). `homeSets` reads it off the built workout, the same `maxOf { round }` the
+service computes, so the home cannot advertise a count the timer won't show.
+
+Verified on both: iPhone `[35,10]×2 → 1:30`, two `[35,15]×1 → 0:50`, Rounds 2, top line
+**8 sets · 6:05** (190 × 2 − 15). Flip 7 `[20,45]×1 → 1:05`, `[30,45]×1 → 1:15`, Rounds 4, top line
+**8 sets · 8:35** (140 × 4 − 45).
+
+### 35. §32–33 on real Android hardware
+
+The Flip 7 was folded for §31–33, so all of it shipped compiled-and-tested but unseen. Now seen, on
+a phone that happens to be set to Chinese word-mode, which exercised the localisation path for free:
+
+- **Rounds count work sets**: the counter reads **二 / 八** — 2 of 8 — where it would have said 15.
+- **Rows are passes**: two sets a round over four rounds draws **four rows of two**, not a wrapped
+  line of eight.
+- **The pulse**, measured off `screenrecord` at 10fps: the current pip walks 178 → 253 → 178 with
+  troughs 16 frames apart — **1.6s**, the same period measured on the simulator, so the two platforms'
+  entirely different mechanisms (`rememberInfiniteTransition` vs `TimelineView`) agree to the frame.
+  The other seven pips are flat; their ±9 drift over six seconds is the background aura rotating.
+- **Pause freezes it**: both lit pips flat at 236, swing ≤ 0.4.
+- **Built-in preset Edit** (the §31 leftover): Tabata opens the editor prefilled — Work 20s, Rest 10s,
+  Repeat this group × 8, "1 group · 15 intervals · 3:50". Cancelled without saving; presets untouched.
+
+Nothing on the Android smoke-pass list is outstanding.
+
+### 36. The home was the last screen walling off the camera cutout
+
+Reported on the Flip: scroll the home up and cards were cut off short of the top. `SetupScreen`'s
+container carried `safeDrawingPadding()`, which shrinks the `LazyColumn`'s **viewport**, not just its
+content — so the list's own clipping edge sat below the punch-hole and a card sliding up vanished at
+a line the screen gives no reason for. Presets and Settings were moved off that pattern earlier (§11);
+the home never was.
+
+Fixed the same way they were: container full-bleed, the top and bottom insets moved into the list's
+`contentPadding` (safe inset + 56.dp, so at rest nothing moved a pixel), and the three things floating
+over the scroll — Presets, Settings, Δτ — and the saved-notice pill now carry their own
+`safeDrawingPadding()`. Verified on the Flip: at full scroll "Save as preset" reaches the top edge of
+the display intact, passing behind the chrome instead of being cut against it.
+
+### 37. The top chrome leaves with the page
+
+Presets, Settings and Δτ sat over the scroll, so a card sliding past them overlapped three bits of
+text that were pinned in place. Both platforms now: **Δτ is the list's own first item** — it is a
+mark, not a control, so it belongs to the page and leaves by scrolling like everything else — and
+**Presets and Settings slide out the side each one already sits on** and fade. The height the chrome
+row used to hold open moved into the mark, so nothing below it shifted by a pixel.
+
+**Presets and Settings are list items too** — the header is one row at the top of the content, and
+it scrolls away because it is *in* the thing that scrolls. That is the whole mechanism.
+
+Getting there took three wrong turns, all of them variations on keeping the buttons pinned over the
+scroll and animating them out to fake what a list item does for free:
+
+1. **A threshold and a 220ms tween.** A fixed duration can only ever run at one speed, so a quick
+   flick left both of them still crossing the page long after the content had gone past them.
+2. **A 0 → 1 fraction of the absolute scroll offset**, plus a commit to 0 or 1 when the scroll stops.
+   Speed solved, but mapping off the *absolute* offset made every committed state a lie: settled back
+   IN with the page still 45 down, the next touch snapped them to where the offset said they should
+   be — a jump to the sides for a one-pixel drag.
+3. **Accumulated scroll deltas**, with an in-bias near the top and both iOS rubber-band ends clamped.
+   It worked. It was also a `NestedScrollConnection`, an `Animatable`, a settle watcher, two geometry
+   probes and a custom `PreferenceKey` — to make two buttons do what the Δτ beside them already did
+   by being an item in the list.
+
+The user called it: *"I think it should have just been attached the same way the delta tau is
+attached to the rest of the scroll."* Deleting all three took ~90 lines and seven imports off Android
+and a whole preference key off iOS, and every bug in the list above stopped being expressible. There
+is no fade, no slide, no commit, no threshold, and nothing to tune. Worth remembering the shape of
+the mistake: **the fix for "this pinned thing should behave like it scrolls" is to stop pinning it.**
+
+The only fiddle left is cosmetic — the row hangs 16 (Android) / 20 (iOS) outside the content gutter
+so the labels still land 18 from the screen edge, where they were as an overlay, instead of 34–38 in.
+
+Two things cost time on the iOS side, both worth remembering:
+
+- **`.coordinateSpace(name:)` on a `ScrollView` names the scrolling content**, not the container, so
+  content measured against it never moves and the probe read a flat 0. It has to go on an ancestor.
+- **A `PreferenceKey` whose `reduce` is `value = nextValue()` will be overwritten by its siblings'
+  defaults.** `reduce` runs across every sibling subtree, and the ones with no probe hand up
+  `defaultValue` — so the one real measurement was clobbered and the value read 0 whatever the page
+  did. The key is optional now and the first value wins. (Android needs none of this: `LazyListState`
+  already publishes `firstVisibleItemIndex`/`ScrollOffset`.)
+
+Verified on the simulator and on the Flip: at rest all three sit exactly where they always did;
+scrolled, the chrome is gone and the list runs clean past the camera; scrolled back, it returns, and
+Presets still opens, on both. The case that killed every animated version — creep to within a few
+points of where the old barrier sat, lift, then touch again — now does nothing at all, because
+there is no state to disagree with the scroll position.
+
+---
+
+## Settled — was a design question
 
 ### 10. Grouping the pips into repeat "layers"
 
 > front splits left leg · right leg · Kazakhs · middle splits — **four things, all of it three times
 > over**
+
+**Built as option 3 — see §32.** The user chose it in their own words: "it should just be two rows
+of four." The original note is kept below because the reasoning about the trade-off is what the
+fallback rules in `Pips.rows` are made of.
 
 Twelve squares should read as 4 × 3. Worth knowing before deciding: the structure already exists in
 the editor (`Block(items, repeatCount)` and the outer `repeatAll`), but `toWorkout` flattens it into
@@ -642,12 +858,14 @@ Four ways to draw it, cheapest first:
 2. **A brighter square at each boundary.** One row as now, first pip of each group at full opacity
    even when unfilled. Very cheap, survives any count, but reads as a tick rather than a grouping.
 3. **One row per group.** Literal and unmistakable — 4 × 3 is three rows of four. Breaks the even
-   split from item 1, and a 3 × 8 routine gives three long rows.
+   split from item 1, and a 3 × 8 routine gives three long rows. ← **chosen**
 4. **A second, thinner row of group-level pips** under the round pips: twelve small squares, three
    large ones. Says both things at once; two rows of dots is the least minimal option here.
 
-My recommendation is **1**, falling back to the current flat rows when the groups don't fit — it adds
-no new marks to a screen whose whole argument is that it has almost nothing on it.
+My recommendation was **1**, falling back to the current flat rows when the groups don't fit — it
+adds no new marks to a screen whose whole argument is that it has almost nothing on it. The user
+went straight to 3, and it is the right call: 1 says "there is a boundary here", 3 says "you are
+doing this whole thing again", and the second is the sentence the screen was missing.
 
 ---
 

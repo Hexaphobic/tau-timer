@@ -218,10 +218,10 @@ reinstated, 0 with the fix.
 **Dropped on purpose:** the Z Flip cover-screen `compact` layout. No iPhone has that geometry.
 
 **Debug affordance:** `simctl launch <id> -startScreen presets|settings|editor|timer` opens straight
-onto a screen. `#if DEBUG` only. Note it always takes the *sequence* path (`homePreset(...)
-.toWorkout`), so a workout of N rounds arrives at the timer as 2N-1 interval positions — which is
-what the round counter shows. The home screen's own GO uses `baseWorkout` for a single section and
-counts rounds.
+onto a screen. `#if DEBUG` only. It always takes the *sequence* path (`homePreset(...).toWorkout`),
+where the home screen's own GO uses `baseWorkout` for a single basic section — since PUNCHLIST §32
+both number rounds by work set, so the counter reads the same either way and this no longer skews
+what you see.
 
 **Display corner radius** (`UI/Aura.swift`) is a table keyed on screen point size, because iOS has no
 public API for it and `_displayCornerRadius` is an App Store risk. Ambiguous sizes take the larger

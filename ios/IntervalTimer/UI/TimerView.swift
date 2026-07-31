@@ -243,7 +243,10 @@ private struct TimerContent: View {
                                   : Font.system(size: counterSize))
                             .foregroundStyle(.white.opacity(ui.round > 0 ? 0.80 : 0))
                             .tracking(2)
-                        OverallProgress(round: ui.round, totalRounds: ui.totalRounds, width: g.size.width)
+                        OverallProgress(round: ui.round, totalRounds: ui.totalRounds,
+                                        roundsPerPass: ui.roundsPerPass,
+                                        live: ui.running && !ui.paused && !ui.done,
+                                        width: g.size.width)
                     }
                     .padding(.bottom, 92)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -375,23 +378,63 @@ private struct ColonDots: View {
     }
 }
 
-/// How far through the workout you are, counted in repetitions — one pip per round, lit as each one
-/// lands. It steps with the "1 / 7" counter above it and holds still in between; a bar that crept
-/// every second just duplicated the countdown already filling the screen.
+/// How far through the workout you are — one pip per work set, lit as each one lands. It steps with
+/// the "1 / 7" counter above it and holds still in between; a bar that crept every second just
+/// duplicated the countdown already filling the screen.
+///
+/// Rows are the workout's own shape where it has one: four sets run twice is two rows of four, so the
+/// grid says "and again" without a word on it. `roundsPerPass` carries that shape; 0 wraps by count.
+///
+/// The set you are in the middle of breathes rather than sitting flat, so the grid says *where* you
+/// are and not just how far. It stops the moment the clock does — a pip still pulsing on a paused
+/// timer would be the screen telling you something is running when nothing is.
 ///
 /// White rather than the phase colour: it sits inside the phase-coloured aura, and a coloured bar on
 /// a coloured wash reads as a smudge.
 private struct OverallProgress: View {
     let round: Int
     let totalRounds: Int
+    let roundsPerPass: Int
+    /// Running, not paused and not finished — the only state in which anything should be moving.
+    let live: Bool
     /// The row this sits in — the fractions below keep the pips off a wide screen's edges.
     let width: CGFloat
 
+    /// One breath, in seconds, out and back.
+    private static let breathPeriod = 1.6
+
     private var done: Int { min(max(round, 0), totalRounds) }
-    private func alpha(_ i: Int) -> Double { i < done ? 0.85 : 0.22 }
+
+    /// `breath` is the pulse's current brightness, sampled from the clock rather than animated into.
+    ///
+    /// It has to be a continuously varying number, NOT a Bool flipped inside a `repeatForever`
+    /// `withAnimation`. That is the obvious way to write this and it is wrong here: the animation
+    /// attaches at the instant the flag changes, so exactly one pip would ever pulse — the one that
+    /// happened to be current when the view appeared. Every later round would inherit a settled
+    /// value and sit still. Sampling time has no such edge: whichever pip is current reads the phase
+    /// the workout is already in.
+    private func alpha(_ i: Int, breath: Double) -> Double {
+        if live && i == done - 1 { return breath }
+        return i < done ? 0.85 : 0.22
+    }
 
     var body: some View {
-        let layout = Pips.rows(totalRounds)
+        // Paused when the clock is, so a still screen costs no frames.
+        TimelineView(.animation(paused: !live || done == 0)) { ctx in
+            grid(breath: Self.breath(at: ctx.date))
+        }
+    }
+
+    /// The trough stays above the unlit 0.22 so the current pip never reads as one you haven't done.
+    private static func breath(at date: Date) -> Double {
+        let phase = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: breathPeriod) / breathPeriod
+        return 0.45 + 0.55 * (0.5 - 0.5 * cos(2 * .pi * phase))
+    }
+
+    @ViewBuilder
+    private func grid(breath: Double) -> some View {
+        let layout = Pips.rows(totalRounds, pass: roundsPerPass)
         if !layout.isEmpty {
             // One cell size for the whole grid, from the width a full row of eight needs — so three
             // rounds and a row of a twenty-four-round workout draw the same square, and the rows can
@@ -409,7 +452,7 @@ private struct OverallProgress: View {
                     HStack(spacing: gap) {
                         ForEach(0..<layout[r], id: \.self) { c in
                             RoundedRectangle(cornerRadius: cell * 0.34)
-                                .fill(.white.opacity(alpha(starts[r] + c)))
+                                .fill(.white.opacity(alpha(starts[r] + c, breath: breath)))
                                 .frame(width: cell, height: cell)
                         }
                     }

@@ -25,6 +25,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -142,6 +143,9 @@ import com.chrispoole.intervaltimer.model.basicBlock
 import com.chrispoole.intervaltimer.model.isBasic
 import com.chrispoole.intervaltimer.model.formatMs
 import com.chrispoole.intervaltimer.model.homePreset
+import com.chrispoole.intervaltimer.model.homeSeconds
+import com.chrispoole.intervaltimer.model.homeSets
+import com.chrispoole.intervaltimer.model.homeWorkout
 import com.chrispoole.intervaltimer.model.secLabel
 import com.chrispoole.intervaltimer.model.toWorkout
 import com.chrispoole.intervaltimer.service.TimerService
@@ -518,7 +522,13 @@ private fun SetupScreen(
 
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+        // No safeDrawingPadding on the container — same reason as Presets and Settings. Inset here,
+        // the list's own top edge lands under the camera and scrolled cards are cut off against it,
+        // so a section slides up and vanishes early at a line the screen gives no reason for. The
+        // list uses the whole panel and simply travels past the cutout; the inset moves into its
+        // content padding, so what's at rest — the header row included, since that is the list's
+        // own first item — still starts clear of the camera.
+        Box(Modifier.fillMaxSize()) {
             // The group box: one rounded frame drawn around the ×N header and every section under
             // it, so "repeat all of this" is a thing you can see rather than a sentence you have to
             // read. Painted from the list's own layout rather than composed around the items,
@@ -530,8 +540,10 @@ private fun SetupScreen(
                 modifier = Modifier.fillMaxSize().drawBehind {
                     if (!grouped) return@drawBehind
                     val info = listState.layoutInfo
-                    // save = 0, then one per section, then the Rounds control.
-                    val range = 1..rows.size + 1
+                    // Δτ = 0, save = 1, the summary = 2, then one per section, then the Rounds
+                    // control. Only drawn when grouped, and grouped means more than one section,
+                    // which means not solo — so all three of those are always there to count past.
+                    val range = 3..rows.size + 3
                     val members = info.visibleItemsInfo.filter { it.index in range }
                     if (members.isEmpty()) return@drawBehind
                     val start = info.viewportStartOffset
@@ -559,10 +571,48 @@ private fun SetupScreen(
                         style = Stroke(1.dp.toPx()),
                     )
                 },
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 56.dp),
+                contentPadding = PaddingValues(
+                    start = 20.dp,
+                    end = 20.dp,
+                    // 4, not 56: the whole header row is the list's own first item now and carries
+                    // the rest of that gap as its height, so everything below it starts exactly
+                    // where it always did. 4 is what the row used to sit at as an overlay.
+                    top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 4.dp,
+                    bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 56.dp,
+                ),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // The whole header row is the list's first item: Presets and Settings scroll away
+                // with the page exactly as Δτ does, because that is all "leaving the top of the
+                // screen" ever needed to mean. Pinned over the scroll they overlapped the cards
+                // passing under them, and everything that followed — a fraction off the scroll
+                // offset, then accumulated deltas, a commit on release, an in-bias near the top —
+                // was scaffolding to fake this for two buttons.
+                //
+                // The 52.dp is the space the row used to hold open as an overlay, so nothing below
+                // it moved. The offsets undo the TextButton's own 14.dp so the labels land 18.dp
+                // from the edge, where they have always been, rather than 34 in from the gutter.
+                item(key = "mark") {
+                    Box(Modifier.fillMaxWidth().height(52.dp)) {
+                        TextButton(
+                            onPresets, "Presets",
+                            Modifier.align(Alignment.TopStart).offset(x = (-16).dp),
+                        )
+                        Text(
+                            "Δτ",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                        )
+                        TextButton(
+                            onSettings, "Settings",
+                            Modifier.align(Alignment.TopEnd).offset(x = 16.dp),
+                        )
+                    }
+                }
                 if (!solo) {
                     item(key = "save") {
                         // animateContentSize turns the swap into the button growing into the
@@ -589,6 +639,20 @@ private fun SetupScreen(
                             Spacer(Modifier.height(14.dp))
                         }
                     }
+                }
+                // What GO will run, at the top where you read it before you start rather than at the
+                // bottom where it sat on the button. Sets, not "rounds": the control below already
+                // owns that word and means the other thing by it — this is the count the timer will
+                // walk you through, the one the pips draw.
+                item(key = "summary") {
+                    val sets = homeSets(rows.map { it.b }, effectiveRepeatAll)
+                    Text(
+                        "$sets ${if (sets == 1) "set" else "sets"}  ·  ${clock(homeSeconds(rows.map { it.b }, effectiveRepeatAll))}",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 14.sp,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.animateItem().padding(bottom = 14.dp),
+                    )
                 }
                 itemsIndexed(rows, key = { _, r -> r.id }) { i, row ->
                     val floating = !solo && dragDrop.isFloating(row.id)
@@ -631,9 +695,7 @@ private fun SetupScreen(
                         // running time and the ✕ — every one of which is meaningless when there is
                         // only one section. It arrives with the second one.
                         showHeader = grouped,
-                        repeatAll = effectiveRepeatAll,
                         lifted = lifted,
-                        isLast = i == rows.lastIndex,
                         onChange = { change(i, it) },
                         onRemove = { removeBlock(i) },
                         handle = {
@@ -683,27 +745,14 @@ private fun SetupScreen(
                         GlassPill(
                             "GO",
                             {
-                                val single = rows.singleOrNull()?.b
+                                // The same builder the total above it is measured from, so the
+                                // number and the button can never describe different workouts.
                                 onGo(
-                                    // effectiveRepeatAll, not repeatAll: an outer ×N is exactly what
-                                    // stops this being a plain "n / rounds" workout, so a leftover
-                                    // one must not silently double a single basic section.
-                                    if (single != null && single.isBasic && effectiveRepeatAll == 1) {
-                                        // Kept on baseWorkout so the timer's round counter stays
-                                        // "n / rounds". Anything with a shape of its own — two
-                                        // sections, or one holding work/work/rest — has no single
-                                        // round to count and runs as a sequence, counting interval
-                                        // positions instead.
-                                        baseWorkout(
-                                            prepareMs = Settings.prepareSec * 1000L,
-                                            workMs = single.items[0].durationSec * 1000L,
-                                            restMs = (single.items.getOrNull(1)?.durationSec ?: 0) * 1000L,
-                                            rounds = single.repeat,
-                                        )
-                                    } else {
-                                        homePreset(rows.map { it.b }, effectiveRepeatAll)
-                                            .toWorkout(Settings.prepareSec * 1000L)
-                                    },
+                                    homeWorkout(
+                                        rows.map { it.b },
+                                        effectiveRepeatAll,
+                                        Settings.prepareSec * 1000L,
+                                    ),
                                 )
                             },
                             Modifier.fillMaxWidth(),
@@ -720,22 +769,13 @@ private fun SetupScreen(
             // After the list, so these are hit-tested first. Declared before it, the LazyColumn's
             // scroll gesture sat on top of them and swallowed any tap that drifted a pixel — which
             // is why they only worked sometimes.
-            TextButton(onPresets, "Presets", Modifier.align(Alignment.TopStart).padding(4.dp))
-            TextButton(onSettings, "Settings", Modifier.align(Alignment.TopEnd).padding(4.dp))
-            // Just a mark, not a control: no click, dimmed, and out of the scrolling content so it
-            // stays put while the sections move under it.
-            Text(
-                "Δτ",
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
-            )
+            // These two float over the scroll, so they carry the inset the container no longer
+            // does: the list may pass under the camera, the controls never do.
+            //
             if (saved) {
                 NoticePill(
                     "Saved to presets",
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp),
+                    Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 28.dp),
                 )
             }
         }
@@ -756,9 +796,6 @@ private fun HomeSection(
     b: Block,
     boxed: Boolean,
     showHeader: Boolean,
-    isLast: Boolean,
-    /** The home's outer ×N, so the header's time is the section's real share of the workout. */
-    repeatAll: Int,
     onChange: (Block) -> Unit,
     onRemove: () -> Unit,
     handle: @Composable () -> Unit,
@@ -818,11 +855,12 @@ private fun HomeSection(
                 )
                 GlassCircle("+", { m -> onChange(b.copy(repeat = b.repeat + m)) }, size = 36.dp)
                 Spacer(Modifier.weight(1f))
-                // The section's own playing time — the at-a-glance mini total. The last section
-                // drops its closing rest, because the timer does: a rest that would end the workout
-                // never plays, so counting it here advertised time nothing runs.
+                // How long this block is — the intervals under it, run the × N to its left. M:SS,
+                // not formatMs: these are block lengths now rather than shares of the whole workout,
+                // so most of them are under a minute, and a bare "50" in a column under "1:30" reads
+                // as anything but fifty seconds.
                 Text(
-                    formatMs(1000L * sectionSeconds(b, isLast, repeatAll)),
+                    clock(sectionSeconds(b)),
                     color = Color.White.copy(alpha = 0.55f),
                     fontSize = 13.sp,
                 )
@@ -982,21 +1020,21 @@ private fun nextInterval(items: List<SeqInterval>): SeqInterval =
     else SeqInterval(Phase.WORK, DEFAULT_WORK_SEC)
 
 /**
- * A section's playing time: its intervals × its own repeat × the home's, less the closing rest the
- * timer won't play.
+ * How long this block is: its intervals, run its own ×N. Nothing else.
  *
- * [repeatAll] is not optional decoration. Moving the rounds out of each section and into the group
- * is exactly what made this label wrong without it — the header was the only time reading on the
- * home screen and it started advertising one pass of four. The closing rest comes off ONCE, not
- * once per pass: with an outer ×N it genuinely plays on every pass but the last.
+ * It used to be the block's *share of the workout* — multiplied by the home's rounds as well, and
+ * with the last one docking the closing rest the timer won't play. Both were defensible and both
+ * were wrong to put here: the number sits in the same row as the block's own "× 2", so it has to
+ * describe the same thing that × 2 does. Multiplying by the outer rounds made a block's length
+ * change when you touched a control somewhere else entirely, and docking the rest made two identical
+ * blocks read as different lengths depending on which one was last. What the whole thing costs, with
+ * the rounds and the dropped rest, is the line at the top of the screen — one place, not eight.
  */
-private fun sectionSeconds(b: Block, isLast: Boolean, repeatAll: Int): Long {
-    val each = b.items.sumOf { it.durationSec }.toLong()
-    val trailingRest = if (isLast && b.items.lastOrNull()?.phase == Phase.REST) {
-        b.items.last().durationSec.toLong()
-    } else 0L
-    return each * b.repeat * repeatAll.coerceAtLeast(1) - trailingRest
-}
+private fun sectionSeconds(b: Block): Long =
+    b.items.sumOf { it.durationSec }.toLong() * b.repeat
+
+/** A total, so always M:SS — a bare "45" under a minute reads as a count, not a duration. */
+private fun clock(sec: Long): String = "${sec / 60}:${(sec % 60).toString().padStart(2, '0')}"
 
 @Composable
 private fun TextButton(onClick: () -> Unit, text: String, modifier: Modifier = Modifier) {
@@ -1793,22 +1831,52 @@ private fun ColonDots(size: androidx.compose.ui.unit.TextUnit) {
 }
 
 /**
- * How far through the workout you are, counted in repetitions — one pip per round, lit as each one
- * lands. It steps with the "1 / 7" counter above it and holds still in between; a bar that crept
- * every second just duplicated the countdown already filling the screen.
+ * How far through the workout you are — one pip per work set, lit as each one lands. It steps with
+ * the "1 / 7" counter above it and holds still in between; a bar that crept every second just
+ * duplicated the countdown already filling the screen.
+ *
+ * Rows are the workout's own shape where it has one: four sets run twice is two rows of four, so the
+ * grid says "and again" without a word on it. [roundsPerPass] carries that shape; 0 wraps by count.
+ *
+ * The set you are in the middle of breathes rather than sitting flat, so the grid says *where* you
+ * are and not just how far. It stops the moment the clock does — a pip still pulsing on a paused
+ * timer would be the screen telling you something is running when nothing is.
  *
  * White rather than the phase colour: it sits inside the phase-coloured aura, and a coloured bar on
  * a coloured wash reads as a smudge.
  */
 @Composable
-private fun OverallProgress(round: Int, totalRounds: Int, compact: Boolean) {
+private fun OverallProgress(
+    round: Int,
+    totalRounds: Int,
+    roundsPerPass: Int,
+    /** Running, not paused and not finished — the only state in which anything should be moving. */
+    live: Boolean,
+    compact: Boolean,
+) {
     // Compact already sits in a width-capped column beside the cameras, so the fractions that
     // keep this off a wide screen's edges would only shrink it twice.
     val span = if (compact) 1f else 0.52f
     val gridSpan = if (compact) 1f else 0.46f
     val done = round.coerceIn(0, totalRounds)
-    fun alpha(i: Int) = if (i < done) 0.85f else 0.22f
-    val layout = Pips.rows(totalRounds)
+    // Only a live workout pays for an animation clock, the same bargain the Stepper glow makes. The
+    // trough stays above the unlit 0.22 so the current pip never reads as one you haven't done yet.
+    val breath = if (live && done > 0) {
+        rememberInfiniteTransition(label = "pip").animateFloat(
+            0.45f, 1f,
+            infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "breath",
+        )
+    } else null
+    // Read inside drawBehind, not passed to background(): a state read at draw time invalidates the
+    // drawing and nothing else, where reading it in composition would rebuild all thirty-two boxes
+    // sixty times a second to change one of them.
+    fun alpha(i: Int) = when {
+        i == done - 1 && breath != null -> breath.value
+        i < done -> 0.85f
+        else -> 0.22f
+    }
+    val layout = Pips.rows(totalRounds, roundsPerPass)
     if (layout.isEmpty()) {
         // Past the grid's ceiling even squares are a wall of dots, so it degrades to one bar —
         // still stepping per round, just no longer drawn one-per-round.
@@ -1851,11 +1919,12 @@ private fun OverallProgress(round: Int, totalRounds: Int, compact: Boolean) {
                 base += n
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                     repeat(n) { c ->
+                        val i = start + c
                         Box(
                             Modifier
                                 .size(cell)
                                 .clip(RoundedCornerShape(percent = 34))
-                                .background(Color.White.copy(alpha = alpha(start + c))),
+                                .drawBehind { drawRect(Color.White.copy(alpha = alpha(i))) },
                         )
                     }
                 }
@@ -2102,7 +2171,11 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
                     letterSpacing = 2.sp,
                 )
                 Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
-                OverallProgress(ui.round, ui.totalRounds, compact)
+                OverallProgress(
+                    ui.round, ui.totalRounds, ui.roundsPerPass,
+                    live = ui.running && !ui.paused && !ui.done,
+                    compact = compact,
+                )
             }
         }
 

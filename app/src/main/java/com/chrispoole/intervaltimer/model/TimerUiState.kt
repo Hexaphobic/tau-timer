@@ -10,6 +10,8 @@ data class TimerUiState(
     val fraction: Float = 0f,
     val round: Int = 0,
     val totalRounds: Int = 0,
+    /** Work sets in one pass, 0 when the workout runs once — the pips' row width. See [Workout]. */
+    val roundsPerPass: Int = 0,
     val done: Boolean = false,
 ) {
 

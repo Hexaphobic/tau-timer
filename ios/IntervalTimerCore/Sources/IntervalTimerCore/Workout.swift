@@ -10,7 +10,11 @@ public enum Phase: String, Codable, CaseIterable, Sendable {
     case done = "DONE"
 }
 
-/// One block of the workout. `round` is 1-based for work/rest, 0 for prepare.
+/// One block of the workout.
+///
+/// `round` counts work intervals, 1-based — a rest carries the round of the work it follows, and
+/// prepare (or a rest before any work) is 0. Rest is recovery from a set, not a set of its own, so
+/// counting it would say a four-set workout has eight of something.
 public struct Interval: Equatable, Sendable {
     public let phase: Phase
     public let durationMs: Int
@@ -60,9 +64,17 @@ public struct Workout: Sendable {
     public let intervals: [Interval]
     public let totalMs: Int
 
-    public init(_ intervals: [Interval]) {
+    /// Work sets in one pass, when the whole sequence runs more than once — 0 when it doesn't.
+    ///
+    /// Carried purely so the timer's pips can be laid out as the workout's own shape (three sections
+    /// run twice draws two rows of four) rather than as a wrapped count. Not recoverable from
+    /// `intervals`: eight sets straight and four sets twice number identically.
+    public let roundsPerPass: Int
+
+    public init(_ intervals: [Interval], roundsPerPass: Int = 0) {
         self.intervals = intervals
         self.totalMs = intervals.reduce(0) { $0 + $1.durationMs }
+        self.roundsPerPass = roundsPerPass
     }
 
     public func progressAt(_ activeElapsedMs: Int) -> TimerProgress {

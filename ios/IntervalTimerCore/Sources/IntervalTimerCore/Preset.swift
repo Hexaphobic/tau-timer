@@ -38,15 +38,26 @@ public struct Preset: Equatable, Sendable {
     /// The sequence as the timer will run it: repeats expanded, trailing rest dropped.
     public func playbackIntervals() -> [SeqInterval] { playable(expanded()) }
 
-    /// Build a runnable `Workout`: a prepare lead-in, then the sequence (round = 1-based position).
+    /// Build a runnable `Workout`: a prepare lead-in, then the sequence.
+    ///
+    /// Rounds count work, not position. Numbering by position made every rest a round of its own, so
+    /// a four-set sequence run twice counted to fifteen — eight work, eight rest, less the closing
+    /// rest the timer drops — and drew fifteen pips for four sets. A rest carries the round of the
+    /// work it follows, exactly as `baseWorkout` has always numbered the plain home, so both count
+    /// the same thing.
     public func toWorkout(prepareMs: Int = 5_000) -> Workout {
         let seq = playbackIntervals()
         var list: [Interval] = []
         if prepareMs > 0 { list.append(Interval(.prepare, prepareMs)) }
-        for (i, s) in seq.enumerated() {
-            list.append(Interval(s.phase, s.durationSec * 1000, round: i + 1))
+        var round = 0
+        for s in seq {
+            if s.phase == .work { round += 1 }
+            list.append(Interval(s.phase, s.durationSec * 1000, round: round))
         }
-        return Workout(list)
+        // Only when it runs more than once is there a shape to draw: every pass holds the same work,
+        // since expanding repeats the written sequence verbatim and playable() only ever drops a rest.
+        let perPass = intervals.filter { $0.phase == .work }.count
+        return Workout(list, roundsPerPass: repeatAll > 1 ? perPass : 0)
     }
 }
 
@@ -80,6 +91,41 @@ public func homePreset(_ blocks: [Block], repeatAll: Int = 1) -> Preset {
     }), repeatAll: max(repeatAll, 1))
 }
 
+/// The workout the home's GO will run — the ONE builder, used by the button and by the total printed
+/// above it.
+///
+/// It was two: GO branched here while the total was measured off `homePreset` alone, and the two
+/// branches do not agree in every state you can reach. Dial a Rest to 0 and tap its label to make it
+/// a Work — the flip doesn't re-apply Work's 5s floor — and a single basic section of Work 0 / Rest
+/// 15 at one round has `baseWorkout` playing a lone zero-length work (nothing at all) while
+/// `homePreset` drops the empty work, leaves one rest, and keeps it because a lone interval is the
+/// whole sequence. The label said 15s over a button that ran 0. One builder cannot disagree with
+/// itself.
+public func homeWorkout(_ blocks: [Block], repeatAll: Int, prepareMs: Int) -> Workout {
+    // repeatAll == 1 because an outer ×N is exactly what stops this being a plain "n / rounds"
+    // workout, so a leftover one must not silently double a single basic section.
+    if blocks.count == 1, let b = blocks.first, b.isBasic, repeatAll == 1 {
+        return baseWorkout(
+            prepareMs: prepareMs,
+            workMs: b.items[0].durationSec * 1000,
+            restMs: (b.items.count > 1 ? b.items[1].durationSec : 0) * 1000,
+            rounds: b.repeatCount
+        )
+    }
+    return homePreset(blocks, repeatAll: repeatAll).toWorkout(prepareMs: prepareMs)
+}
+
+/// How long that workout plays, the lead-in excluded — half of what the home prints up top.
+public func homeSeconds(_ blocks: [Block], repeatAll: Int) -> Int {
+    homeWorkout(blocks, repeatAll: repeatAll, prepareMs: 0).totalMs / 1000
+}
+
+/// Work sets in the whole workout — the other half, and the same number the timer will count you
+/// through, because it is read off the same built workout rather than worked out again from blocks.
+public func homeSets(_ blocks: [Block], repeatAll: Int) -> Int {
+    homeWorkout(blocks, repeatAll: repeatAll, prepareMs: 0).intervals.map(\.round).max() ?? 0
+}
+
 /// The section a fresh home starts from, and what "Add intervals" copies.
 public func basicBlock(workSec: Int, restSec: Int, rounds: Int) -> Block {
     Block([SeqInterval(.work, workSec), SeqInterval(.rest, restSec)], rounds)
@@ -98,10 +144,10 @@ public struct Block: Equatable, Sendable {
 
     /// The classic home shape: one work, optionally one rest, and nothing else.
     ///
-    /// Worth a name because it decides what the timer's counter says. A basic single section runs as
-    /// a `baseWorkout` and counts "3 / 8" in rounds, which is the number you actually care about
-    /// mid-set. Anything else — two sections, or one section holding work/work/rest — has no single
-    /// "round" to count, so it runs as a sequence and counts interval positions instead.
+    /// Worth a name because it decides how the workout is *built*: a basic single section runs as a
+    /// `baseWorkout`, anything else — two sections, or one section holding work/work/rest — runs as a
+    /// sequence. Both count the same thing either way, one round per work interval, so the "3 / 8" on
+    /// the timer means the same in both.
     public var isBasic: Bool {
         items.first?.phase == .work
             && (items.count == 1 || (items.count == 2 && items[1].phase == .rest))

@@ -33,14 +33,28 @@ fun playable(intervals: List<SeqInterval>): List<SeqInterval> =
 /** The sequence as the timer will run it: repeats expanded, trailing rest dropped. */
 fun Preset.playbackIntervals(): List<SeqInterval> = playable(expanded())
 
-/** Build a runnable Workout: a PREPARE lead-in, then the sequence (round = 1-based position). */
+/**
+ * Build a runnable Workout: a PREPARE lead-in, then the sequence.
+ *
+ * Rounds count WORK, not position. Numbering by position made every rest a round of its own, so a
+ * four-set sequence run twice counted to fifteen — eight work, eight rest, less the closing rest the
+ * timer drops — and drew fifteen pips for four sets. A rest carries the round of the work it follows,
+ * exactly as [baseWorkout] has always numbered the plain home, so both count the same thing.
+ */
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     val seq = playbackIntervals()
+    var round = 0
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
-        seq.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
+        seq.forEach { s ->
+            if (s.phase == Phase.WORK) round++
+            add(Interval(s.phase, s.durationSec * 1000L, round))
+        }
     }
-    return Workout(list)
+    // Only when it runs more than once is there a shape to draw: every pass holds the same work,
+    // since expanding repeats the written sequence verbatim and playable() only ever drops a rest.
+    val perPass = intervals.count { it.phase == Phase.WORK }
+    return Workout(list, roundsPerPass = if (repeatAll > 1) perPass else 0)
 }
 
 /**
@@ -64,6 +78,44 @@ fun homePreset(blocks: List<Block>, repeatAll: Int = 1): Preset =
         repeatAll.coerceAtLeast(1),
     )
 
+/**
+ * The workout the home's GO will run — the ONE builder, used by the button and by the total printed
+ * above it.
+ *
+ * It was two: GO branched here while the total was measured off [homePreset] alone, and the two
+ * branches do not agree in every state you can reach. Dial a Rest to 0 and tap its label to make it
+ * a Work — the flip doesn't re-apply Work's 5s floor — and a single basic section of Work 0 / Rest 15
+ * at one round has [baseWorkout] playing a lone zero-length work (nothing at all) while [homePreset]
+ * drops the empty work, leaves one rest, and keeps it because a lone interval is the whole sequence.
+ * The label said 15s over a button that ran 0. One builder cannot disagree with itself.
+ */
+fun homeWorkout(blocks: List<Block>, repeatAll: Int, prepareMs: Long): Workout {
+    val single = blocks.singleOrNull()
+    // repeatAll == 1 because an outer ×N is exactly what stops this being a plain "n / rounds"
+    // workout, so a leftover one must not silently double a single basic section.
+    return if (single != null && single.isBasic && repeatAll == 1) {
+        baseWorkout(
+            prepareMs = prepareMs,
+            workMs = single.items[0].durationSec * 1000L,
+            restMs = (single.items.getOrNull(1)?.durationSec ?: 0) * 1000L,
+            rounds = single.repeat,
+        )
+    } else {
+        homePreset(blocks, repeatAll).toWorkout(prepareMs)
+    }
+}
+
+/** How long that workout plays, the lead-in excluded — half of what the home prints up top. */
+fun homeSeconds(blocks: List<Block>, repeatAll: Int): Long =
+    homeWorkout(blocks, repeatAll, prepareMs = 0L).totalMs / 1000L
+
+/**
+ * Work sets in the whole workout — the other half, and the same number the timer will count you
+ * through, because it is read off the same built workout rather than worked out again from blocks.
+ */
+fun homeSets(blocks: List<Block>, repeatAll: Int): Int =
+    homeWorkout(blocks, repeatAll, prepareMs = 0L).intervals.maxOfOrNull { it.round } ?: 0
+
 /** The section a fresh home starts from, and what "Add intervals" copies. */
 fun basicBlock(workSec: Int, restSec: Int, rounds: Int): Block =
     Block(listOf(SeqInterval(Phase.WORK, workSec), SeqInterval(Phase.REST, restSec)), rounds)
@@ -71,10 +123,10 @@ fun basicBlock(workSec: Int, restSec: Int, rounds: Int): Block =
 /**
  * The classic home shape: one work, optionally one rest, and nothing else.
  *
- * Worth a name because it decides what the timer's counter says. A basic single section runs as a
- * [baseWorkout] and counts "3 / 8" in rounds, which is the number you actually care about mid-set.
- * Anything else — two sections, or one section holding work/work/rest — has no single "round" to
- * count, so it runs as a sequence and counts interval positions instead.
+ * Worth a name because it decides how the workout is *built*: a basic single section runs as a
+ * [baseWorkout], anything else — two sections, or one section holding work/work/rest — runs as a
+ * sequence. Both count the same thing either way, one round per work interval, so the "3 / 8" on the
+ * timer means the same in both.
  */
 val Block.isBasic: Boolean
     get() = items.firstOrNull()?.phase == Phase.WORK &&

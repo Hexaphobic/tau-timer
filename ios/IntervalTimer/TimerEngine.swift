@@ -24,6 +24,7 @@ final class TimerEngine: ObservableObject {
 
     private var workout: Workout?
     private var totalRounds = 0
+    private var roundsPerPass = 0
     private var startMs = 0          // the monotonic instant that maps to activeElapsed == 0
     private var pausedActive = 0     // frozen active-elapsed while paused
     private var paused = false
@@ -37,6 +38,7 @@ final class TimerEngine: ObservableObject {
     func start(_ w: Workout) {
         workout = w
         totalRounds = w.intervals.map(\.round).max() ?? 0
+        roundsPerPass = w.roundsPerPass
         startMs = monotonicMs()
         pausedActive = 0
         paused = false
@@ -142,6 +144,7 @@ final class TimerEngine: ObservableObject {
             fraction: p.fraction,
             round: p.round,
             totalRounds: totalRounds,
+            roundsPerPass: roundsPerPass,
             done: p.done
         )
         // No stale-snapshot guard here, unlike the Android service. There, pause()/stop() ran on the

@@ -49,23 +49,6 @@ struct HomeView: View {
         ZStack(alignment: .top) {
             HomeBackground().ignoresSafeArea()
             list
-            // After the list, so these are hit-tested first. Declared before it, the scroll gesture
-            // sat on top of them and swallowed any tap that drifted a pixel — which is why they only
-            // worked sometimes.
-            HStack {
-                PlainTextButton(text: "Presets", action: onPresets)
-                Spacer()
-                PlainTextButton(text: "Settings", action: onSettings)
-            }
-            .padding(4)
-            // Just a mark, not a control: no hit testing, dimmed, and out of the scrolling content
-            // so it stays put while the sections move under it.
-            Text("Δτ")
-                .font(.system(size: 19, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(.white.opacity(0.5))
-                .padding(.top, 12)
-                .allowsHitTesting(false)
             if saved {
                 NoticePill(text: "Saved to presets")
                     .padding(.bottom, 28)
@@ -90,7 +73,36 @@ struct HomeView: View {
         GeometryReader { geo in
             ScrollView {
                 VStack(spacing: 0) {
+                    // The whole header row is the list's first item: Presets and Settings scroll
+                    // away with the page exactly as Δτ does, because that is all "leaving the top
+                    // of the screen" ever needed to mean. Pinned over the scroll they overlapped
+                    // the cards passing under them, and everything that followed — a fraction off
+                    // the scroll offset, then accumulated deltas, a commit on release, an in-bias
+                    // near the top, two geometry probes and a preference key — was scaffolding to
+                    // fake this for two buttons.
+                    //
+                    // The 56 is the space the row used to hold open as an overlay, so nothing below
+                    // it moved. The negative padding undoes the button's own 14 so the labels land
+                    // 18 from the edge, where they have always been, rather than 38 in.
+                    ZStack(alignment: .top) {
+                        Text("Δτ")
+                            .font(.system(size: 19, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(.top, 12)
+                            .allowsHitTesting(false)
+                        HStack {
+                            PlainTextButton(text: "Presets", action: onPresets)
+                            Spacer()
+                            PlainTextButton(text: "Settings", action: onSettings)
+                        }
+                        .padding(.top, 4)
+                        .padding(.horizontal, -20)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56, alignment: .top)
                     if !solo { saveControl }
+                    summaryLine
                     // The group box: one rounded frame around the ×N and every section under it, so
                     // "repeat all of this" is something you can see rather than a sentence you read.
                     VStack(spacing: 0) {
@@ -117,7 +129,9 @@ struct HomeView: View {
                 }
                 .onPreferenceChange(RowHeightKey.self) { reorder.record($0) }
                 .padding(.horizontal, 24)
-                .padding(.vertical, 56)
+                // No top padding: the header row is the list's first item now and holds that space
+                // open itself.
+                .padding(.bottom, 56)
                 // minHeight, not a fixed one: short content sits centred, long content scrolls.
                 .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
@@ -171,6 +185,21 @@ struct HomeView: View {
         .padding(.bottom, grouped ? 2 : 32)
     }
 
+    /// What GO will run, at the top where you read it before you start rather than at the bottom
+    /// where it sat on the button.
+    ///
+    /// Sets, not "rounds": the control below already owns that word and means the other thing by it
+    /// — this is the count the timer will walk you through, the one the pips draw.
+    private var summaryLine: some View {
+        let sets = homeSets(rows.map(\.block), repeatAll: effectiveRepeatAll)
+        return Text("\(sets) \(sets == 1 ? "set" : "sets")  ·  "
+                    + clockLabel(homeSeconds(rows.map(\.block), repeatAll: effectiveRepeatAll)))
+            .font(.system(size: 14))
+            .tracking(1)
+            .foregroundStyle(.white.opacity(0.5))
+            .padding(.bottom, 14)
+    }
+
     private var groupBox: some View {
         let shape = RoundedRectangle(cornerRadius: 36, style: .continuous)
         return ZStack {
@@ -218,10 +247,11 @@ struct HomeView: View {
                         .frame(width: 52)
                     GlassCircle(glyph: "+", onStep: { m in change(i) { $0.repeatCount += m } }, size: 36)
                     Spacer(minLength: 6)
-                    // The section's own playing time — the at-a-glance mini total. The last section
-                    // drops its closing rest, because the timer does: a rest that would end the
-                    // workout never plays, so counting it here advertised time nothing runs.
-                    Text(formatMs(1000 * sectionSeconds(b, isLast: isLast, repeatAll: effectiveRepeatAll)))
+                    // How long this block is — the intervals under it, run the × N to its left. M:SS,
+                    // not formatMs: these are block lengths now rather than shares of the whole
+                    // workout, so most are under a minute, and a bare "50" in a column under "1:30"
+                    // reads as anything but fifty seconds.
+                    Text(clockLabel(sectionSeconds(b)))
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.55))
                     Spacer().frame(width: 6)
@@ -356,20 +386,11 @@ struct HomeView: View {
     }
 
     private func go() {
-        let prepareMs = Settings.shared.prepareSec * 1000
-        // effectiveRepeatAll, not repeatAll: an outer ×N is exactly what stops this being a plain
-        // "n / rounds" workout, so a leftover one must not silently double a single basic section.
-        if rows.count == 1, let b = rows.first?.block, b.isBasic, effectiveRepeatAll == 1 {
-            // Kept on baseWorkout so the timer's round counter stays "n / rounds". Anything with a
-            // shape of its own — two sections, or one holding work/work/rest — has no single round
-            // to count and runs as a sequence, counting interval positions instead.
-            onGo(baseWorkout(prepareMs: prepareMs,
-                             workMs: b.items[0].durationSec * 1000,
-                             restMs: (b.items.count > 1 ? b.items[1].durationSec : 0) * 1000,
-                             rounds: b.repeatCount))
-        } else {
-            onGo(homePreset(rows.map(\.block), repeatAll: effectiveRepeatAll).toWorkout(prepareMs: prepareMs))
-        }
+        // The same builder the total above it is measured from, so the number and the button can
+        // never describe different workouts.
+        onGo(homeWorkout(rows.map(\.block),
+                         repeatAll: effectiveRepeatAll,
+                         prepareMs: Settings.shared.prepareSec * 1000))
     }
 }
 
@@ -584,16 +605,22 @@ private extension SeqInterval {
     }
 }
 
-/// A section's playing time: its intervals × its repeat, less the closing rest the timer won't play.
-/// A section's playing time: its intervals × its own repeat × the home's, less the closing rest the
-/// timer won't play.
+/// How long this block is: its intervals, run its own ×N. Nothing else.
 ///
-/// `repeatAll` is not optional decoration. Moving the rounds out of each section and into the group
-/// is exactly what made this label wrong without it — the header is the only time reading on the
-/// home screen and it started advertising one pass of four. The closing rest comes off ONCE, not
-/// once per pass: with an outer ×N it genuinely plays on every pass but the last.
-func sectionSeconds(_ b: Block, isLast: Bool, repeatAll: Int = 1) -> Int {
-    let each = b.items.reduce(0) { $0 + $1.durationSec }
-    let trailingRest = (isLast && b.items.last?.phase == .rest) ? (b.items.last?.durationSec ?? 0) : 0
-    return each * b.repeatCount * max(repeatAll, 1) - trailingRest
+/// It used to be the block's *share of the workout* — multiplied by the home's rounds as well, and
+/// with the last one docking the closing rest the timer won't play. Both were defensible and both
+/// were wrong to put here: the number sits in the same row as the block's own "× 2", so it has to
+/// describe the same thing that × 2 does. Multiplying by the outer rounds made a block's length
+/// change when you touched a control somewhere else entirely, and docking the rest made two
+/// identical blocks read as different lengths depending on which one was last. What the whole thing
+/// costs, with the rounds and the dropped rest, is the line at the top of the screen.
+func sectionSeconds(_ b: Block) -> Int {
+    b.items.reduce(0) { $0 + $1.durationSec } * b.repeatCount
 }
+
+/// A total, so always M:SS — a bare "45" under a minute reads as a count, not a duration.
+func clockLabel(_ sec: Int) -> String {
+    let s = sec % 60
+    return "\(sec / 60):" + (s < 10 ? "0\(s)" : "\(s)")
+}
+

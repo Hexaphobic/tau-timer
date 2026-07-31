@@ -67,11 +67,17 @@ fun Preset.playbackIntervals(): List<SeqInterval> {
 
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     // Must match the phone's Preset.toWorkout exactly, or the same synced preset runs a different
-    // workout on each device: a rest after the very last work interval is dropped at run time.
+    // workout on each device: a rest after the very last work interval is dropped at run time, and
+    // rounds count work sets — a rest carries the round of the work it follows — so the watch and the
+    // phone don't sit side by side counting the same workout to different numbers.
     val seq = playbackIntervals()
+    var round = 0
     val list = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
-        seq.forEachIndexed { i, s -> add(Interval(s.phase, s.durationSec * 1000L, i + 1)) }
+        seq.forEach { s ->
+            if (s.phase == Phase.WORK) round++
+            add(Interval(s.phase, s.durationSec * 1000L, round))
+        }
     }
     return Workout(list)
 }

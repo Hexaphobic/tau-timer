@@ -50,8 +50,8 @@ class HomeBlockTest {
     }
 
     /**
-     * Only the classic shape keeps the timer's "3 / 8" round counter; anything with a shape of its
-     * own counts interval positions instead, because there is no single round to count.
+     * Only the classic shape takes the [baseWorkout] road; anything with a shape of its own runs as
+     * a sequence. Both count work sets, so the timer's "3 / 8" reads the same either way.
      */
     @Test fun onlyOneWorkAndAnOptionalRestCountsAsBasic() {
         assertTrue(Block(listOf(work(30), rest(15)), 8).isBasic)

@@ -57,6 +57,7 @@ class TimerService : Service() {
     // tick dispatcher to tell a live workout from one that has already been torn down.
     @Volatile private var workout: Workout? = null
     private var totalRounds = 0
+    private var roundsPerPass = 0
     private var startElapsed = 0L        // elapsedRealtime that maps to activeElapsed == 0
     private var pausedActive = 0L        // frozen active-elapsed while paused
     // Written on the main thread (pause/resume), read on the tick dispatcher. Volatile so the tick
@@ -102,6 +103,7 @@ class TimerService : Service() {
     fun start(w: Workout) {
         workout = w
         totalRounds = w.intervals.maxOfOrNull { it.round } ?: 0
+        roundsPerPass = w.roundsPerPass
         startElapsed = SystemClock.elapsedRealtime()
         pausedActive = 0L
         paused = false
@@ -208,6 +210,7 @@ class TimerService : Service() {
             fraction = p.fraction,
             round = p.round,
             totalRounds = totalRounds,
+            roundsPerPass = roundsPerPass,
             done = p.done,
         )
         // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()

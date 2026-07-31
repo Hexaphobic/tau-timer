@@ -3,7 +3,13 @@ package com.chrispoole.intervaltimer.model
 /** Which kind of interval is active. PREPARE is the one-time get-ready lead-in. */
 enum class Phase { PREPARE, WORK, REST, DONE }
 
-/** One block of the workout. [round] is 1-based for WORK/REST, 0 for PREPARE. */
+/**
+ * One block of the workout.
+ *
+ * [round] counts WORK intervals, 1-based — a REST carries the round of the work it follows, and
+ * PREPARE (or a rest before any work) is 0. Rest is recovery from a set, not a set of its own, so
+ * counting it would say a four-set workout has eight of something.
+ */
 data class Interval(val phase: Phase, val durationMs: Long, val round: Int = 0)
 
 /** Snapshot of where the clock is at a given moment. */
@@ -30,7 +36,17 @@ data class TimerProgress(
  * what makes the timer drift-free. The service feeds it `elapsedRealtime()`-based
  * active time; this class has no Android dependencies so it is unit-testable on the JVM.
  */
-class Workout(val intervals: List<Interval>) {
+class Workout(
+    val intervals: List<Interval>,
+    /**
+     * Work sets in one pass, when the whole sequence runs more than once — 0 when it doesn't.
+     *
+     * Carried purely so the timer's pips can be laid out as the workout's own shape (three sections
+     * run twice draws two rows of four) rather than as a wrapped count. Not recoverable from
+     * [intervals]: eight sets straight and four sets twice number identically.
+     */
+    val roundsPerPass: Int = 0,
+) {
 
     val totalMs: Long = intervals.sumOf { it.durationMs }
 

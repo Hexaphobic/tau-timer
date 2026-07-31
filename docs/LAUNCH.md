@@ -14,9 +14,11 @@ Written the night before (2026-07-30). Everything below assumes the tree as it s
    git checkout -b release-prep && git add -A && git commit -m "Home groups, rounds model, reorder rewrite, chrome, store prep"
    ```
 
-2. **One morning smoke pass, both apps** (Claude, ~10 min): fresh install on the Flip and the sim,
-   GO runs, presets edit (verify built-in Edit on Android — phone was folded when it shipped),
-   settings persist. Catches anything last night's fatigue missed.
+2. ~~**One morning smoke pass, both apps.**~~ **Done** — 2026-07-31, PUNCHLIST §35. The Flip 7 was
+   attached and everything that had shipped unseen (§31–33) was verified on it: built-in preset Edit
+   opens prefilled, rounds count work sets (the counter read 二 / 八 in Chinese word-mode), rows are
+   passes (four rows of two), and the current pip breathes at a measured 1.6s and freezes on pause.
+   Nothing outstanding on either platform.
 
 ---
 
