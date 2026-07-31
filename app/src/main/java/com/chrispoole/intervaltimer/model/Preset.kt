@@ -33,9 +33,6 @@ fun playable(intervals: List<SeqInterval>): List<SeqInterval> =
 /** The sequence as the timer will run it: repeats expanded, trailing rest dropped. */
 fun Preset.playbackIntervals(): List<SeqInterval> = playable(expanded())
 
-/** Playing time in seconds, repeats included. */
-fun Preset.totalSec(): Int = playbackIntervals().sumOf { it.durationSec }
-
 /** Build a runnable Workout: a PREPARE lead-in, then the sequence (round = 1-based position). */
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     val seq = playbackIntervals()
@@ -46,32 +43,48 @@ fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     return Workout(list)
 }
 
-/** One home-screen section: its own work/rest pair, run [rounds] times over. */
-data class HomeBlock(val workSec: Int, val restSec: Int, val rounds: Int)
+/**
+ * The home screen's sequence: each section's intervals, run its own number of times, in order.
+ *
+ * A section used to be a fixed (work, rest) pair — [basicBlock] is still what a fresh home starts
+ * from, but a section is now the same [Block] the editor has always used, so it can hold work, work,
+ * rest and the ×N still means the one thing it ever meant: run this whole section that many times.
+ *
+ * Zero-length intervals are dropped here rather than forbidden in the UI, because dialling rest down
+ * to 0 has always been how you say "no rest on this one" and it should keep working. The interval
+ * stays in the section, so the number is still there to dial back up.
+ *
+ * [repeatAll] is the outer ×N — the whole home, top to bottom, that many times. Same meaning and the
+ * same field the editor's "Repeat everything" writes, so a home saved as a preset round-trips.
+ */
+fun homePreset(blocks: List<Block>, repeatAll: Int = 1): Preset =
+    Preset(
+        "",
+        flatten(blocks.map { b -> b.copy(items = b.items.filter { it.durationSec > 0 }) }),
+        repeatAll.coerceAtLeast(1),
+    )
 
-/** The home screen's sequence: each section's (work, rest) × rounds, played in order. */
-fun homePreset(blocks: List<HomeBlock>): Preset =
-    Preset("", flatten(blocks.map { b ->
-        Block(
-            buildList {
-                add(SeqInterval(Phase.WORK, b.workSec))
-                if (b.restSec > 0) add(SeqInterval(Phase.REST, b.restSec))
-            },
-            b.rounds,
-        )
-    }))
+/** The section a fresh home starts from, and what "Add intervals" copies. */
+fun basicBlock(workSec: Int, restSec: Int, rounds: Int): Block =
+    Block(listOf(SeqInterval(Phase.WORK, workSec), SeqInterval(Phase.REST, restSec)), rounds)
 
-/** A repeated run of intervals — the editor's unit. Flat storage stays the source of truth. */
+/**
+ * The classic home shape: one work, optionally one rest, and nothing else.
+ *
+ * Worth a name because it decides what the timer's counter says. A basic single section runs as a
+ * [baseWorkout] and counts "3 / 8" in rounds, which is the number you actually care about mid-set.
+ * Anything else — two sections, or one section holding work/work/rest — has no single "round" to
+ * count, so it runs as a sequence and counts interval positions instead.
+ */
+val Block.isBasic: Boolean
+    get() = items.firstOrNull()?.phase == Phase.WORK &&
+        (items.size == 1 || (items.size == 2 && items[1].phase == Phase.REST))
+
+/** A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the source of truth. */
 data class Block(val items: List<SeqInterval>, val repeat: Int)
 
 fun flatten(blocks: List<Block>): List<SeqInterval> =
     blocks.flatMap { b -> List(b.repeat) { b.items }.flatten() }
-
-/** What [blocks] will actually play as, every repeat — group and overall — expanded. */
-fun expand(blocks: List<Block>, repeatAll: Int = 1): List<SeqInterval> {
-    val once = flatten(blocks)
-    return if (repeatAll <= 1) once else List(repeatAll) { once }.flatten()
-}
 
 /**
  * Two rests back to back is just one longer pause, so the editor steers around it (see
@@ -83,8 +96,6 @@ fun expand(blocks: List<Block>, repeatAll: Int = 1): List<SeqInterval> {
  */
 fun backToBackRests(intervals: List<SeqInterval>): Int =
     intervals.zipWithNext().count { (a, b) -> a.phase == Phase.REST && b.phase == Phase.REST }
-
-fun hasBackToBackRest(intervals: List<SeqInterval>): Boolean = backToBackRests(intervals) > 0
 
 /**
  * The same count for [blocks] played [repeatAll] times, without building the expanded list — the

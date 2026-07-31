@@ -3,6 +3,7 @@ package com.chrispoole.intervaltimer.wear.timer
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.chrispoole.intervaltimer.wear.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,7 +47,9 @@ class WearTimerService : Service() {
     private val _state = MutableStateFlow(WearUiState.Idle)
     val state: StateFlow<WearUiState> = _state.asStateFlow()
 
-    private var workout: Workout? = null
+    // Volatile for the same reason as `paused`: cleared on the main thread by stop(), read on the
+    // tick dispatcher to tell a live workout from one that has already been torn down.
+    @Volatile private var workout: Workout? = null
     private var totalRounds = 0
     private var startElapsed = 0L
     private var pausedActive = 0L
@@ -188,7 +192,12 @@ class WearTimerService : Service() {
         // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()
         // flipped it can still land here afterwards. Dropping that stale snapshot is what stops it
         // overwriting the paused one and stranding the UI on a frozen, running-looking timer.
-        if (paused && !s.paused) return false
+        //
+        // stop() needs the same protection and is the worse case: it publishes Idle and tears the
+        // notification down, so a tick still in flight would republish a running state over the top
+        // — reviving a dead workout in the UI and re-posting an ongoing notification nothing can
+        // now cancel. Identity, not null-ness, so a start() that lands in between is safe too.
+        if (workout !== w || (paused && !s.paused)) return false
         _state.value = s
         // Nothing to notify on the last tick: loop() tears the notification down immediately after.
         if (!p.done) {
@@ -218,6 +227,18 @@ class WearTimerService : Service() {
         }
     }
 
+    /** Rebuilt every second, so everything invariant about it is hoisted out. */
+    private val openApp: PendingIntent by lazy {
+        // Tapping the notification reopens the app, which re-attaches to the live workout. Without
+        // it a backgrounded workout was unreachable: the watch has no recents route back to it.
+        PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     private fun buildNotification(s: WearUiState): Notification {
         val text = when {
             !s.running -> "Ready"
@@ -226,8 +247,11 @@ class WearTimerService : Service() {
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Tau")
+            // Matches the manifest label and the phone's notification; "Tau" is the wordmark, not
+            // the app's name.
+            .setContentTitle("Interval Timer")
             .setContentText(text)
+            .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()

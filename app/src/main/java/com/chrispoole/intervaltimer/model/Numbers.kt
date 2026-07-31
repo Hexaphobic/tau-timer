@@ -43,6 +43,11 @@ object Numbers {
      * A plain whole number in the language's own numerals — for the round counter, which used to
      * print Western digits whatever language you were in. Han languages get proper numerals
      * (十六, not 一六); scripts with their own digit glyphs get those; everyone else keeps 0-9.
+     *
+     * Han composition stops at 99 and falls back to digit-by-digit above it — 100+ rounds is a
+     * number no workout reaches, and the hundreds forms are not worth the risk of getting the
+     * 〇-filler and the 一百/百 rules subtly wrong. Korean composes further because it can do so
+     * with one recursive line.
      */
     fun count(n: Int, lang: Language): String {
         if (lang.stacks) return numeral(n, lang)
@@ -62,8 +67,28 @@ object Numbers {
     fun widestClockLines(intervalMs: Long, lang: Language): List<String> {
         val totalSec = (intervalMs.coerceAtLeast(0L) / 1000).toInt()
         if (!lang.stacks) return listOf(clock(intervalMs, lang))
-        if (totalSec < 60) return listOf(numeral(totalSec, lang))
-        return listOf(numeral(totalSec / 60, lang), numeral(59, lang))
+        if (totalSec < 60) return listOf(widest(totalSec, lang))
+        return listOf(widest(totalSec / 60, lang), widest(59, lang))
+    }
+
+    /**
+     * The widest numeral the count will actually pass through on its way down to zero.
+     *
+     * Not simply the starting value, which is what this used to take. Composed numerals do not
+     * shrink with the number: a 30s interval opens on 三十, two glyphs, and one second later shows
+     * 二十九, which is three — so a size pinned to the start ran that third glyph off both edges of
+     * the screen. Every reachable value is cheap to check, and it happens once per interval rather
+     * than once per second.
+     *
+     * Ties go to the larger number, so the seconds line still settles on 五十九 / 오십구.
+     */
+    private fun widest(upTo: Int, lang: Language): String {
+        var widest = numeral(0, lang)
+        for (i in 1..upTo) {
+            val s = numeral(i, lang)
+            if (s.length >= widest.length) widest = s
+        }
+        return widest
     }
 
     /** Han cardinal for 0..99 (clock components); glyphs supply 0-9, 十 is ten. */
@@ -148,6 +173,11 @@ object Numbers {
             val tens = if (n / 10 == 1) "십" else koOnes[n / 10] + "십"
             if (n % 10 == 0) tens else tens + koOnes[n % 10]
         }
+        // Thousands would need 천/만 and koOnes[n / 100] indexes past the array at 1000 — an
+        // ArrayIndexOutOfBounds inside composition, which takes the whole timer down and then
+        // crash-loops, because a running workout is re-attached to on relaunch. Digits instead:
+        // the same trade Cistercian makes at its own 9999 ceiling, and han() above 99.
+        n >= 1000 -> n.toString()
         else -> {
             val hundreds = if (n / 100 == 1) "백" else koOnes[n / 100] + "백"
             if (n % 100 == 0) hundreds else hundreds + korean(n % 100)

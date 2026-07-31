@@ -1,0 +1,7 @@
+# Xcode's derived data, when -derivedDataPath puts it here rather than in ~/Library.
+# The repo root already ignores `build/`; this covers SwiftPM and Xcode's own leavings.
+.build/
+DerivedData/
+*.xcuserdatad
+xcuserdata/
+.DS_Store

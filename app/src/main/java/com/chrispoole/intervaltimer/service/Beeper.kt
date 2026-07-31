@@ -75,6 +75,10 @@ class Beeper(context: Context) {
         }
     }
 
+    // Shares release()'s monitor: play() runs on the tick dispatcher, release() on the main thread
+    // via onDestroy, so unsynchronised the pool could be freed between the id lookup and the call
+    // into it.
+    @Synchronized
     fun play(cue: Cue) {
         if (Settings.muted) return
         val v = Settings.volume

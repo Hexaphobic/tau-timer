@@ -69,7 +69,6 @@ fun cistercianSeconds(remainingMs: Long): Int =
 fun CistercianNumeral(
     number: Int,
     modifier: Modifier = Modifier,
-    color: Color = Color.White,
     strokeWidth: Dp = 4.dp,
 ) {
     val strokes = cistercian(number)
@@ -81,7 +80,7 @@ fun CistercianNumeral(
         val cy = size.height / 2f
         for (s in strokes) {
             drawLine(
-                color = color,
+                color = Color.White,
                 start = Offset(cx + s.x1 * scale, cy + s.y1 * scale),
                 end = Offset(cx + s.x2 * scale, cy + s.y2 * scale),
                 strokeWidth = px,

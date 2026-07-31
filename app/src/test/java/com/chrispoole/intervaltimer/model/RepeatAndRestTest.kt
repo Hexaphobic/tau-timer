@@ -1,13 +1,21 @@
 package com.chrispoole.intervaltimer.model
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepeatAndRestTest {
     private fun w(s: Int) = SeqInterval(Phase.WORK, s)
     private fun r(s: Int) = SeqInterval(Phase.REST, s)
+
+    /**
+     * Reference expansion, kept here as the oracle the fast structural count is checked against.
+     * Production never needs it — [backToBackRests] answers the only question anyone asks of an
+     * expanded sequence, and it answers it without building one.
+     */
+    private fun expand(blocks: List<Block>, repeatAll: Int = 1): List<SeqInterval> {
+        val once = flatten(blocks)
+        return if (repeatAll <= 1) once else List(repeatAll) { once }.flatten()
+    }
 
     // ---- repeat everything ----
 
@@ -16,7 +24,7 @@ class RepeatAndRestTest {
         assertEquals(listOf(w(30), r(15), w(30), r(15), w(30), r(15)), p.expanded())
         // The rest that would end the workout never plays, so it isn't counted either.
         assertEquals(listOf(w(30), r(15), w(30), r(15), w(30)), p.playbackIntervals())
-        assertEquals(120, p.totalSec())
+        assertEquals(120, p.playbackIntervals().sumOf { it.durationSec })
     }
 
     @Test fun playableOnlyDropsATrailingRest() {
@@ -59,8 +67,8 @@ class RepeatAndRestTest {
         assertEquals(0, backToBackRests(listOf(w(10), r(5), w(10))))
         assertEquals(1, backToBackRests(listOf(r(5), r(5))))
         assertEquals(2, backToBackRests(listOf(r(5), r(5), r(5))))
-        assertFalse(hasBackToBackRest(listOf(w(10), r(5))))
-        assertTrue(hasBackToBackRest(listOf(w(10), r(5), r(5))))
+        assertEquals(0, backToBackRests(listOf(w(10), r(5))))
+        assertEquals(1, backToBackRests(listOf(w(10), r(5), r(5))))
     }
 
     @Test fun aGroupsOwnRepeatCanWrapRestOntoRest() {

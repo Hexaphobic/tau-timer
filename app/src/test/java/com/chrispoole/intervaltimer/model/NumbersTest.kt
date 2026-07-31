@@ -1,6 +1,7 @@
 package com.chrispoole.intervaltimer.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NumbersTest {
@@ -72,7 +73,50 @@ class NumbersTest {
         assertEquals(listOf("십", "영"), Numbers.clockLines(600_000, Language.KO))  // 10:00
         // Past ninety-nine the hundreds form kicks in, so a long interval's minute line holds up.
         assertEquals("백오십", Numbers.count(150, Language.KO))
+        assertEquals("구백구십구", Numbers.count(999, Language.KO))
         // One size for the interval: seconds always pass through 59 on the way down.
         assertEquals(listOf("일", "오십구"), Numbers.widestClockLines(90_000, Language.KO))
+    }
+
+    /**
+     * The clock is sized once per interval against the widest value it will ever show. Composed
+     * numerals don't shrink with the number, so "the value it starts at" is not that: a 30s interval
+     * opens on 三十 and immediately passes through 二十九, a glyph wider — which ran off the screen.
+     */
+    @Test fun widestLineCoversEveryValueTheCountPassesThrough() {
+        for (lang in Language.entries.filter { it.stacks }) {
+            for (intervalSec in listOf(5, 30, 59, 60, 90, 125, 600)) {
+                val widest = Numbers.widestClockLines(intervalSec * 1000L, lang)
+                val budget = widest.maxOf { it.length }
+                for (remaining in 0..intervalSec) {
+                    val lines = Numbers.clockLines(remaining * 1000L, lang)
+                    assertTrue(
+                        "$lang ${intervalSec}s interval: $lines is wider than the fitted $widest",
+                        lines.maxOf { it.length } <= budget,
+                    )
+                    // A long interval drops from two lines to one as it passes under a minute.
+                    // Fewer lines is fine — the fitted size still holds; more would overflow.
+                    assertTrue(
+                        "$lang ${intervalSec}s: $lines stacks taller than $widest",
+                        lines.size <= widest.size,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * A round counter is unbounded — nothing clamps `rounds`, a group's ×N or the overall ×N, and
+     * they multiply. At 1000 the Korean composer used to index its 10-entry digit array with
+     * `n / 100`, throwing inside composition: the timer died, and because a running workout is
+     * re-attached to on launch, it died again on every relaunch. Every composing script must
+     * return *something* for any Int a workout can produce.
+     */
+    @Test fun everyComposingScriptSurvivesAnUnboundedRoundCount() {
+        for (lang in Language.entries) {
+            for (n in listOf(0, 1, 99, 100, 999, 1_000, 1_001, 9_999, 100_000, Int.MAX_VALUE)) {
+                assertTrue("$lang count($n) came out blank", Numbers.count(n, lang).isNotEmpty())
+            }
+        }
     }
 }

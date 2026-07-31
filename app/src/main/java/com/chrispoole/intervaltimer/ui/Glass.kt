@@ -11,8 +11,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -194,6 +197,17 @@ fun GlassCircle(
     }
 }
 
+/** The small ✕ that removes whatever it sits on: a home section, an interval row, a name field. */
+@Composable
+fun CloseX(onClick: () -> Unit) {
+    Box(
+        Modifier.size(32.dp).clip(CircleShape).noRippleClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("✕", color = Color.White.copy(alpha = 0.55f), fontSize = 15.sp)
+    }
+}
+
 /**
  * A short, self-dismissing explanation. The editor refuses a few edits (a rest that would land on
  * another rest); refusing silently would just read as a broken button, so it says why.
@@ -210,5 +224,39 @@ fun NoticePill(text: String, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/**
+ * The only way off a secondary screen: a small floating disc in the top-left corner, with the
+ * screen's own content scrolling underneath it.
+ *
+ * No title beside it. A pinned bar wide enough to hold a word is a bar that has to clip whatever
+ * scrolls past it, and the screen you are looking at is its own label.
+ *
+ * Android has no backdrop blur — nothing public samples what is behind a composable — so this is the
+ * app's glass instead: translucent enough to see the content pass under it, with the same 1dp
+ * gradient edge every other surface here wears. iOS uses a real `.ultraThinMaterial`.
+ */
+@Composable
+fun BackPill(onBack: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(GlassFill)
+            .border(1.dp, glassBorder(), CircleShape)
+            .noRippleClickable(onBack)
+            .semantics { contentDescription = "Back" },
+        contentAlignment = Alignment.Center,
+    ) {
+        // The chevron's own side bearings sit it right of centre; nudge it back so the glyph, not
+        // its box, is what looks centred.
+        Text(
+            "‹",
+            color = Color.White.copy(alpha = 0.9f),
+            fontSize = 28.sp,
+            modifier = Modifier.offset(x = (-1).dp, y = (-3).dp),
+        )
     }
 }

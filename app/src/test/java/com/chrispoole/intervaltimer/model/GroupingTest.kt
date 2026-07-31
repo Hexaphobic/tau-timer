@@ -41,10 +41,10 @@ class GroupingTest {
     @Test fun homePresetPlaysBlocksInOrder() {
         // The rest closing block 1 is mid-sequence, so it must survive; only the rest at the very
         // end of everything is dropped, and that at run time, not here.
-        val p = homePreset(listOf(HomeBlock(30, 15, 2), HomeBlock(60, 45, 2)))
+        val p = homePreset(listOf(basicBlock(30, 15, 2), basicBlock(60, 45, 2)))
         assertEquals(listOf(w(30), r(15), w(30), r(15), w(60), r(45), w(60), r(45)), p.intervals)
         assertEquals(listOf(w(30), r(15), w(30), r(15), w(60), r(45), w(60)), p.playbackIntervals())
         // No rest dialled in → none inserted between rounds.
-        assertEquals(listOf(w(30), w(30), w(60)), homePreset(listOf(HomeBlock(30, 0, 2), HomeBlock(60, 0, 1))).intervals)
+        assertEquals(listOf(w(30), w(30), w(60)), homePreset(listOf(basicBlock(30, 0, 2), basicBlock(60, 0, 1))).intervals)
     }
 }

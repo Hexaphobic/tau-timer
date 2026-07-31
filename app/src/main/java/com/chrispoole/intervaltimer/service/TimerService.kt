@@ -53,7 +53,9 @@ class TimerService : Service() {
     private val _state = MutableStateFlow(TimerUiState.Idle)
     val state: StateFlow<TimerUiState> = _state.asStateFlow()
 
-    private var workout: Workout? = null
+    // Volatile for the same reason as `paused`: cleared on the main thread by stop(), read on the
+    // tick dispatcher to tell a live workout from one that has already been torn down.
+    @Volatile private var workout: Workout? = null
     private var totalRounds = 0
     private var startElapsed = 0L        // elapsedRealtime that maps to activeElapsed == 0
     private var pausedActive = 0L        // frozen active-elapsed while paused
@@ -211,7 +213,12 @@ class TimerService : Service() {
         // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()
         // flipped it can still land here afterwards. Dropping that stale snapshot is what stops it
         // overwriting the paused one and stranding the UI on a frozen, running-looking timer.
-        if (paused && !s.paused) return false
+        //
+        // stop() needs the same protection and is the worse case: it publishes Idle and tears the
+        // notification down, so a tick still in flight would republish a running state over the top
+        // — reviving a dead workout in the UI and re-posting an ongoing notification nothing can
+        // now cancel. Identity, not null-ness, so a start() that lands in between is safe too.
+        if (workout !== w || (paused && !s.paused)) return false
         _state.value = s
         // Nothing to notify on the last tick: loop() tears the notification down immediately after,
         // so posting "Done" here only made it flash.

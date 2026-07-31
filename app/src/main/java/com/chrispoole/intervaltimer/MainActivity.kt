@@ -11,16 +11,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -49,6 +58,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,7 +68,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -78,10 +94,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
@@ -94,7 +112,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -104,6 +121,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -113,11 +131,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chrispoole.intervaltimer.model.Language
 import com.chrispoole.intervaltimer.model.Numbers
 import com.chrispoole.intervaltimer.model.Phase
-import com.chrispoole.intervaltimer.model.SeqInterval
+import com.chrispoole.intervaltimer.model.Preset
+import com.chrispoole.intervaltimer.model.Pips
 import com.chrispoole.intervaltimer.model.TimerUiState
 import com.chrispoole.intervaltimer.model.Workout
 import com.chrispoole.intervaltimer.model.baseWorkout
-import com.chrispoole.intervaltimer.model.HomeBlock
+import com.chrispoole.intervaltimer.model.Block
+import com.chrispoole.intervaltimer.model.SeqInterval
+import com.chrispoole.intervaltimer.model.basicBlock
+import com.chrispoole.intervaltimer.model.isBasic
 import com.chrispoole.intervaltimer.model.formatMs
 import com.chrispoole.intervaltimer.model.homePreset
 import com.chrispoole.intervaltimer.model.secLabel
@@ -127,6 +149,8 @@ import com.chrispoole.intervaltimer.ui.AuraBackground
 import com.chrispoole.intervaltimer.ui.AuraSwatch
 import com.chrispoole.intervaltimer.ui.CistercianNumeral
 import com.chrispoole.intervaltimer.ui.cistercianSeconds
+import com.chrispoole.intervaltimer.ui.BackPill
+import com.chrispoole.intervaltimer.ui.CloseX
 import com.chrispoole.intervaltimer.ui.DangerRed
 import com.chrispoole.intervaltimer.ui.DoneGray
 import com.chrispoole.intervaltimer.ui.DragHandle
@@ -202,10 +226,13 @@ class MainActivity : ComponentActivity() {
                 val ui = service?.state?.collectAsStateWithLifecycle()?.value ?: TimerUiState.Idle
                 var screen by remember { mutableStateOf("setup") }
                 var editIndex by remember { mutableStateOf<Int?>(null) }
+                var editBuiltin by remember { mutableStateOf<Preset?>(null) }
                 // The home screen's sections. Hoisted here so a trip to Settings or Presets
-                // doesn't wipe an in-progress sequence; seeded from the last-used values.
+                // doesn't wipe an in-progress sequence; seeded from the home as it was left.
                 val homeRows = remember {
-                    mutableStateListOf(HomeRow(0L, HomeBlock(Settings.workSec, Settings.restSec, Settings.rounds)))
+                    mutableStateListOf(
+                        *Settings.home.mapIndexed { i, b -> HomeRow(i.toLong(), b) }.toTypedArray(),
+                    )
                 }
                 // Safety net: the re-attach placeholder can never be terminal, whatever goes wrong.
                 if (attaching) {
@@ -224,19 +251,40 @@ class MainActivity : ComponentActivity() {
                     screen == "presets" -> PresetsScreen(
                         onBack = { screen = "setup" },
                         onStart = { launchWorkout(it.toWorkout(Settings.prepareSec * 1000L)) },
-                        onNew = { editIndex = null; screen = "editor" },
-                        onEdit = { idx -> editIndex = idx; screen = "editor" },
+                        onNew = { editIndex = null; editBuiltin = null; screen = "editor" },
+                        onEdit = { idx -> editIndex = idx; editBuiltin = null; screen = "editor" },
+                        onEditBuiltin = { p -> editIndex = null; editBuiltin = p; screen = "editor" },
                     )
                     screen == "editor" -> EditorScreen(
-                        initial = editIndex?.let { PresetStore.saved.getOrNull(it) },
-                        onStart = { launchWorkout(it.toWorkout(Settings.prepareSec * 1000L)) },
+                        initial = editIndex?.let { PresetStore.saved.getOrNull(it) } ?: editBuiltin,
+                        // Leave the editor as the workout starts. Its draft lives in plain
+                        // `remember`s inside this branch, so the running timer takes it out of
+                        // composition and it is gone — and on End the branch recomposed from
+                        // `initial`, silently showing the *original* preset (or a blank Work 30 /
+                        // Rest 15) as though it were the user's unsaved work, ready for Save to
+                        // write it over the top. Landing on Presets is honest about the loss.
+                        onStart = {
+                            launchWorkout(it.toWorkout(Settings.prepareSec * 1000L))
+                            screen = "presets"
+                        },
                         onSave = { p ->
                             val idx = editIndex
-                            if (idx == null) PresetStore.add(p) else PresetStore.update(idx, p)
+                            val original = editBuiltin
+                            when {
+                                idx != null -> PresetStore.update(idx, p)
+                                // Editing a built-in: the copy becomes a saved preset and the
+                                // original goes away by name — the same mechanism deleting one
+                                // uses — so the list ends up holding the edited version once.
+                                original != null -> {
+                                    PresetStore.add(p)
+                                    Settings.hideBuiltin(original.name)
+                                    PresetStore.pushToWatch()
+                                }
+                                else -> PresetStore.add(p)
+                            }
                             screen = "presets"
                         },
                         onCancel = { screen = "presets" },
-                        saveLabel = "Save",
                     )
                     else -> SetupScreen(
                         rows = homeRows,
@@ -303,6 +351,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // A launch that never connected has no workout to run, and no service?.stop() can reach it
+        // — the started service would sit in the foreground holding a wake lock forever.
+        if (isFinishing && pending != null) stopService(Intent(this, TimerService::class.java))
         // "Run in background" off means closing the app ends the workout, but onTaskRemoved only
         // fires on a swipe from recents — a back-press finishes the Activity and left the timer
         // running regardless of the setting. isFinishing keeps a config change from stopping it.
@@ -315,7 +366,7 @@ class MainActivity : ComponentActivity() {
 // ---- Setup / home ----
 
 /** One home section with a stable id, so drag and the item animations can track it across moves. */
-data class HomeRow(val id: Long, val b: HomeBlock)
+data class HomeRow(val id: Long, val b: Block)
 
 /**
  * Name-and-save, as one fully rounded glass pill so it sits in the same family as every other
@@ -354,12 +405,7 @@ private fun NameField(
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
         }
-        Box(
-            Modifier.size(32.dp).clip(CircleShape).noRippleClickable { onClose() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("✕", color = Color.White.copy(alpha = 0.55f), fontSize = 15.sp)
-        }
+        CloseX { onClose() }
         Spacer(Modifier.width(6.dp))
         // Nothing typed, nothing to save — that's the whole gate, no second step.
         GlassPill("Save", onSave, enabled = value.isNotBlank())
@@ -373,32 +419,89 @@ private fun SetupScreen(
     onSettings: () -> Unit,
     onPresets: () -> Unit,
 ) {
-    // One section is the classic home; more than one folds each into its own card.
-    val solo = rows.size == 1
+    // The classic home — three bare steppers, no box — is exactly one section holding work and
+    // rest. Add a second section OR a third interval and every section folds into its own card,
+    // because at that point there is a shape to show and the plain layout has nowhere to show it.
+    // items.size == 2, not just isBasic: a section can be whittled down to a lone Work by deleting
+    // its Rest row inside the card, and isBasic still says yes. Falling back to the plain home there
+    // strands you — the plain home has no + interval, so there is no control left that puts the Rest
+    // back. A one-interval section keeps its card and its way out.
+    val solo = rows.size == 1 && rows[0].b.items.size == 2 && rows[0].b.isBasic
+    // Two different lines, and they are not the same line. `solo` is about *chrome* — one plain
+    // work/rest section wears no card. `grouped` is about *repeats*: an outer ×N only means anything
+    // once there is more than one section to wrap. A single section holding work/work/rest gets a
+    // card but no group, because its own repeat already is the total and a second number governing
+    // one thing is a number you can only get wrong.
+    val grouped = rows.size > 1
+    var repeatAll by remember { mutableIntStateOf(Settings.homeRepeatAll) }
+    val effectiveRepeatAll = if (grouped) repeatAll else 1
     var naming by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(false) }
     if (saved) LaunchedEffect(Unit) { delay(2200); saved = false }
 
-    fun change(i: Int, b: HomeBlock) {
+    fun change(i: Int, b: Block) {
         // Guard the captured index: a second tap can land before recomposition.
         if (i !in rows.indices) return
         rows[i] = HomeRow(rows[i].id, b)
-        // The first section doubles as the remembered home values, so a relaunch
-        // picks up where you left off — same contract as the old single-block home.
-        if (i == 0) {
-            Settings.updateWorkSec(b.workSec)
-            Settings.updateRestSec(b.restSec)
-            Settings.updateRounds(b.rounds)
+    }
+
+    // The whole home is remembered, not just the first section's three numbers — a section can hold
+    // a sequence of its own now, and dropping that on relaunch would be the same bug as never saving
+    // it. Mirrored from the live list rather than written on the edit path: drag, the move-up/down
+    // actions and delete all change the list without going through change().
+    val layout = rows.map { it.b }
+    LaunchedEffect(layout) { if (layout.isNotEmpty()) Settings.updateHome(layout) }
+
+    fun setRepeatAll(n: Int) {
+        repeatAll = n.coerceAtLeast(1)
+        Settings.updateHomeRepeatAll(repeatAll)
+    }
+
+    /**
+     * The number on screen has to keep meaning the same thing across the one-to-two boundary.
+     *
+     * With one section, Rounds *is* that section's repeat. With two, it is the outer ×N. Adding a
+     * section therefore lifts the number you were already looking at up to the group and leaves the
+     * sections at 1 — otherwise "4" would quietly start meaning "each section, four times" and the
+     * workout would come out sixteen rounds long instead of four. Removing folds it back down the
+     * same way, so the round trip is lossless.
+     */
+    fun addBlock() {
+        val nextId = (rows.maxOfOrNull { it.id } ?: 0L) + 1
+        val last = rows.lastOrNull()?.b ?: return
+        if (rows.size == 1) {
+            setRepeatAll(last.repeat)
+            rows[0] = HomeRow(rows[0].id, last.copy(repeat = 1))
+            rows += HomeRow(nextId, last.copy(repeat = 1))
+        } else {
+            rows += HomeRow(nextId, last)
         }
     }
 
-    fun addBlock() {
-        rows += HomeRow((rows.maxOfOrNull { it.id } ?: 0L) + 1, rows.last().b)
+    fun removeBlock(i: Int) {
+        // size > 1, not just a bounds check: the ✕ only exists once there are two sections, so
+        // "never remove the last one" is the real invariant. Two ✕ taps landing in one frame both
+        // passed a bare bounds check and took rows to empty, where the footer's + reads rows.last().
+        if (rows.size <= 1 || i !in rows.indices) return
+        rows.removeAt(i)
+        if (rows.size == 1) {
+            val one = rows[0]
+            rows[0] = HomeRow(one.id, one.b.copy(repeat = (one.b.repeat * repeatAll).coerceAtLeast(1)))
+            setRepeatAll(1)
+        }
+    }
+
+    // What the one Rounds control reads and writes, whichever side of that boundary we are on.
+    val homeRounds = if (grouped) repeatAll else rows.firstOrNull()?.b?.repeat ?: DEFAULT_ROUNDS
+    fun setHomeRounds(n: Int) {
+        val v = n.coerceAtLeast(1)
+        if (grouped) setRepeatAll(v) else rows.firstOrNull()?.let { change(0, it.b.copy(repeat = v)) }
     }
 
     val listState = rememberLazyListState()
-    // The name field is a list item above the cards whenever it's shown, so it displaces them by one.
+    // The save control is a list item above the cards whenever they are showing, so it displaces
+    // them by one. The group's ×N sits below them and doesn't.
     val firstCard = if (solo) 0 else 1
     val dragDrop = rememberDragDropState(
         listState = listState,
@@ -416,10 +519,47 @@ private fun SetupScreen(
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+            // The group box: one rounded frame drawn around the ×N header and every section under
+            // it, so "repeat all of this" is a thing you can see rather than a sentence you have to
+            // read. Painted from the list's own layout rather than composed around the items,
+            // because the sections are separate lazy items — that's what makes drag-reorder work,
+            // and a card carried out of the stack must not take a slice of the frame with it.
+            val groupFill = GlassFill.copy(alpha = GlassFill.alpha * 0.45f)
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 56.dp),
+                modifier = Modifier.fillMaxSize().drawBehind {
+                    if (!grouped) return@drawBehind
+                    val info = listState.layoutInfo
+                    // save = 0, then one per section, then the Rounds control.
+                    val range = 1..rows.size + 1
+                    val members = info.visibleItemsInfo.filter { it.index in range }
+                    if (members.isEmpty()) return@drawBehind
+                    val start = info.viewportStartOffset
+                    val pad = 8.dp.toPx()
+                    // Scrolled past an end, that end simply runs off screen: clamping to the last
+                    // visible item would draw a rounded corner in the middle of the stack.
+                    val top = if (members.any { it.index == range.first }) {
+                        members.minOf { it.offset } - start - pad
+                    } else -pad * 40
+                    val bottom = if (members.any { it.index == range.last }) {
+                        members.maxOf { it.offset + it.size } - start + pad
+                    } else size.height + pad * 40
+                    // The list gutter itself, NOT the gutter minus `pad`. The cards are already
+                    // inset `pad` inside the gutter by their own margin, so subtracting it here
+                    // again made the side gap 2 × pad against pad at the top — the frame sat a
+                    // whole margin wider than it should. At the gutter, the box lines up with the
+                    // full-width pills above and below it and the inset is `pad` on all four sides.
+                    val x = 20.dp.toPx()
+                    val rect = Offset(x, top.toFloat())
+                    val box = Size(size.width - 2 * x, (bottom - top).toFloat())
+                    val radius = CornerRadius(36.dp.toPx(), 36.dp.toPx())
+                    drawRoundRect(groupFill, rect, box, radius)
+                    drawRoundRect(
+                        Color.White.copy(alpha = 0.14f), rect, box, radius,
+                        style = Stroke(1.dp.toPx()),
+                    )
+                },
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 56.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -434,7 +574,10 @@ private fun SetupScreen(
                                     onValueChange = { name = it },
                                     onClose = { naming = false; name = "" },
                                     onSave = {
-                                        PresetStore.add(homePreset(rows.map { it.b }).copy(name = name.trim()))
+                                        PresetStore.add(
+                                            homePreset(rows.map { it.b }, effectiveRepeatAll)
+                                                .copy(name = name.trim()),
+                                        )
                                         naming = false
                                         name = ""
                                         saved = true
@@ -456,89 +599,110 @@ private fun SetupScreen(
                     // the two don't happen on top of each other.
                     Box(
                         Modifier
-                            .then(
-                                if (floating) Modifier
-                                else Modifier.animateItem(fadeInSpec = tween(220, delayMillis = 240)),
-                            )
-                            .animateContentSize(tween(300)),
+                            // On the item's own root, not on the card inside it: zIndex only orders
+                            // siblings of the layout it is applied to, so down here it was ordering
+                            // this Box's single child against nothing, and the lazy list went on
+                            // drawing the items in index order. A card dragged downward was
+                            // therefore painted *under* the one it was passing, which read as it
+                            // ducking behind the background and coming back once the swap landed.
+                            .zIndex(if (floating) 1f else 0f)
+                            // No animateContentSize: it clips to the size it is animating, and the
+                            // section's own height is already animated from the inside (see
+                            // HomeSection), so all it did was slice the card off mid-row while the
+                            // box formed. The lazy list re-lays out every frame as that height
+                            // changes, which is what moves everything below along with it.
+                            //
+                            // No fade-in delay either. A new item takes its full space the instant
+                            // it is added, so waiting to draw it left a section-sized hole in the
+                            // list and then popped the card into it.
+                            .then(if (floating) Modifier else Modifier.animateItem(fadeInSpec = tween(220))),
                     ) {
-                    if (solo) {
-                        val b = row.b
-                        // No colour here on purpose: the plain home stays super simple, and the
-                        // phase colours arrive only once there are sections to tell apart.
-                        Column {
-                            Stepper(
-                                "Work", secLabel(b.workSec),
-                                { m -> change(0, b.copy(workSec = (b.workSec - 5 * m).coerceAtLeast(5))) },
-                                { m -> change(0, b.copy(workSec = b.workSec + 5 * m)) },
-                                onReset = { change(0, b.copy(workSec = DEFAULT_WORK_SEC)) },
+                    // ONE composable whether it's the plain home or a card — never two branches of
+                    // an `if`. Two branches is what made "Add intervals" a dissolve: Compose threw
+                    // away the work and rest rows you were looking at and built a fresh pair inside
+                    // a card. Kept as one, they are the *same* rows the whole way through, and the
+                    // only thing that animates is the box closing around them.
+                    val lifted = !solo && dragDrop.isLifted(row.id)
+                    val scale by animateFloatAsState(if (lifted) 1.03f else 1f, label = "lift")
+                    HomeSection(
+                        b = row.b,
+                        boxed = !solo,
+                        // The header carries the drag grip, the per-section ×N, the section's own
+                        // running time and the ✕ — every one of which is meaningless when there is
+                        // only one section. It arrives with the second one.
+                        showHeader = grouped,
+                        repeatAll = effectiveRepeatAll,
+                        lifted = lifted,
+                        isLast = i == rows.lastIndex,
+                        onChange = { change(i, it) },
+                        onRemove = { removeBlock(i) },
+                        handle = {
+                            DragHandle(
+                                key = row.id,
+                                label = "section ${i + 1}",
+                                state = dragDrop,
+                                onMoveUp = if (i > 0) ({ rows.add(i - 1, rows.removeAt(i)); Unit }) else null,
+                                onMoveDown = if (i < rows.lastIndex) ({ rows.add(i + 1, rows.removeAt(i)); Unit }) else null,
                             )
-                            Spacer(Modifier.height(16.dp))
-                            Stepper(
-                                "Rest", secLabel(b.restSec),
-                                { m -> change(0, b.copy(restSec = (b.restSec - 5 * m).coerceAtLeast(0))) },
-                                { m -> change(0, b.copy(restSec = b.restSec + 5 * m)) },
-                                onReset = { change(0, b.copy(restSec = DEFAULT_REST_SEC)) },
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Stepper(
-                                "Rounds", "${b.rounds}",
-                                { m -> change(0, b.copy(rounds = (b.rounds - m).coerceAtLeast(1))) },
-                                { m -> change(0, b.copy(rounds = b.rounds + m)) },
-                                onReset = { change(0, b.copy(rounds = DEFAULT_ROUNDS)) },
-                            )
-                            Spacer(Modifier.height(32.dp))
-                        }
-                    } else {
-                        val lifted = dragDrop.isLifted(row.id)
-                        val scale by animateFloatAsState(if (lifted) 1.03f else 1f, label = "lift")
-                        HomeBlockCard(
-                            lifted = lifted,
-                            b = row.b,
-                            onChange = { change(i, it) },
-                            onRemove = { if (i in rows.indices) rows.removeAt(i) },
-                            handle = {
-                                DragHandle(
-                                    key = row.id,
-                                    label = "section ${i + 1}",
-                                    state = dragDrop,
-                                    onMoveUp = if (i > 0) ({ rows.add(i - 1, rows.removeAt(i)); Unit }) else null,
-                                    onMoveDown = if (i < rows.lastIndex) ({ rows.add(i + 1, rows.removeAt(i)); Unit }) else null,
-                                )
+                        },
+                        // The card under the finger is placed by hand; the wrapper above lets
+                        // the lazy list animate everything else aside.
+                        modifier = Modifier
+                            .graphicsLayer {
+                                translationY = dragDrop.offsetFor(row.id)
+                                scaleX = scale
+                                scaleY = scale
                             },
-                            // The card under the finger is placed by hand; the wrapper above lets
-                            // the lazy list animate everything else aside.
-                            modifier = Modifier
-                                .zIndex(if (floating) 1f else 0f)
-                                .graphicsLayer {
-                                    translationY = dragDrop.offsetFor(row.id)
-                                    scaleX = scale
-                                    scaleY = scale
-                                },
-                        )
+                    )
                     }
-                    }
+                }
+                // The home's Rounds, and the ONE place it lives on this screen. Plain, it sits
+                // under the work and rest rows lined up with them; grouped, it walks to the centre
+                // of the group box and grows. Same composable, same number, all the way through —
+                // which is the whole point, because the rounds you were already setting are the
+                // rounds the group runs.
+                item(key = "rounds") {
+                    HomeRounds(
+                        rounds = homeRounds,
+                        grouped = grouped,
+                        onMinus = { m -> setHomeRounds(homeRounds - m) },
+                        onPlus = { m -> setHomeRounds(homeRounds + m) },
+                        onReset = { setHomeRounds(DEFAULT_ROUNDS) },
+                        modifier = Modifier.animateItem(),
+                    )
                 }
                 item(key = "footer") {
                     Column(Modifier.animateItem()) {
                         if (!solo) {
+                            // Clear of the group frame's bottom edge — the + adds a section *to* the
+                            // group, so it sits just outside it rather than inside.
+                            Spacer(Modifier.height(18.dp))
                             GlassPill("+", ::addBlock, Modifier.fillMaxWidth())
                             Spacer(Modifier.height(20.dp))
                         }
                         GlassPill(
                             "GO",
                             {
+                                val single = rows.singleOrNull()?.b
                                 onGo(
-                                    if (rows.size == 1) {
-                                        val b = rows[0].b
+                                    // effectiveRepeatAll, not repeatAll: an outer ×N is exactly what
+                                    // stops this being a plain "n / rounds" workout, so a leftover
+                                    // one must not silently double a single basic section.
+                                    if (single != null && single.isBasic && effectiveRepeatAll == 1) {
                                         // Kept on baseWorkout so the timer's round counter stays
-                                        // "n / rounds"; sequences count interval positions instead.
+                                        // "n / rounds". Anything with a shape of its own — two
+                                        // sections, or one holding work/work/rest — has no single
+                                        // round to count and runs as a sequence, counting interval
+                                        // positions instead.
                                         baseWorkout(
                                             prepareMs = Settings.prepareSec * 1000L,
-                                            workMs = b.workSec * 1000L, restMs = b.restSec * 1000L, rounds = b.rounds,
+                                            workMs = single.items[0].durationSec * 1000L,
+                                            restMs = (single.items.getOrNull(1)?.durationSec ?: 0) * 1000L,
+                                            rounds = single.repeat,
                                         )
                                     } else {
-                                        homePreset(rows.map { it.b }).toWorkout(Settings.prepareSec * 1000L)
+                                        homePreset(rows.map { it.b }, effectiveRepeatAll)
+                                            .toWorkout(Settings.prepareSec * 1000L)
                                     },
                                 )
                             },
@@ -579,19 +743,36 @@ private fun SetupScreen(
 }
 
 /**
- * One section as a card: how many times it runs and its total up top, then the same tinted
- * work/rest rows as everywhere else. The header is also where you grab it to reorder.
+ * One section, plain or boxed — deliberately ONE composable rather than two branches of an `if`.
+ *
+ * [boxed] false is the classic home: the same work and rest rows, with no chrome at all around them
+ * and Rounds as a plain stepper underneath. True wraps them in the card, moves the count up into the
+ * header, and tints the rows. Everything about that change is animated from the *same* rows, which
+ * is the whole point — "Add intervals" should look like a box closing around what is already on
+ * screen, and coming back should look like that box being let go.
  */
 @Composable
-private fun HomeBlockCard(
-    b: HomeBlock,
-    onChange: (HomeBlock) -> Unit,
+private fun HomeSection(
+    b: Block,
+    boxed: Boolean,
+    showHeader: Boolean,
+    isLast: Boolean,
+    /** The home's outer ×N, so the header's time is the section's real share of the workout. */
+    repeatAll: Int,
+    onChange: (Block) -> Unit,
     onRemove: () -> Unit,
     handle: @Composable () -> Unit,
     modifier: Modifier = Modifier,
-    lifted: Boolean = false,
+    lifted: Boolean,
 ) {
     val shape = RoundedCornerShape(28.dp)
+    // 0 on the plain home, 1 as a card. Everything the box is made of rides on this one number, so
+    // the chrome arrives and leaves as a single move rather than as four separate ones.
+    val box by animateFloatAsState(
+        if (boxed) 1f else 0f,
+        tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "box",
+    )
     // Same lift language as the presets editor: brighten the glass AND cast a shadow. On a near-black
     // background a shadow alone all but disappears, which is what made a dragged card read as a
     // smear over the one it was passing rather than as something held above it.
@@ -600,64 +781,221 @@ private fun HomeBlockCard(
     val elevation by animateDpAsState(if (lifted) 20.dp else 0.dp, label = "elevation")
     // The phase colours fade in as the card lands, rather than popping alongside it.
     val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, tween(600)) }
+    LaunchedEffect(boxed) { appear.animateTo(if (boxed) 1f else 0f, tween(320)) }
     Column(
         modifier
-            .padding(bottom = 10.dp)
+            // Outside the card's own background: this is the gap between the card and the group
+            // frame drawn around the whole stack, so it has to be margin, not padding.
+            .padding(horizontal = lerp(0.dp, 8.dp, box))
+            .padding(bottom = lerp(0.dp, 10.dp, box))
             .fillMaxWidth()
-            .shadow(elevation, shape, clip = false)
-            .background(fill, shape)
+            .shadow(elevation * box, shape, clip = false)
+            .background(fill.copy(alpha = fill.alpha * box), shape)
             // A brush both ways, so the resting edge keeps the glass gradient every other card has.
-            .border(1.dp, if (lifted) SolidColor(Color.White.copy(alpha = edge)) else glassBorder(), shape)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .border(
+                1.dp,
+                if (lifted) SolidColor(Color.White.copy(alpha = edge * box))
+                else SolidColor(Color.White.copy(alpha = 0.10f * box)),
+                shape,
+            )
+            .padding(horizontal = lerp(0.dp, 12.dp, box), vertical = lerp(0.dp, 10.dp, box)),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            handle()
-            Spacer(Modifier.width(2.dp))
-            GlassCircle("−", { m -> onChange(b.copy(rounds = (b.rounds - m).coerceAtLeast(1))) }, size = 36.dp)
-            Text(
-                "× ${b.rounds}",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.width(52.dp),
-            )
-            GlassCircle("+", { m -> onChange(b.copy(rounds = b.rounds + m)) }, size = 36.dp)
-            Spacer(Modifier.weight(1f))
-            // The section's own playing time — the at-a-glance mini total.
-            Text(
-                formatMs((b.workSec + b.restSec) * b.rounds * 1000L),
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.width(6.dp))
-            Box(
-                Modifier.size(32.dp).clip(CircleShape).noRippleClickable { onRemove() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("✕", color = Color.White.copy(alpha = 0.55f), fontSize = 15.sp)
+        // The lid of the box: it arrives with the box and leaves with it. Its *height* is animated,
+        // not just its alpha — an `if` around it made the card jump a whole row taller the instant
+        // the box started forming, and the wrapper outside then had to chase that jump.
+        AnimatedVisibility(showHeader, enter = chromeIn(Alignment.Top), exit = chromeOut(Alignment.Top)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                handle()
+                Spacer(Modifier.width(2.dp))
+                GlassCircle("−", { m -> onChange(b.copy(repeat = (b.repeat - m).coerceAtLeast(1))) }, size = 36.dp)
+                Text(
+                    "× ${b.repeat}",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(52.dp),
+                )
+                GlassCircle("+", { m -> onChange(b.copy(repeat = b.repeat + m)) }, size = 36.dp)
+                Spacer(Modifier.weight(1f))
+                // The section's own playing time — the at-a-glance mini total. The last section
+                // drops its closing rest, because the timer does: a rest that would end the workout
+                // never plays, so counting it here advertised time nothing runs.
+                Text(
+                    formatMs(1000L * sectionSeconds(b, isLast, repeatAll)),
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 13.sp,
+                )
+                Spacer(Modifier.width(6.dp))
+                CloseX { onRemove() }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Stepper(
-            "Work", secLabel(b.workSec),
-            { m -> onChange(b.copy(workSec = (b.workSec - 5 * m).coerceAtLeast(5))) },
-            { m -> onChange(b.copy(workSec = b.workSec + 5 * m)) },
-            onReset = { onChange(b.copy(workSec = DEFAULT_WORK_SEC)) },
-            compact = true,
-            tint = WorkColor.copy(alpha = appear.value),
+        IntervalStack(b, appear.value, onChange, compact = boxed)
+    }
+}
+
+/**
+ * The home's Rounds: how many times the whole thing runs, top to bottom.
+ *
+ * ONE control across both shapes, deliberately — never a plain one that leaves and a group one that
+ * arrives. With a single section this is that section's own repeat; with more than one it is the
+ * outer ×N governing all of them, and the screen moves the number across that boundary so it never
+ * changes under you. Keeping it as one composable is what makes "Add intervals" read as *the rounds
+ * you were already setting becoming the rounds for the group*, rather than as one control being
+ * thrown away and a different one appearing somewhere else.
+ */
+@Composable
+private fun HomeRounds(
+    rounds: Int,
+    grouped: Boolean,
+    onMinus: (Int) -> Unit,
+    onPlus: (Int) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val g by animateFloatAsState(
+        if (grouped) 1f else 0f,
+        tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "grouped",
+    )
+    // pointerInput(Unit) launches its gesture loop once, on the first touch, and reads the handler
+    // it was given at that moment — a constant key means it is never restarted. This item is keyed
+    // in the lazy list, so it survives the solo↔grouped crossing, and a lambda captured on the
+    // plain home went on writing to the *section's* repeat long after Rounds had become the group's.
+    // Same hazard GlassCircle already guards against, same fix.
+    val reset by rememberUpdatedState(onReset)
+    // Weights, not two arrangements. A Row can't animate from SpaceBetween to Center, but it can
+    // animate the space either side of its contents, which comes to the same thing and is
+    // continuous: outer 0→1 and inner 1→0 walks the control from the plain home's left-aligned row —
+    // lined up with Work and Rest above it — to centred under the group. Weights must stay above
+    // zero, hence the floor rather than a plain lerp.
+    val outer = 0.0001f + g
+    val inner = 1.0001f - g
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = lerp(0.dp, 8.dp, g))
+            .padding(top = lerp(16.dp, 4.dp, g), bottom = lerp(32.dp, 2.dp, g)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.weight(outer))
+        Text(
+            "Rounds",
+            color = Color.White,
+            fontSize = (20f - 2f * g).sp,
+            modifier = Modifier.padding(vertical = 6.dp),
         )
+        Spacer(Modifier.weight(inner))
+        // The weighted gap collapses to nothing when centred, which butts the label against the −.
+        // A fixed sliver keeps them apart once there is no flexible space left to do it.
+        Spacer(Modifier.width(lerp(0.dp, 12.dp, g)))
+        GlassCircle("−", onMinus, size = lerp(54.dp, 50.dp, g))
+        Text(
+            "$rounds",
+            color = Color.White,
+            fontSize = (24f + 6f * g).sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .width(lerp(96.dp, 78.dp, g))
+                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) },
+        )
+        GlassCircle("+", onPlus, size = lerp(54.dp, 50.dp, g))
+        Spacer(Modifier.weight(outer))
+    }
+}
+
+/**
+ * How the card's chrome comes and goes: height first, alpha slightly behind it.
+ *
+ * Height, not just alpha, is the whole point. Both the header and the Rounds stepper used to be
+ * behind an `if`, so each one appeared or vanished at full size in a single frame and left the card
+ * to jump. Animating the size here means the section's own height is continuous, and the lazy list
+ * carries everything below it along for free.
+ */
+private fun chromeIn(from: Alignment.Vertical) =
+    fadeIn(tween(200, delayMillis = 60)) +
+        expandVertically(tween(260, easing = FastOutSlowInEasing), expandFrom = from)
+
+private fun chromeOut(towards: Alignment.Vertical) =
+    fadeOut(tween(140)) +
+        shrinkVertically(tween(260, easing = FastOutSlowInEasing), shrinkTowards = towards)
+
+/**
+ * A section's intervals, one row each, and — on a card — the + that adds another.
+ *
+ * Shared by the card and by the plain single-section home, so the two can't drift. [compact] is doing
+ * double duty as "this is a card": the plain home is deliberately just work, rest and rounds, so it
+ * gets the rows and nothing else. No +, no ✕, no tap-to-flip. Building a section with a shape of its
+ * own is what "Add intervals" is for, and that is where all of it lives.
+ */
+@Composable
+private fun IntervalStack(
+    b: Block,
+    appear: Float,
+    onChange: (Block) -> Unit,
+    compact: Boolean = true,
+) {
+    fun set(j: Int, iv: SeqInterval) =
+        onChange(b.copy(items = b.items.toMutableList().also { it[j] = iv }))
+
+    b.items.forEachIndexed { j, iv ->
+        val isWork = iv.phase == Phase.WORK
         Spacer(Modifier.height(6.dp))
         Stepper(
-            "Rest", secLabel(b.restSec),
-            { m -> onChange(b.copy(restSec = (b.restSec - 5 * m).coerceAtLeast(0))) },
-            { m -> onChange(b.copy(restSec = b.restSec + 5 * m)) },
-            onReset = { onChange(b.copy(restSec = DEFAULT_REST_SEC)) },
-            compact = true,
-            tint = RestColor.copy(alpha = appear.value),
+            if (isWork) "Work" else "Rest",
+            secLabel(iv.durationSec),
+            // Work has a 5s floor; rest keeps its 0, because dialling rest to nothing has always
+            // been how you say "no rest here" and the row stays put so you can dial it back.
+            { m -> set(j, iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(if (isWork) 5 else 0))) },
+            { m -> set(j, iv.copy(durationSec = iv.durationSec + 5 * m)) },
+            onReset = { set(j, iv.copy(durationSec = if (isWork) DEFAULT_WORK_SEC else DEFAULT_REST_SEC)) },
+            compact = compact,
+            tint = (if (isWork) WorkColor else RestColor).copy(alpha = appear),
+            onLabelClick = if (compact) {
+                { set(j, iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) }
+            } else null,
+            // Only once there is something to remove — a section with one interval is the floor. On
+            // the plain home, dialling a rest to 0 is how you drop it, same as it has always been.
+            trailing = if (compact && b.items.size > 1) {
+                { CloseX { onChange(b.copy(items = b.items.filterIndexed { k, _ -> k != j })) } }
+            } else null,
         )
     }
+    if (compact) {
+        Spacer(Modifier.height(4.dp))
+        TextButton(
+            { onChange(b.copy(items = b.items + nextInterval(b.items))) },
+            "+ interval",
+            Modifier.padding(start = 4.dp),
+        )
+    }
+}
+
+/**
+ * What the + adds: alternate by default, because work/rest/work/rest is the shape nearly every
+ * section wants. Tap the row's label afterwards to make it the other one — which is how you get
+ * work, work, rest.
+ */
+private fun nextInterval(items: List<SeqInterval>): SeqInterval =
+    if (items.lastOrNull()?.phase == Phase.WORK) SeqInterval(Phase.REST, DEFAULT_REST_SEC)
+    else SeqInterval(Phase.WORK, DEFAULT_WORK_SEC)
+
+/**
+ * A section's playing time: its intervals × its own repeat × the home's, less the closing rest the
+ * timer won't play.
+ *
+ * [repeatAll] is not optional decoration. Moving the rounds out of each section and into the group
+ * is exactly what made this label wrong without it — the header was the only time reading on the
+ * home screen and it started advertising one pass of four. The closing rest comes off ONCE, not
+ * once per pass: with an outer ×N it genuinely plays on every pass but the last.
+ */
+private fun sectionSeconds(b: Block, isLast: Boolean, repeatAll: Int): Long {
+    val each = b.items.sumOf { it.durationSec }.toLong()
+    val trailingRest = if (isLast && b.items.lastOrNull()?.phase == Phase.REST) {
+        b.items.last().durationSec.toLong()
+    } else 0L
+    return each * b.repeat * repeatAll.coerceAtLeast(1) - trailingRest
 }
 
 @Composable
@@ -677,11 +1015,22 @@ private fun Stepper(
     onReset: () -> Unit,
     compact: Boolean = false,
     tint: Color? = null,
+    /** Tap the label to flip work↔rest. Its own hit box, well clear of the steppers: the editor
+     *  learned the hard way that a whole-row tap turns a near-miss on − into a phase change. */
+    onLabelClick: (() -> Unit)? = null,
+    /** Sits at the right-hand end, inside the pill — the ✕ that removes this interval. */
+    trailing: @Composable (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(50)
     val minimal = Settings.minimalBg
+    // An invisible tint is not a pill. The plain home hands these rows the phase colour at alpha 0 so
+    // it can fade up when the box arrives — but they were still paying the pill's 12dp inset either
+    // side for a pill nobody can see. That cost the row 24dp it needed: Modifier.size coerces into
+    // whatever the parent leaves, so the last child, the + circle, was quietly clamped to 48dp inside
+    // a 54dp box and drew as an ellipse. It also sat Work and Rest 12dp in from Rounds.
+    val visibleTint = tint?.takeIf { it.alpha > 0.01f }
     // Only glow rows pay for an animation clock; plain and minimal rows never start one.
-    val drift = if (tint != null && !minimal) {
+    val drift = if (visibleTint != null && !minimal) {
         rememberInfiniteTransition(label = "glow").animateFloat(
             0f, 1f,
             infiniteRepeatable(tween(9000, easing = LinearEasing)),
@@ -693,31 +1042,31 @@ private fun Stepper(
             .fillMaxWidth()
             .then(
                 when {
-                    tint == null -> Modifier
+                    visibleTint == null -> Modifier
                     // Minimal mode's timer is black with only the perimeter stroke, so the preview
                     // is the same idea: a bubble around the edge, nothing filled in.
                     minimal -> Modifier
-                        .border(1.5.dp, tint.copy(alpha = tint.alpha * 0.55f), shape)
+                        .border(1.5.dp, visibleTint.copy(alpha = visibleTint.alpha * 0.55f), shape)
                         .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 6.dp)
                     // Otherwise: what GO actually shows is a full wash of the phase colour. So the
                     // row is filled edge to edge, and the only movement is dips in brightness
                     // drifting across it. No shape inside the pill — a shape is what read as a
                     // sticker sitting on the row instead of the row being lit.
                     else -> Modifier
-                        .border(1.dp, tint.copy(alpha = tint.alpha * 0.28f), shape)
+                        .border(1.dp, visibleTint.copy(alpha = visibleTint.alpha * 0.28f), shape)
                         .clip(shape)
                         .drawBehind {
-                            val a = tint.alpha
+                            val a = visibleTint.alpha
                             // Repeated so it never seams; first and last stop match, and one cycle
                             // of `drift` slides it exactly one span, so the loop is invisible.
                             val span = size.width * 1.5f
                             val shift = drift!!.value * span
                             drawRect(
                                 Brush.horizontalGradient(
-                                    0.00f to tint.copy(alpha = a * 0.58f),
-                                    0.32f to tint.copy(alpha = a * 0.43f),
-                                    0.66f to tint.copy(alpha = a * 0.60f),
-                                    1.00f to tint.copy(alpha = a * 0.58f),
+                                    0.00f to visibleTint.copy(alpha = a * 0.58f),
+                                    0.32f to visibleTint.copy(alpha = a * 0.43f),
+                                    0.66f to visibleTint.copy(alpha = a * 0.60f),
+                                    1.00f to visibleTint.copy(alpha = a * 0.58f),
                                     startX = shift - span,
                                     endX = shift,
                                     tileMode = TileMode.Repeated,
@@ -734,7 +1083,13 @@ private fun Stepper(
             label,
             color = Color.White,
             fontSize = if (compact) 15.sp else 20.sp,
-            modifier = Modifier.width(if (compact) 70.dp else 90.dp),
+            modifier = Modifier
+                .then(
+                    if (onLabelClick == null) Modifier
+                    else Modifier.clip(RoundedCornerShape(50)).clickable { onLabelClick() },
+                )
+                .width(if (compact) 66.dp else 90.dp)
+                .padding(vertical = 6.dp),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             GlassCircle("−", onMinus, size = if (compact) 40.dp else 54.dp)
@@ -744,11 +1099,12 @@ private fun Stepper(
                 fontSize = if (compact) 17.sp else 24.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .width(if (compact) 72.dp else 96.dp)
+                    .width(if (compact) 68.dp else 96.dp)
                     .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onReset() }) },
                 textAlign = TextAlign.Center,
             )
             GlassCircle("+", onPlus, size = if (compact) 40.dp else 54.dp)
+            trailing?.let { Spacer(Modifier.width(2.dp)); it() }
         }
     }
 }
@@ -760,17 +1116,23 @@ private fun SettingsScreen(onBack: () -> Unit) {
     val current = Language.of(Settings.languageCode)
     Box(Modifier.fillMaxSize()) {
       HomeBackground(Modifier.fillMaxSize())
+      // The pill floats over the scroll rather than sitting above it, so the content passes
+      // underneath instead of being cut off at a hard edge. Declared after the scroll so it is
+      // hit-tested first.
+      //
+      // No safeDrawingPadding on the container, deliberately: reserving the camera cutout's band
+      // walled off the top of the screen and cost the menu that much height for a hole it only
+      // overlaps in the middle. The content uses the whole panel and runs past the cutout; only
+      // the pill — the one control up there — keeps its own inset, so it never lands under the
+      // camera.
+      Box(Modifier.fillMaxSize()) {
       Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding()
-            .verticalScroll(rememberScrollState()).padding(24.dp),
+        modifier = Modifier.fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
+            // Clear of the pill at rest; scrolled, the content simply travels under it.
+            .padding(top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 60.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onBack, "‹ Back")
-            Spacer(Modifier.width(8.dp))
-            Text("Settings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(24.dp))
-
         SettingsCard("Settings") {
             ToggleRow("Mute", Settings.muted) { Settings.updateMuted(it) }
             Spacer(Modifier.height(16.dp))
@@ -805,7 +1167,7 @@ private fun SettingsScreen(onBack: () -> Unit) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        SettingsCard("Fun") {
+        SettingsCard("Theme") {
             PalettePicker()
             Spacer(Modifier.height(18.dp))
             // Orthogonal to the palette on purpose: Minimal + Vesper is a black timer with Vesper
@@ -815,7 +1177,7 @@ private fun SettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
-        // Its own panel rather than a dropdown inside Fun: the grid is the biggest thing on this
+        // Its own panel rather than a dropdown inside Theme: the grid is the biggest thing on this
         // screen, and burying it behind a disclosure row made it feel like a footnote.
         SettingsCard("Language") {
             Text(
@@ -824,11 +1186,16 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 fontSize = 15.sp,
             )
             Spacer(Modifier.height(16.dp))
-            ToggleRow("Word mode", Settings.wordMode, sub = "Spells the last minute — thirty-two, not 32. Languages with numerals of their own keep them.") { Settings.updateWordMode(it) }
+            ToggleRow("Word mode", Settings.wordMode, sub = "Thirty-two, not 32 (under 60s only). Languages with their own numerals keep them.") { Settings.updateWordMode(it) }
             Spacer(Modifier.height(8.dp))
             Spacer(Modifier.height(16.dp))
             LanguageGrid()
         }
+      }
+      BackPill(
+          onBack,
+          Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(start = 16.dp, top = 8.dp),
+      )
       }
     }
 }
@@ -871,10 +1238,12 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
     // A bubble, not a box: a percentage radius stays organic at any tile size, matching the
     // gradients drifting inside them rather than framing them in hard corners.
     val shape = RoundedCornerShape(percent = 38)
-    // Words here whatever the setting says — the picker's job is to tell the languages apart, and
-    // English, Korean, Russian, Spanish and French all print the same Western 9. Digits would give
-    // five identical tiles; девять / 구 / nueve / neuf are the only thing that separates them.
-    val text = if (lang.digits == null && !lang.cistercian && !lang.stacks) {
+    // Follows the Word mode switch, which sits directly above this grid. It used to spell whatever
+    // the setting said, on the grounds that English, Russian, Spanish and French otherwise print the
+    // same Western 9 and the tiles would be indistinguishable. They aren't: the phase word up top is
+    // already Work / Работа / Trabajo / Effort. Ignoring the switch made it look broken — you flip
+    // it and the nine words under your thumb don't move.
+    val text = if (Settings.wordMode && lang.digits == null && !lang.cistercian && !lang.stacks) {
         Numbers.words(second * 1000L, lang)
     } else {
         Numbers.clockLines(second * 1000L, lang).last()
@@ -904,7 +1273,7 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
                 .padding(4.dp),
         ) {
             // Seeded off the enum position: without it every tile froze the aura at the same
-            // instant and the grid read as one image stamped out thirteen times.
+            // instant and the grid read as one image stamped out once per tile.
             AuraSwatch(
                 phaseColor,
                 Modifier.fillMaxSize().clip(shape),
@@ -999,8 +1368,8 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
  */
 @Composable
 private fun PalettePicker() {
-    Text("Theme", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(14.dp))
+    // No heading of its own: the card it sits in is called Theme, and two of those in a row read as
+    // a section inside a section.
     Palette.entries.chunked(3).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { p -> PaletteSwatch(p, Modifier.weight(1f)) }
@@ -1173,6 +1542,18 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
     var showHint by remember { mutableStateOf(false) }
     if (showHint) LaunchedEffect(showHint) { delay(1_600); showHint = false }
 
+    // Hoisted out of the `if` below and left as a State rather than a value: animateFloatAsState
+    // remembers an Animatable already sitting AT its target, so creating it inside a block that
+    // only composes once a press begins started it at 1f with nothing to animate — the bar was
+    // full on its first frame and never swept. Composed unconditionally it starts at 0f and the
+    // press is a real target change. Reading `.value` in the draw phase also keeps the per-frame
+    // sweep out of composition.
+    val holdFill = animateFloatAsState(
+        targetValue = if (holding) 1f else 0f,
+        animationSpec = tween(if (holding) HOLD_TO_PAUSE_MS.toInt() else 180, easing = LinearEasing),
+        label = "hold",
+    )
+
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().pointerInput(ui.done, ui.paused) {
             if (ui.done || ui.paused) return@pointerInput
@@ -1199,8 +1580,13 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
         // Budgets are in dp but font sizes are sp, which the system font-scale multiplies. Divide it
         // out so a user running large text doesn't blow past every fit we compute below.
         val fontScale = LocalDensity.current.fontScale
-        val labelSize = (w / 7.0f / fontScale).coerceIn(24f, 72f).sp
-        val counterSize = (w / 14f / fontScale).coerceIn(14f, 34f).sp
+        // The Flip's cover screen is nearly square where the main screen is long: 474 x 523dp
+        // against 360 x 840 (Samsung hands the app a 1422 x 1572 sandbox and scales it 0.667 onto
+        // the 948 x 1048 panel, so neither dimension alone is a tell — the ratio is). On it the
+        // phase label at w/7 ate the top of the screen the clock needed.
+        val compact = h < w * COMPACT_ASPECT
+        val labelSize = (w / (if (compact) 13f else 7.0f) / fontScale).coerceIn(16f, 72f).sp
+        val counterSize = (w / (if (compact) 22f else 14f) / fontScale).coerceIn(11f, 34f).sp
 
         // Pause and finish never blur or dim this — they only swap out the centre text, so the
         // glow, the progress arms and the round counter stay exactly as they were.
@@ -1209,7 +1595,20 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
             // finish read as the screen going dark.
             AuraBackground(glow = glow, progress = if (ui.done) 1f else ui.fraction, modifier = Modifier.fillMaxSize())
             if (!ui.done) SplitProgress(remaining = 1f - ui.fraction, color = glow, modifier = Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            // Compact keeps the top and side insets but not the bottom one: the bottom inset is
+            // the full width of the camera housing, and the strip to its left is the only place
+            // left to put the round counter.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (compact) Modifier.windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                        ) else Modifier.safeDrawingPadding()
+                    )
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 TimerContent(ui, lang, w, h, labelSize, counterSize)
             }
         }
@@ -1229,24 +1628,29 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
             PauseMenu(onResume, onEnd)
         }
 
-        // Bottom hint: fills while you hold so a 3s press reads as progress, not a dead screen.
+        // Bottom hint: fills while you hold so the 400ms press reads as progress, not a dead screen.
         if (!ui.done && !ui.paused && (holding || showHint)) {
-            val fill by animateFloatAsState(
-                targetValue = if (holding) 1f else 0f,
-                animationSpec = tween(if (holding) HOLD_TO_PAUSE_MS.toInt() else 180, easing = LinearEasing),
-                label = "hold",
-            )
             // Sits below the round counter and its pips, not on them: the hint is ~44dp tall, so at
             // the old 44dp offset its top edge landed 4dp under the progress grid and the
             // translucent pill read as covering it.
-            HoldHint(fill, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
+            // Compact keeps it left and lifts it clear of the counter: bottom-centre on the cover
+            // screen is half under the camera housing.
+            // Compact's 152dp clears the counter column above it: 30dp inset + ~25dp count line +
+            // 6dp gap + Pips.MAX_ROWS × 17.75dp of pips + 3 × 4dp of gaps ≈ 145dp, and the clock's
+            // own band stops 130dp up, so the hint sits in between rather than under the grid.
+            HoldHint(
+                holdFill,
+                if (compact) Modifier.align(Alignment.BottomStart)
+                    .padding(start = COMPACT_EDGE_DP.dp, bottom = 152.dp)
+                else Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
+            )
         }
     }
 }
 
 /** "Hold to pause" pill; [fill] 0..1 sweeps a brighter bar across it as the hold progresses. */
 @Composable
-private fun HoldHint(fill: Float, modifier: Modifier = Modifier) {
+private fun HoldHint(fill: androidx.compose.runtime.State<Float>, modifier: Modifier = Modifier) {
     Box(
         modifier
             .clip(RoundedCornerShape(50))
@@ -1255,7 +1659,7 @@ private fun HoldHint(fill: Float, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.matchParentSize().drawBehind {
-            drawRect(Color.White.copy(alpha = 0.22f), size = size.copy(width = size.width * fill))
+            drawRect(Color.White.copy(alpha = 0.22f), size = size.copy(width = size.width * fill.value))
         })
         Text(
             "Hold to pause",
@@ -1339,7 +1743,7 @@ private fun ConfettiBurst(seed: Long, startDelayMs: Long, modifier: Modifier = M
             sparks to Offset(rnd.nextFloat() * 0.6f - 0.3f, rnd.nextFloat() * 0.5f - 0.25f)
         }
     }
-    var shell by remember { mutableStateOf(0) }
+    var shell by remember { mutableIntStateOf(0) }
     val progress = remember { Animatable(0f) }
     LaunchedEffect(seed) {
         delay(startDelayMs) // let the blur settle, so the fireworks read as a reward not a transition
@@ -1389,14 +1793,6 @@ private fun ColonDots(size: androidx.compose.ui.unit.TextUnit) {
 }
 
 /**
- * Largest font size (sp) at which [text] fits one line inside [availWPx] x [availHPx].
- *
- * Measured with the real font rather than estimated per-glyph: guessing widths kept under-sizing
- * CJK/Hangul, which pushed the text past the edge and let it stack on itself. Text width scales
- * linearly with font size, so one measurement at a reference size gives the exact ratio, and the
- * measured px already include the user's font scale.
- */
-/**
  * How far through the workout you are, counted in repetitions — one pip per round, lit as each one
  * lands. It steps with the "1 / 7" counter above it and holds still in between; a bar that crept
  * every second just duplicated the countdown already filling the screen.
@@ -1405,80 +1801,87 @@ private fun ColonDots(size: androidx.compose.ui.unit.TextUnit) {
  * a coloured wash reads as a smudge.
  */
 @Composable
-private fun OverallProgress(round: Int, totalRounds: Int) {
+private fun OverallProgress(round: Int, totalRounds: Int, compact: Boolean) {
+    // Compact already sits in a width-capped column beside the cameras, so the fractions that
+    // keep this off a wide screen's edges would only shrink it twice.
+    val span = if (compact) 1f else 0.52f
+    val gridSpan = if (compact) 1f else 0.46f
     val done = round.coerceIn(0, totalRounds)
     fun alpha(i: Int) = if (i < done) 0.85f else 0.22f
-    when {
-        // Eight or fewer: one row of wide pips, which is already easy to count at a glance.
-        totalRounds <= 8 -> Row(
-            Modifier.fillMaxWidth(0.52f).height(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            repeat(totalRounds) { i ->
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = alpha(i))),
-                )
-            }
-        }
-        // More than eight: wrap into rows of eight. Sixteen slivers in a line is a bar you have to
-        // measure; two rows of eight squares is a shape you can just read. Fixed eight per row
-        // rather than splitting evenly, so the cells stay the same size whatever the count.
-        totalRounds <= 8 * MAX_PIP_ROWS -> Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            val rows = (totalRounds + 7) / 8
-            repeat(rows) { r ->
-                Row(
-                    Modifier.fillMaxWidth(0.46f),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    repeat(8) { c ->
-                        val i = r * 8 + c
-                        // Short last row keeps its cells the width of every other row's rather
-                        // than stretching to fill.
-                        if (i < totalRounds) {
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(percent = 34))
-                                    .background(Color.White.copy(alpha = alpha(i))),
-                            )
-                        } else {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-        // Beyond that even a grid is a wall of dots, so it degrades to one bar — still stepping
-        // per round, just no longer drawn one-per-round.
-        else -> Box(
+    val layout = Pips.rows(totalRounds)
+    if (layout.isEmpty()) {
+        // Past the grid's ceiling even squares are a wall of dots, so it degrades to one bar —
+        // still stepping per round, just no longer drawn one-per-round.
+        Box(
             Modifier
-                .fillMaxWidth(0.52f)
+                .fillMaxWidth(span)
                 .height(4.dp)
                 .clip(RoundedCornerShape(50))
                 .background(Color.White.copy(alpha = 0.22f)),
         ) {
             Box(
                 Modifier
-                    .fillMaxWidth(done.toFloat() / totalRounds)
+                    .fillMaxWidth(done.toFloat() / totalRounds.coerceAtLeast(1))
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(50))
                     .background(Color.White.copy(alpha = 0.85f)),
             )
         }
+        return
+    }
+    BoxWithConstraints {
+        val gap = 4.dp
+        val available = maxWidth * gridSpan
+        // One cell size for the whole grid, from the width a full row of eight needs — so three
+        // rounds and a row of a twenty-four-round workout draw the same square, and the rows can
+        // simply be centred. The second term only bites in the single-line case, where the count
+        // is allowed to run past eight and the cells have to shrink to fit it.
+        val widest = layout.max()
+        val cell = minOf(
+            (available - gap * (Pips.PER_ROW - 1)) / Pips.PER_ROW,
+            (available - gap * (widest - 1)) / widest,
+        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(gap),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            var base = 0
+            layout.forEach { n ->
+                val start = base
+                base += n
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    repeat(n) { c ->
+                        Box(
+                            Modifier
+                                .size(cell)
+                                .clip(RoundedCornerShape(percent = 34))
+                                .background(Color.White.copy(alpha = alpha(start + c))),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
-/** Rows of eight pips before the grid gives up and becomes a plain bar. */
-private const val MAX_PIP_ROWS = 4
+// Anything squatter than this is the cover screen: 523/474 = 1.10 against the main screen's 2.33.
+private const val COMPACT_ASPECT = 1.4f
+// The free strip left of the camera housing, which starts 214dp in from the left edge of a 474dp
+// screen. Narrower than the gap so the last column keeps clear of the housing.
+private const val COMPACT_COUNTER_WIDTH_DP = 170f
+// Clearance from the screen edge, on top of the 14dp the content is already inset by. SplitProgress
+// runs its arms 6dp in under an 18dp-wide glow stroke, so it owns the outer 15dp of every edge —
+// the counter's bottom row was being drawn straight onto the arm along the bottom.
+private const val COMPACT_EDGE_DP = 16f
 
+/**
+ * Largest font size (sp) at which [text] fits one line inside [availWPx] x [availHPx].
+ *
+ * Measured with the real font rather than estimated per-glyph: guessing widths kept under-sizing
+ * CJK/Hangul, which pushed the text past the edge and let it stack on itself. Text width scales
+ * linearly with font size, so one measurement at a reference size gives the exact ratio, and the
+ * measured px already include the user's font scale.
+ */
 private fun fittedSp(
     measurer: androidx.compose.ui.text.TextMeasurer,
     density: Density,
@@ -1566,12 +1969,30 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val density = LocalDensity.current
     val availWPx = with(density) { (wDp - 52f).coerceAtLeast(1f).dp.toPx() }
-    val availHPx = with(density) { (hDp * 0.42f).coerceAtLeast(1f).dp.toPx() }
+
+    // Cover-screen layout. Its camera housing claims the bottom-right 198 x 84dp, which the
+    // window's safe insets do NOT reserve — the clock was drawing straight over it, and the round
+    // counter with it. Two bands keep the number clear: the label's at the top, the counter's at
+    // the bottom, and the counter moves into the free strip to the left of the cameras.
+    val compact = hDp < wDp * COMPACT_ASPECT
+    val labelBand = if (compact) 46f else 0f
+    // Deep enough to clear the camera housing (110dp), since compact draws into it, plus room
+    // for the counter to sit clear of the progress arm along the bottom edge.
+    val progressBand = if (compact) 130f else 0f
+    // Tall screens keep the old fixed share; short ones take what the two bands leave, because
+    // 42% of 399dp is a number nobody can read.
+    val availHPx = with(density) {
+        (if (compact) (hDp - labelBand - progressBand) * 0.95f else hDp * 0.42f)
+            .coerceAtLeast(1f).dp.toPx()
+    }
 
     Box(Modifier.fillMaxSize()) {
         // The number owns the true middle of the screen, regardless of the labels riding up top.
         // Finished or paused it steps aside entirely — the centred "Done"/"Paused" takes that spot.
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().padding(top = labelBand.dp, bottom = progressBand.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             // Everything below this point runs only while the clock is live: done and paused both
             // step aside for the centred "Done"/"Paused", so ui.done is always false from here.
             if (ui.done || ui.paused) Unit
@@ -1609,8 +2030,13 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
                 // Both lines of a stacked clock take the smaller fit, or MM and SS would disagree.
                 val clockSize = remember(ui.intervalDurationMs, lang, availWPx, availHPx, density) {
                     val widest = Numbers.widestClockLines(ui.intervalDurationMs, lang)
+                    // fittedSp budgets INK, but a stacked column is laid out in LINE BOXES, which
+                    // carry the font's full ascent and descent on top. A tall screen absorbs the
+                    // difference; 359dp of cover screen does not, and the seconds line came out
+                    // sliced in half. Compact reserves for the overhead instead of ignoring it.
                     val perLineH =
-                        if (widest.size > 1) availHPx * 1.3f / widest.size * 0.87f else availHPx
+                        if (widest.size > 1) availHPx * (if (compact) 0.62f else 1.3f) / widest.size * 0.87f
+                        else availHPx
                     widest.minOf {
                         fittedSp(measurer, density, it, clockFont, clockWeight, availWPx, perLineH, 32f, 260f)
                     }
@@ -1649,15 +2075,19 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
             fontSize = labelSize,
             fontWeight = glyphWeight(lang),
             textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = if (compact) 8.dp else 24.dp),
         )
 
         // How far through the workout, down at the bottom: the count, then a pip per repetition.
         // Sits above the hold-to-pause hint, which keeps its own 44dp.
         if (ui.totalRounds > 0) {
             Column(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 92.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier =
+                    if (compact) Modifier.align(Alignment.BottomStart)
+                        .padding(start = COMPACT_EDGE_DP.dp, bottom = COMPACT_EDGE_DP.dp + 14.dp)
+                        .width(COMPACT_COUNTER_WIDTH_DP.dp)
+                    else Modifier.align(Alignment.BottomCenter).padding(bottom = 92.dp),
+                horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally,
             ) {
                 val hasRound = ui.round > 0
                 Text(
@@ -1671,8 +2101,8 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
                     fontFamily = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default,
                     letterSpacing = 2.sp,
                 )
-                Spacer(Modifier.height(12.dp))
-                OverallProgress(ui.round, ui.totalRounds)
+                Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+                OverallProgress(ui.round, ui.totalRounds, compact)
             }
         }
 

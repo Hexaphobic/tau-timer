@@ -1,0 +1,358 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA0000000000000000000201 /* IntervalTimerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000101 /* IntervalTimerApp.swift */; };
+		AA0000000000000000000202 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000102 /* Settings.swift */; };
+		AA0000000000000000000203 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000103 /* PresetStore.swift */; };
+		AA0000000000000000000204 /* TimerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000104 /* TimerEngine.swift */; };
+		AA0000000000000000000205 /* Beeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000105 /* Beeper.swift */; };
+		AA0000000000000000000206 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000106 /* Glass.swift */; };
+		AA0000000000000000000207 /* Aura.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000107 /* Aura.swift */; };
+		AA0000000000000000000208 /* TextFit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000108 /* TextFit.swift */; };
+		AA0000000000000000000209 /* Reorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000109 /* Reorder.swift */; };
+		AA000000000000000000020A /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010A /* Shaders.metal */; };
+		AA000000000000000000020B /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010B /* TimerView.swift */; };
+		AA000000000000000000020C /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010C /* HomeView.swift */; };
+		AA000000000000000000020D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010D /* SettingsView.swift */; };
+		AA000000000000000000020E /* PresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010E /* PresetsView.swift */; };
+		AA000000000000000000020F /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000010F /* EditorView.swift */; };
+		AA0000000000000000000210 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000110 /* Assets.xcassets */; };
+		AA0000000000000000000211 /* go.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000111 /* go.wav */; };
+		AA0000000000000000000212 /* tick.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* tick.wav */; };
+		AA0000000000000000000213 /* warn5.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000113 /* warn5.wav */; };
+		AA00000000000000000000F3 /* IntervalTimerCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000F2 /* IntervalTimerCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA00000000000000000000E7 /* Interval Timer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Interval Timer.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000101 /* IntervalTimerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntervalTimerApp.swift; sourceTree = "<group>"; };
+		AA0000000000000000000102 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		AA0000000000000000000103 /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000104 /* TimerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerEngine.swift; sourceTree = "<group>"; };
+		AA0000000000000000000105 /* Beeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Beeper.swift; sourceTree = "<group>"; };
+		AA0000000000000000000106 /* Glass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Glass.swift; sourceTree = "<group>"; };
+		AA0000000000000000000107 /* Aura.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aura.swift; sourceTree = "<group>"; };
+		AA0000000000000000000108 /* TextFit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFit.swift; sourceTree = "<group>"; };
+		AA0000000000000000000109 /* Reorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reorder.swift; sourceTree = "<group>"; };
+		AA000000000000000000010A /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
+		AA000000000000000000010B /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		AA000000000000000000010C /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		AA000000000000000000010D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA000000000000000000010E /* PresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetsView.swift; sourceTree = "<group>"; };
+		AA000000000000000000010F /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000110 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0000000000000000000111 /* go.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = go.wav; sourceTree = "<group>"; };
+		AA0000000000000000000112 /* tick.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = tick.wav; sourceTree = "<group>"; };
+		AA0000000000000000000113 /* warn5.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = warn5.wav; sourceTree = "<group>"; };
+		AA0000000000000000000114 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA00000000000000000000E9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000000F3 /* IntervalTimerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA00000000000000000000E1 = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000E3 /* IntervalTimer */,
+				AA00000000000000000000E2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000E2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000E7 /* Interval Timer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000E3 /* IntervalTimer */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000101 /* IntervalTimerApp.swift */,
+				AA0000000000000000000102 /* Settings.swift */,
+				AA0000000000000000000103 /* PresetStore.swift */,
+				AA0000000000000000000104 /* TimerEngine.swift */,
+				AA0000000000000000000105 /* Beeper.swift */,
+				AA00000000000000000000E4 /* UI */,
+				AA00000000000000000000E5 /* Resources */,
+				AA0000000000000000000110 /* Assets.xcassets */,
+				AA0000000000000000000114 /* Info.plist */,
+			);
+			path = IntervalTimer;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000E4 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000106 /* Glass.swift */,
+				AA0000000000000000000107 /* Aura.swift */,
+				AA000000000000000000010A /* Shaders.metal */,
+				AA0000000000000000000108 /* TextFit.swift */,
+				AA0000000000000000000109 /* Reorder.swift */,
+				AA000000000000000000010B /* TimerView.swift */,
+				AA000000000000000000010C /* HomeView.swift */,
+				AA000000000000000000010D /* SettingsView.swift */,
+				AA000000000000000000010E /* PresetsView.swift */,
+				AA000000000000000000010F /* EditorView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000E5 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000111 /* go.wav */,
+				AA0000000000000000000112 /* tick.wav */,
+				AA0000000000000000000113 /* warn5.wav */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA00000000000000000000E6 /* IntervalTimer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00000000000000000000EC /* Build configuration list for PBXNativeTarget "IntervalTimer" */;
+			buildPhases = (
+				AA00000000000000000000E8 /* Sources */,
+				AA00000000000000000000E9 /* Frameworks */,
+				AA00000000000000000000EA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IntervalTimer;
+			packageProductDependencies = (
+				AA00000000000000000000F2 /* IntervalTimerCore */,
+			);
+			productName = IntervalTimer;
+			productReference = AA00000000000000000000E7 /* Interval Timer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA00000000000000000000E0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					AA00000000000000000000E6 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = AA00000000000000000000EB /* Build configuration list for PBXProject "IntervalTimer" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AA00000000000000000000E1;
+			packageReferences = (
+				AA00000000000000000000F1 /* XCLocalSwiftPackageReference "IntervalTimerCore" */,
+			);
+			productRefGroup = AA00000000000000000000E2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA00000000000000000000E6 /* IntervalTimer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA00000000000000000000EA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000210 /* Assets.xcassets in Resources */,
+				AA0000000000000000000211 /* go.wav in Resources */,
+				AA0000000000000000000212 /* tick.wav in Resources */,
+				AA0000000000000000000213 /* warn5.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA00000000000000000000E8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000201 /* IntervalTimerApp.swift in Sources */,
+				AA0000000000000000000202 /* Settings.swift in Sources */,
+				AA0000000000000000000203 /* PresetStore.swift in Sources */,
+				AA0000000000000000000204 /* TimerEngine.swift in Sources */,
+				AA0000000000000000000205 /* Beeper.swift in Sources */,
+				AA0000000000000000000206 /* Glass.swift in Sources */,
+				AA0000000000000000000207 /* Aura.swift in Sources */,
+				AA0000000000000000000208 /* TextFit.swift in Sources */,
+				AA0000000000000000000209 /* Reorder.swift in Sources */,
+				AA000000000000000000020A /* Shaders.metal in Sources */,
+				AA000000000000000000020B /* TimerView.swift in Sources */,
+				AA000000000000000000020C /* HomeView.swift in Sources */,
+				AA000000000000000000020D /* SettingsView.swift in Sources */,
+				AA000000000000000000020E /* PresetsView.swift in Sources */,
+				AA000000000000000000020F /* EditorView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA00000000000000000000ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA00000000000000000000EE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA00000000000000000000EF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = IntervalTimer/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chrispoole.intervaltimer;
+				PRODUCT_NAME = "Interval Timer";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AA00000000000000000000F0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = IntervalTimer/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chrispoole.intervaltimer;
+				PRODUCT_NAME = "Interval Timer";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA00000000000000000000EB /* Build configuration list for PBXProject "IntervalTimer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000000ED /* Debug */,
+				AA00000000000000000000EE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00000000000000000000EC /* Build configuration list for PBXNativeTarget "IntervalTimer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000000EF /* Debug */,
+				AA00000000000000000000F0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA00000000000000000000F1 /* XCLocalSwiftPackageReference "IntervalTimerCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = IntervalTimerCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA00000000000000000000F2 /* IntervalTimerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = IntervalTimerCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AA00000000000000000000E0 /* Project object */;
+}

@@ -10,6 +10,7 @@ import android.os.IBinder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,10 +37,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
@@ -99,7 +104,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PresetRepo.init(this)
-        if (Build.VERSION.SDK_INT >= 33) requestNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        // Only ask when we don't already have it: onCreate runs again on every Activity recreation,
+        // and re-launching the request popped the system dialog over a live workout. Same guard the
+        // phone carries — this side was left with the unfixed version.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotif.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         pullPhonePresets()
         reattachToRunningWorkout()
 
@@ -177,6 +190,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // A launch that never connected has no workout, and no service?.stop() can reach it — the
+        // started service would sit in the foreground holding a wake lock with nothing to run.
+        if (isFinishing && pending != null) stopService(Intent(this, WearTimerService::class.java))
         releaseBinding()
         super.onDestroy()
     }
@@ -185,9 +201,9 @@ class MainActivity : ComponentActivity() {
 /** Default screen: a quick Work / Rest / Rounds timer, mirroring the phone. Presets are one tap away. */
 @Composable
 private fun HomeScreen(onStart: (Workout) -> Unit, onPresets: () -> Unit) {
-    var workSec by remember { mutableStateOf(30) }
-    var restSec by remember { mutableStateOf(15) }
-    var rounds by remember { mutableStateOf(8) }
+    var workSec by remember { mutableIntStateOf(30) }
+    var restSec by remember { mutableIntStateOf(15) }
+    var rounds by remember { mutableIntStateOf(8) }
     // Plain centered column: the three steppers + Start sit in one screenful; Presets is just below,
     // reached with a short scroll. No title — the controls are the whole point.
     Column(
@@ -340,11 +356,59 @@ private fun RunningScreen(ui: WearUiState, onPause: () -> Unit, onResume: () -> 
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Paused", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
-                    PillButton("Resume", onResume)
-                    Spacer(Modifier.height(8.dp))
-                    PillButton("End", onEnd, tint = Color(0xFFEF4444))
+                    Spacer(Modifier.height(12.dp))
+                    // Glyphs, not words, and side by side — same pair the phone shows. Two stacked
+                    // word pills ate most of a round screen, and "Resume"/"End" is a sentence to read
+                    // where a play triangle and a cross are a thing to hit.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PauseAction(play = true, accent = Color(0xFF22E06A), onClick = onResume)
+                        Spacer(Modifier.width(18.dp))
+                        PauseAction(play = false, accent = Color(0xFFEF4444), onClick = onEnd)
+                    }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Resume and End as drawn glyphs, the same pair the phone's pause screen uses — a play triangle and
+ * a cross, each in a tinted circle. Drawn rather than typed: no font is guaranteed to carry ▶, and a
+ * missing-glyph box on the one control that gets you moving again is not a risk worth taking.
+ *
+ * 60dp against the phone's 96dp. Two of these plus the gap is 138dp across, which clears the usable
+ * width of a round watch face with room either side.
+ */
+@Composable
+private fun PauseAction(play: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(60.dp)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.22f))
+            .border(1.5.dp, accent.copy(alpha = 0.55f), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(24.dp)) {
+            val s = size.minDimension
+            if (play) {
+                // Vertices chosen so the triangle's centroid — not its bounding box — lands on the
+                // centre. A box-centred play triangle always looks shifted left.
+                drawPath(
+                    Path().apply {
+                        moveTo(s * 0.267f, s * 0.11f)
+                        lineTo(s * 0.967f, s * 0.5f)
+                        lineTo(s * 0.267f, s * 0.89f)
+                        close()
+                    },
+                    Color.White,
+                )
+            } else {
+                val i = s * 0.10f
+                val w = s * 0.15f
+                drawLine(Color.White, Offset(i, i), Offset(s - i, s - i), w, StrokeCap.Round)
+                drawLine(Color.White, Offset(s - i, i), Offset(i, s - i), w, StrokeCap.Round)
             }
         }
     }

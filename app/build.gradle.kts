@@ -67,6 +67,11 @@ android {
         // False positive: registerForActivityResult is called on a ComponentActivity (Compose), not a
         // Fragment, so the Fragment-1.3.0 requirement doesn't apply. All other checks stay fatal.
         disable += "InvalidFragmentVersionForActivityResult"
+        // False positive, and verified by trying it: lint says the mipmap-anydpi-v26 qualifier is
+        // redundant now minSdk is 26, but AAPT2 refuses to register an <adaptive-icon> declared in
+        // an unversioned directory at all — dropping the -v26 fails the build with
+        // "resource mipmap/ic_launcher not found". The qualifier is load-bearing.
+        disable += "ObsoleteSdkInt"
     }
 }
 

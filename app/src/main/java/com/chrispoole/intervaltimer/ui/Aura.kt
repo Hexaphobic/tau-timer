@@ -21,7 +21,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.chrispoole.intervaltimer.Settings
 
@@ -160,7 +159,7 @@ private const val SWATCH_PROGRESS = 0.5f
  * reasons that have nothing to do with the theme.
  */
 @Composable
-fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float = 0f) {
+fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float) {
     if (Build.VERSION.SDK_INT < 33) {
         // Same fallback as the timer, so the two still agree on pre-33 devices. The seed is
         // ignored here: there's no shader to re-time, and pre-33 devices get identical swatches
@@ -229,14 +228,7 @@ fun HomeBackground(modifier: Modifier = Modifier) {
  * perimeter at the start, retreating to the two side mid-points as time runs out.
  */
 @Composable
-fun SplitProgress(
-    remaining: Float,
-    color: Color,
-    cornerRadius: Dp = 40.dp,
-    inset: Dp = 6.dp,
-    strokeWidth: Dp = 6.dp,
-    modifier: Modifier = Modifier,
-) {
+fun SplitProgress(remaining: Float, color: Color, modifier: Modifier = Modifier) {
     // Read inside onDrawBehind, never captured by the cache block. Captured, a new `remaining` every
     // 33ms made drawWithCache rebuild two Paths and two native PathMeasures per frame — the exact
     // trap RESEARCH.md §3.1 flags. Now the geometry is built once per size change.
@@ -244,8 +236,10 @@ fun SplitProgress(
     val col = rememberUpdatedState(color)
     Box(
         modifier.drawWithCache {
-            val r = cornerRadius.toPx()
-            val i = inset.toPx()
+            // Fixed rather than parameters: the one call site never overrode them, and the 6dp
+            // inset under an 18dp glow is quoted as fact by MainActivity's compact-layout maths.
+            val r = 40.dp.toPx()
+            val i = 6.dp.toPx()
             val cx = size.width / 2f
             val top = i
             val bottom = size.height - i
@@ -270,8 +264,8 @@ fun SplitProgress(
             }
             val pmLeft = PathMeasure().apply { setPath(sidePath(-1), false) }
             val pmRight = PathMeasure().apply { setPath(sidePath(1), false) }
-            val glow = Stroke((strokeWidth * 3f).toPx(), cap = StrokeCap.Round)
-            val crisp = Stroke(strokeWidth.toPx(), cap = StrokeCap.Round)
+            val glow = Stroke(18.dp.toPx(), cap = StrokeCap.Round)
+            val crisp = Stroke(6.dp.toPx(), cap = StrokeCap.Round)
             val seg = Path()
             // Grows outward from the side's mid-point in both directions at once, so the two visible
             // tips travel toward the top and bottom edge centres and retreat back as time runs out.

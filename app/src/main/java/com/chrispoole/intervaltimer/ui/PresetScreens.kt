@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -99,23 +102,29 @@ fun PresetsScreen(
     onStart: (Preset) -> Unit,
     onNew: () -> Unit,
     onEdit: (savedIndex: Int) -> Unit,
+    onEditBuiltin: (Preset) -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
+        // The pill floats over the scroll rather than sitting above it, so the list passes underneath
+        // instead of being cut off at a hard edge. Declared after the scroll so it is hit-tested first.
+        // No safeDrawingPadding on the container: the camera cutout's reserved band walled off the
+        // top of the screen for a hole it only overlaps in the middle. The list uses the whole panel;
+        // only the pill keeps an inset, so the one control up there never lands under the camera.
+        Box(Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
+                // Clear of the pill at rest; scrolled, the list simply travels under it.
+                .padding(top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 60.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("‹ Back", color = Color.White, fontSize = 18.sp) }
-                Spacer(Modifier.width(8.dp))
-                Text("Presets", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(12.dp))
 
             // Anything in the list can be deleted. Built-ins are compiled in rather than stored, so
             // they're hidden by name instead of removed; saved ones are deleted outright.
             BUILTIN_PRESETS.filterNot { it.name in Settings.hiddenBuiltins }.forEach { p ->
-                PresetRow(p, onStart = { onStart(p) }, onEdit = null, onDelete = { Settings.hideBuiltin(p.name); PresetStore.pushToWatch() })
+                // Editable like anything else — saving writes the copy and hides the original, so
+                // "pre-made" is a starting point, not a locked case.
+                PresetRow(p, onStart = { onStart(p) }, onEdit = { onEditBuiltin(p) }, onDelete = { Settings.hideBuiltin(p.name); PresetStore.pushToWatch() })
             }
             PresetStore.saved.forEachIndexed { index, p ->
                 PresetRow(p, onStart = { onStart(p) }, onEdit = { onEdit(index) }, onDelete = { PresetStore.deleteAt(index) })
@@ -123,6 +132,11 @@ fun PresetsScreen(
 
             Spacer(Modifier.height(16.dp))
             GlassPill("+  New sequence", onNew, Modifier.fillMaxWidth())
+        }
+        BackPill(
+            onBack,
+            Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(start = 12.dp, top = 8.dp),
+        )
         }
     }
 }
@@ -212,7 +226,11 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
                                 .clip(pill)
                                 .background(DangerRed.copy(alpha = 0.22f))
                                 .border(1.dp, DangerRed.copy(alpha = 0.55f), pill)
-                                .clickable { onDelete() }
+                                // Disarm as it commits. `remember(preset)` keys on the preset's
+                                // value, so two structurally equal saved presets share this state:
+                                // deleting the first slid the second into its slot still armed,
+                                // one tap from deleting it too.
+                                .clickable { armed = false; onDelete() }
                                 .padding(horizontal = 14.dp, vertical = 7.dp),
                         ) {
                             Text("Delete?", color = DangerRed, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -250,7 +268,6 @@ fun EditorScreen(
     onStart: (Preset) -> Unit,
     onSave: (Preset) -> Unit,
     onCancel: () -> Unit,
-    saveLabel: String = "Save",
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     val ids = remember { Ids() }
@@ -364,22 +381,29 @@ fun EditorScreen(
 
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
+        Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        // Outside the list, like the Back row on the other screens: a long sequence used to push
+        // Cancel, Start and Save off the top, and they are the only ways out of this screen. The
+        // header item below stays — FIRST_CARD still counts it.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onCancel) { Text("Cancel", color = Color.White.copy(alpha = 0.8f)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GlassPill("Start", { onStart(build()) }, enabled = blocks.isNotEmpty())
+                Spacer(Modifier.width(10.dp))
+                GlassPill("Save", { onSave(build()) }, enabled = blocks.isNotEmpty())
+            }
+        }
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-            contentPadding = PaddingValues(20.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
         ) {
             item(key = "header") {
                 Column {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = onCancel) { Text("Cancel", color = Color.White.copy(alpha = 0.8f)) }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            GlassPill("Start", { onStart(build()) }, enabled = blocks.isNotEmpty())
-                            Spacer(Modifier.width(10.dp))
-                            GlassPill(saveLabel, { onSave(build()) }, enabled = blocks.isNotEmpty())
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -463,6 +487,7 @@ fun EditorScreen(
                 }
             }
         }
+        }
 
         notice?.let {
             NoticePill(
@@ -512,36 +537,44 @@ private fun TotalsLine(blocks: List<Block>, repeatAll: Int) {
     }
 }
 
-/** The outer ×N: the whole sequence, top to bottom, that many times. */
+/**
+ * The outer ×N: the whole sequence, top to bottom, that many times.
+ *
+ * Shared with the home screen rather than copied, so building a sequence there and building one in
+ * the editor put the same control in the same words in front of you.
+ */
 @Composable
-private fun RepeatAllCard(repeatAll: Int, onChange: (Int) -> Unit) {
+fun RepeatAllCard(repeatAll: Int, onChange: (Int) -> Unit) {
     val shape = RoundedCornerShape(16.dp)
     Row(
         Modifier
             .fillMaxWidth()
             .background(GlassFill, shape)
             .border(1.dp, glassBorder(), shape)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 40/44 rather than 44/52: on a 360dp-wide phone the wider stepper left the label too little
+        // to sit on one line, and "Repeat everything" folded in half above a two-line subtitle.
         Column(Modifier.weight(1f)) {
             Text("Repeat everything", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Text(
-                if (repeatAll == 1) "Plays once, top to bottom" else "Every group, $repeatAll times over",
+                // Short enough to stay on one line beside the stepper at 360dp.
+                if (repeatAll == 1) "Plays through once" else "$repeatAll times through",
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 12.sp,
             )
         }
-        GlassCircle("−", { onChange((repeatAll - 1).coerceAtLeast(1)) }, size = 44.dp)
+        GlassCircle("−", { onChange((repeatAll - 1).coerceAtLeast(1)) }, size = 40.dp)
         Text(
             "× $repeatAll",
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(52.dp),
+            modifier = Modifier.width(44.dp),
         )
-        GlassCircle("+", { onChange(repeatAll + 1) }, size = 44.dp)
+        GlassCircle("+", { onChange(repeatAll + 1) }, size = 40.dp)
     }
 }
 
@@ -801,12 +834,7 @@ private fun IntervalRows(
                     modifier = Modifier.weight(1f),
                 )
                 GlassCircle("+", { m -> onSet(j, iv.copy(durationSec = iv.durationSec + 5 * m)) }, size = 44.dp)
-                Box(
-                    Modifier.size(32.dp).clip(CircleShape).clickable { onRemove(j) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("✕", color = Color.White.copy(alpha = 0.55f), fontSize = 15.sp)
-                }
+                CloseX { onRemove(j) }
             }
         }
     }

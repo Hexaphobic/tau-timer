@@ -97,6 +97,6 @@ URL**, not an uploaded file. Worth knowing before you spend time editing one.
 
 ## 4. Version
 
-`versionCode 1`, `versionName "0.1"` — bump `versionName` to `1.0.0` before uploading. It is shown
-publicly on the store page, and "0.1" reads as unfinished. `versionCode` must increase by 1 for
-every subsequent upload; Play rejects a re-used code.
+Both modules are at `versionName "1.0.0"` — the phone on `versionCode 1`, the watch on `versionCode
+1000` so the two never collide under one listing. `versionCode` must increase by 1 for every
+subsequent upload; Play rejects a re-used code.
