@@ -41,28 +41,41 @@ object PresetRepo {
     @Synchronized
     fun setFromPhone(json: String, hiddenNames: List<String>, context: Context) {
         init(context)
-        synced = parse(json)
-        file?.let { runCatching { it.writeText(json) } }
+        // A payload that isn't a preset array at all used to be taken anyway: synced went empty and
+        // the cache kept the garbage, so the watch stayed empty across a reboot with the phone out of
+        // range. Keep the last good list and its cache; hidden built-ins arrive separately and are
+        // unaffected by a bad preset payload.
+        parse(json)?.let { presets ->
+            synced = presets
+            file?.let { f -> runCatching { f.writeText(json) } }
+        }
         hidden = hiddenNames.toSet()
         hiddenFile?.let { runCatching { it.writeText(JSONArray(hiddenNames).toString()) } }
     }
 
-    private fun parse(json: String): List<Preset> = runCatching {
+    /**
+     * Null means the text isn't a preset array at all, which callers must not confuse with a phone
+     * that genuinely has no presets. Individual entries are caught one at a time so a single preset
+     * this build can't read (an unknown Phase, say) costs that preset and not the whole sync.
+     */
+    private fun parse(json: String): List<Preset>? = runCatching {
         val arr = JSONArray(json)
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            val ivs = o.getJSONArray("intervals")
-            Preset(
-                o.getString("name"),
-                (0 until ivs.length()).map { j ->
-                    val s = ivs.getJSONObject(j)
-                    SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
-                },
-                // Absent on anything saved before overall repeats existed — that's a plain once-through.
-                o.optInt("repeatAll", 1).coerceAtLeast(1),
-            )
+        (0 until arr.length()).mapNotNull { i ->
+            runCatching {
+                val o = arr.getJSONObject(i)
+                val ivs = o.getJSONArray("intervals")
+                Preset(
+                    o.getString("name"),
+                    (0 until ivs.length()).map { j ->
+                        val s = ivs.getJSONObject(j)
+                        SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
+                    },
+                    // Absent on anything saved before overall repeats existed — that's a plain once-through.
+                    o.optInt("repeatAll", 1).coerceAtLeast(1),
+                )
+            }.getOrNull()
         }
-    }.getOrDefault(emptyList())
+    }.getOrNull()
 
     private fun parseNames(json: String): Set<String> = runCatching {
         val arr = JSONArray(json)

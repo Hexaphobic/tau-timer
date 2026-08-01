@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +51,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -312,8 +314,34 @@ private fun RunningScreen(ui: WearUiState, onPause: () -> Unit, onResume: () -> 
         ui.phase == Phase.REST -> "Rest"
         else -> ""
     }
+
+    // Wear blanks the display after ~15s, which dropped the watch back to the watch face mid-set:
+    // the service kept ticking and buzzing, but the number being trained against was gone and the
+    // only way back was the ongoing notification. Composition scope covers running, paused and
+    // Done in one go and clears the flag when the screen leaves, so endWorkout()/back/onDestroy
+    // have nothing to remember to undo. Done is capped exactly as the phone caps it: a watch taken
+    // off at the finish and left face-up on a nightstand instead of tapped has no wrist drop to
+    // end the hold, and the service has already stopSelf()'d by then, so nothing else would ever
+    // let the display sleep — same symptom the phone hit, on a battery a tenth the size. Same 60s
+    // as the phone rather than a watch-specific number; there's no evidence a shorter read-back
+    // window is wanted, and one value across both ports is one fewer thing to keep in step. No
+    // screenBrightness = 1f alongside it like the phone has; that is a phone-sized battery bill.
+    val view = LocalView.current
+    var holdAwake by remember { mutableStateOf(true) }
+    LaunchedEffect(ui.done) { if (ui.done) { delay(60_000); holdAwake = false } }
+    DisposableEffect(view, holdAwake) {
+        if (holdAwake) view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // Content layer — blurs behind the pause overlay so the layered text stops competing.
+        // ponytail: Modifier.blur is a RenderEffect and is silently ignored below API 31, so on this
+        // module's own minSdk 30 floor (Galaxy Watch 4) the pause treatment is the 45% scrim below
+        // and nothing else — the digits stay sharp behind "Paused" rather than smearing. Left that
+        // way deliberately: white bold text and two 60dp bordered glyph buttons read fine over the
+        // scrim alone, and a second, deeper scrim value for that cohort would change the look on
+        // every watch that does blur, to fix a difference nobody sees side by side.
         Box(
             modifier = Modifier
                 .fillMaxSize()

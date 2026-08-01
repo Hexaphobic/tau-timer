@@ -184,7 +184,14 @@ class WearTimerService : Service() {
             running = true,
             paused = paused,
             phase = p.phase,
-            remainingMs = p.remainingMs,
+            // Rounded up to the second that will actually be drawn — both readers (RunningScreen's
+            // Text and notifText below) put this through formatMs, which ceils, and nothing on this
+            // watch shows a fraction. Every tick inside one displayed second therefore builds an
+            // equal WearUiState, and StateFlow drops equal values, so the 40ms tick no longer drags
+            // 25 recompositions a second (24 of them pixel-identical) through a screen the workout
+            // holds forcibly awake. The tick rate is deliberately NOT slowed: it is what fires the
+            // buzz cues. If the watch ever draws a sub-second ring, this rounding has to go first.
+            remainingMs = (p.remainingMs + 999) / 1000 * 1000,
             round = p.round,
             totalRounds = totalRounds,
             done = p.done,
@@ -201,7 +208,7 @@ class WearTimerService : Service() {
         _state.value = s
         // Nothing to notify on the last tick: loop() tears the notification down immediately after.
         if (!p.done) {
-            val text = formatMs(p.remainingMs)
+            val text = notifText(s)
             if (text != lastNotif) {
                 lastNotif = text
                 notify(buildNotification(s))
@@ -212,7 +219,13 @@ class WearTimerService : Service() {
 
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wl = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tau::wear").also { wakeLock = it }
+        // Not reference-counted, same as the phone: releaseWakeLock() runs on the tick dispatcher
+        // (loop()'s done branch) and on the main thread (pause/stop/onDestroy), and its isHeld check
+        // isn't atomic with the release — both threads can see it held and both release, which makes
+        // a counted lock throw "WakeLock under-locked". Uncounted, release() no-ops on an
+        // already-released lock.
+        val wl = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Tau::wear")
+            .also { it.setReferenceCounted(false); wakeLock = it }
         if (!wl.isHeld) wl.acquire(4L * 60 * 60 * 1000)
     }
 
@@ -240,11 +253,7 @@ class WearTimerService : Service() {
     }
 
     private fun buildNotification(s: WearUiState): Notification {
-        val text = when {
-            !s.running -> "Ready"
-            s.done -> "Done"
-            else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
-        }
+        val text = notifText(s)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             // Matches the manifest label and the phone's notification; "Tau" is the wordmark, not
@@ -254,6 +263,10 @@ class WearTimerService : Service() {
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            // Android 12+ withholds an FGS notification for 10s unless the builder opts out, and on a
+            // watch this notification is the only route back into a backgrounded workout (see openApp
+            // above) — a wrist dropped right after Start left the whole prepare phase unreachable.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
@@ -280,4 +293,18 @@ class WearTimerService : Service() {
         private const val CHANNEL_ID = "wear_timer"
         private const val NOTIF_ID = 1
     }
+}
+
+/**
+ * Mirror of the phone's notifText — same reasoning, and the notification matters more here since
+ * tapping it is the only route back into a backgrounded workout. Pure so publish() can dedupe on the
+ * very string it posts: keying on the time alone meant pause() — which freezes the clock at the
+ * second already posted — never got past the guard, leaving a live-looking countdown stuck on one
+ * value, indistinguishable from a dead one.
+ */
+private fun notifText(s: WearUiState): String = when {
+    !s.running -> "Ready"
+    s.done -> "Done"
+    s.paused -> "Paused · ${formatMs(s.remainingMs)}"
+    else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
 }
