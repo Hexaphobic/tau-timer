@@ -46,6 +46,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -173,6 +175,7 @@ import com.chrispoole.intervaltimer.ui.Palette
 import com.chrispoole.intervaltimer.ui.PresetsScreen
 import com.chrispoole.intervaltimer.ui.glassBorder
 import com.chrispoole.intervaltimer.ui.SplitProgress
+import com.chrispoole.intervaltimer.ui.stepperSemantics
 
 // Grayscale chrome — colour is reserved for communicating the interval phase in the timer.
 private val MonoScheme = darkColorScheme(
@@ -844,16 +847,25 @@ private fun HomeSection(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 handle()
                 Spacer(Modifier.width(2.dp))
-                GlassCircle("−", { m -> onChange(b.copy(repeat = (b.repeat - m).coerceAtLeast(1))) }, size = 36.dp)
+                // Hoisted only so the number can offer the same two edits as accessibility actions
+                // without a second copy of them to keep in step.
+                val less: (Int) -> Unit = { m -> onChange(b.copy(repeat = (b.repeat - m).coerceAtLeast(1))) }
+                val more: (Int) -> Unit = { m -> onChange(b.copy(repeat = b.repeat + m)) }
+                GlassCircle("−", less, size = 36.dp)
                 Text(
                     "× ${b.repeat}",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.width(52.dp),
+                    // No section number in the label: the drag handle immediately before it in
+                    // traversal order already says "Reorder section 2", and this header only exists
+                    // when there is more than one section for it to number.
+                    modifier = Modifier
+                        .width(52.dp)
+                        .stepperSemantics("Section repeats", "${b.repeat} times", less, more),
                 )
-                GlassCircle("+", { m -> onChange(b.copy(repeat = b.repeat + m)) }, size = 36.dp)
+                GlassCircle("+", more, size = 36.dp)
                 Spacer(Modifier.weight(1f))
                 // How long this block is — the intervals under it, run the × N to its left. M:SS,
                 // not formatMs: these are block lengths now rather than shares of the whole workout,
@@ -936,7 +948,8 @@ private fun HomeRounds(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .width(lerp(96.dp, 78.dp, g))
-                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) },
+                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) }
+                .stepperSemantics("Rounds", "$rounds", onMinus, onPlus),
         )
         GlassCircle("+", onPlus, size = lerp(54.dp, 50.dp, g))
         Spacer(Modifier.weight(outer))
@@ -988,10 +1001,20 @@ private fun IntervalStack(
             { m -> set(j, iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(if (isWork) 5 else 0))) },
             { m -> set(j, iv.copy(durationSec = iv.durationSec + 5 * m)) },
             onReset = { set(j, iv.copy(durationSec = if (isWork) DEFAULT_WORK_SEC else DEFAULT_REST_SEC)) },
+            number = j + 1,
             compact = compact,
             tint = (if (isWork) WorkColor else RestColor).copy(alpha = appear),
             onLabelClick = if (compact) {
-                { set(j, iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) }
+                // Flipping to Work re-applies the 5s floor the minus stepper enforces: a rest
+                // dialled to 0 and then flipped was the one way to build a 0-second work interval,
+                // which the timer never plays but every set count still counts.
+                {
+                    set(
+                        j,
+                        if (isWork) iv.copy(phase = Phase.REST)
+                        else iv.copy(phase = Phase.WORK, durationSec = iv.durationSec.coerceAtLeast(5)),
+                    )
+                }
             } else null,
             // Only once there is something to remove — a section with one interval is the floor. On
             // the plain home, dialling a rest to 0 is how you drop it, same as it has always been.
@@ -1051,6 +1074,8 @@ private fun Stepper(
     onMinus: (Int) -> Unit,
     onPlus: (Int) -> Unit,
     onReset: () -> Unit,
+    /** Which row this is, for the spoken label — "Work" alone repeats inside a section. */
+    number: Int,
     compact: Boolean = false,
     tint: Color? = null,
     /** Tap the label to flip work↔rest. Its own hit box, well clear of the steppers: the editor
@@ -1060,6 +1085,11 @@ private fun Stepper(
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(50)
+    // pointerInput(Unit) reads the handler it was given on the node's first composition and is never
+    // restarted, so the double-tap kept resetting through a stale onReset — one closed over an older
+    // Block, an older row index and an older onChange, which put the whole section back as it was and
+    // silently reverted every other edit. Same hazard GlassCircle and HomeRounds already guard, same fix.
+    val reset by rememberUpdatedState(onReset)
     val minimal = Settings.minimalBg
     // An invisible tint is not a pill. The plain home hands these rows the phase colour at alpha 0 so
     // it can fade up when the box arrives — but they were still paying the pill's 12dp inset either
@@ -1093,23 +1123,38 @@ private fun Stepper(
                     else -> Modifier
                         .border(1.dp, visibleTint.copy(alpha = visibleTint.alpha * 0.28f), shape)
                         .clip(shape)
-                        .drawBehind {
+                        // Built in the cache block, not the draw body: Compose caches the native
+                        // LinearGradient inside the Brush instance, so a Brush built per frame is a
+                        // shader allocated per frame — and the drift transition invalidates this at
+                        // display refresh rate, for every tinted row, the whole time the home shows
+                        // a boxed section. Same trap SplitProgress documents.
+                        .drawWithCache {
                             val a = visibleTint.alpha
                             // Repeated so it never seams; first and last stop match, and one cycle
-                            // of `drift` slides it exactly one span, so the loop is invisible.
+                            // of `drift` slides it exactly one span, so the loop is invisible. The
+                            // span sits at -span..0 rather than following `shift`, so translating
+                            // the canvas by `shift` puts it exactly where startX = shift - span used
+                            // to, with no wrapping — and drawRect gets a constant size, which is
+                            // what keeps the cached shader valid frame to frame.
                             val span = size.width * 1.5f
-                            val shift = drift!!.value * span
-                            drawRect(
-                                Brush.horizontalGradient(
-                                    0.00f to visibleTint.copy(alpha = a * 0.58f),
-                                    0.32f to visibleTint.copy(alpha = a * 0.43f),
-                                    0.66f to visibleTint.copy(alpha = a * 0.60f),
-                                    1.00f to visibleTint.copy(alpha = a * 0.58f),
-                                    startX = shift - span,
-                                    endX = shift,
-                                    tileMode = TileMode.Repeated,
-                                ),
+                            val brush = Brush.horizontalGradient(
+                                0.00f to visibleTint.copy(alpha = a * 0.58f),
+                                0.32f to visibleTint.copy(alpha = a * 0.43f),
+                                0.66f to visibleTint.copy(alpha = a * 0.60f),
+                                1.00f to visibleTint.copy(alpha = a * 0.58f),
+                                startX = -span,
+                                endX = 0f,
+                                tileMode = TileMode.Repeated,
                             )
+                            onDrawBehind {
+                                // drift is read here and never in the cache block — captured up
+                                // there it would rebuild the brush every frame, which is the cost
+                                // this is removing.
+                                val shift = drift!!.value * span
+                                translate(left = shift) {
+                                    drawRect(brush, topLeft = Offset(-shift, 0f), size = size)
+                                }
+                            }
                         }
                         .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 6.dp)
                 },
@@ -1138,7 +1183,8 @@ private fun Stepper(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .width(if (compact) 68.dp else 96.dp)
-                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onReset() }) },
+                    .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) }
+                    .stepperSemantics("Interval $number $label duration", value, onMinus, onPlus),
                 textAlign = TextAlign.Center,
             )
             GlassCircle("+", onPlus, size = if (compact) 40.dp else 54.dp)
@@ -1188,9 +1234,14 @@ private fun SettingsScreen(onBack: () -> Unit) {
             ) {
                 Text("Get ready", color = Color.White, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    GlassCircle("−", { m -> Settings.updatePrepareSec(Settings.prepareSec - 5 * m) })
+                    val less: (Int) -> Unit = { m -> Settings.updatePrepareSec(Settings.prepareSec - 5 * m) }
+                    val more: (Int) -> Unit = { m -> Settings.updatePrepareSec(Settings.prepareSec + 5 * m) }
+                    // One reading for both the eye and TalkBack: "Off" is what zero shows, so the
+                    // spoken value must not be a bare "0s" the screen never displays.
+                    val ready = if (Settings.prepareSec == 0) "Off" else secLabel(Settings.prepareSec)
+                    GlassCircle("−", less)
                     Text(
-                        if (Settings.prepareSec == 0) "Off" else secLabel(Settings.prepareSec),
+                        ready,
                         color = Color.White,
                         fontSize = 17.sp,
                         textAlign = TextAlign.Center,
@@ -1198,9 +1249,10 @@ private fun SettingsScreen(onBack: () -> Unit) {
                             .width(64.dp)
                             .pointerInput(Unit) {
                                 detectTapGestures(onDoubleTap = { Settings.updatePrepareSec(DEFAULT_PREPARE_SEC) })
-                            },
+                            }
+                            .stepperSemantics("Get ready", ready, less, more),
                     )
-                    GlassCircle("+", { m -> Settings.updatePrepareSec(Settings.prepareSec + 5 * m) })
+                    GlassCircle("+", more)
                 }
             }
         }
@@ -1557,14 +1609,23 @@ private fun TimerScreen(ui: TimerUiState, onPause: () -> Unit, onResume: () -> U
     val lang = Language.of(Settings.languageCode)
 
     // Hold the display awake AND at full brightness — keepScreenOn alone stops the sleep timer
-    // but not the OS's slow auto-dim, which was darkening the screen a few minutes in. Held for
-    // the whole screen including the Done state (releasing on `done` visibly dimmed the finish);
-    // both release when the screen leaves.
+    // but not the OS's slow auto-dim, which was darkening the screen a few minutes in. Held
+    // through the Done state too, because releasing on `done` visibly dimmed the finish; both
+    // release together, either when the screen leaves or when the Done hold below runs out.
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
-    DisposableEffect(view) {
-        view.keepScreenOn = true
-        window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = 1f } }
+    // Done is not a workout. A phone put down on the Done screen instead of tapped was never
+    // sleeping again — forced max brightness and a per-frame shader, for hours. So hold the finish
+    // long enough to walk back and read it, then hand the display back to the OS. Not a fresh
+    // timeout at that point: the screen-off clock runs from the last touch, so a phone genuinely
+    // left alone sleeps as soon as the hold drops, which is the whole point of dropping it.
+    var holdAwake by remember { mutableStateOf(true) }
+    LaunchedEffect(ui.done) { if (ui.done) { delay(60_000); holdAwake = false } }
+    DisposableEffect(view, holdAwake) {
+        if (holdAwake) {
+            view.keepScreenOn = true
+            window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = 1f } }
+        }
         onDispose {
             view.keepScreenOn = false
             window?.let { w ->
@@ -1764,6 +1825,14 @@ private class Spark(val angle: Float, val speed: Float, val radius: Float, val c
  */
 @Composable
 private fun ConfettiBurst(seed: Long, startDelayMs: Long, modifier: Modifier = Modifier) {
+    // Guarded here rather than at the two call sites: it's pure decoration, so reduced motion drops
+    // the whole thing instead of freezing a frame of blurred blobs over the finish.
+    if (Settings.reducedMotion) return
+    // Dropped for the same reason and in the same place: Modifier.blur is RenderEffect-backed and a
+    // silent no-op below API 31, so on Android 8–11 the "soft blooms" above are 38 hard-edged circles
+    // per shell — a glitchy dot spray over the finish. ponytail: skip the decoration rather than keep
+    // a second unblurred look in sync. The Done screen still has its full-bloom aura and its "Done".
+    if (Build.VERSION.SDK_INT < 31) return
     // Each round is its own shell, launched from a different spot. Fixed seeds: it's decoration,
     // and a stable pattern can't randomly land badly.
     val shells = remember(seed) {

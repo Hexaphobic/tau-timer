@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -173,10 +176,17 @@ fun GlassCircle(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
-                    step.value(1)
-                    // null == the timeout won, i.e. still held. A lift or a cancel completes the
-                    // block and returns Unit, which ends the repeat.
-                    var lifted = withTimeoutOrNull(REPEAT_DELAY_MS) { waitForUpOrCancellation(); Unit }
+                    // null = timeout, i.e. still held. true = lifted (a tap). false = cancelled, which
+                    // means a parent scroll took the gesture — the finger was passing through, not pressing.
+                    val settled = withTimeoutOrNull(REPEAT_DELAY_MS) { waitForUpOrCancellation() != null }
+                    if (settled == false) return@awaitEachGesture
+                    // A tap commits on lift, like every clickable; a hold's first step is the
+                    // loop's — stepping here too would land a double step at the 350ms mark.
+                    if (settled == true) {
+                        step.value(1)
+                        return@awaitEachGesture
+                    }
+                    var lifted: Unit? = null
                     var held = REPEAT_DELAY_MS
                     while (lifted == null) {
                         step.value(if (held >= DOUBLE_AFTER_MS) 2 else 1)
@@ -195,6 +205,42 @@ fun GlassCircle(
             textAlign = TextAlign.Center,
         )
     }
+}
+
+/**
+ * What makes a stepper reachable with TalkBack. Goes on the number between the two circles.
+ *
+ * [GlassCircle] is pointerInput and nothing else, so it publishes no semantics node at all: the +
+ * and − are invisible to a screen reader, and all it finds of the app's primary control is a bare
+ * number with no say in what it measures or how to change it.
+ *
+ * On the number rather than on the row, and deliberately without merging descendants. Every row
+ * carrying a stepper also carries something else with semantics of its own — a reorder handle, a
+ * WORK/REST chip, a ✕ — and a merged parent's [customActions] REPLACE its children's rather than
+ * adding to them, so a row-level node would swallow the handle's Move up/Move down. The number is
+ * already the one node TalkBack finds in the trio, so labelling it in place is the single control
+ * the row wants, with nothing added to the tree and no hit testing touched.
+ *
+ * [value] must read off the same expression the row renders. A spoken wording of it is fine and
+ * often better ("3 times" for a bare "× 3"); a second way of *deriving* it is not, or the spoken
+ * reading and the visible one drift. Where the row's own text is conditional — Settings' "Off" at
+ * zero — hoist the string and hand both the same one.
+ */
+fun Modifier.stepperSemantics(
+    label: String,
+    value: String,
+    onMinus: (Int) -> Unit,
+    onPlus: (Int) -> Unit,
+): Modifier = semantics {
+    contentDescription = label
+    stateDescription = value
+    // Same shape as the reorder handles': an action list, because the gesture itself — here a press
+    // on a circle with no semantics — is not something a screen reader can aim at. Always the single
+    // step, never the hold's 2x: there is no way to say "and keep going" one action at a time.
+    customActions = listOf(
+        CustomAccessibilityAction("Increase") { onPlus(1); true },
+        CustomAccessibilityAction("Decrease") { onMinus(1); true },
+    )
 }
 
 /** The small ✕ that removes whatever it sits on: a home section, an interval row, a name field. */

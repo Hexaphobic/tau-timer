@@ -14,6 +14,9 @@ enum class Cue { WARN, TICK, GO }
  * Loads the three cue tones and plays them as MEDIA, so they follow the user's active
  * media route (headphones, Bluetooth) exactly like the music does — not the phone's
  * alarm speaker. In-app volume is independent, so we don't fight the media volume.
+ * The accepted cost of MEDIA over ALARM: media volume at zero means no cues — which is the user
+ * saying "no sounds", the same answer every other app gives them. Losing the route mid-workout
+ * isn't a cost at all; the framework rehomes the stream to the speaker rather than silencing it.
  * A single MAY_DUCK focus request is held from the 5s warning through the GO tone, then
  * released, so the user's own music ducks for the cluster and returns between clusters.
  */
@@ -47,9 +50,20 @@ class Beeper(context: Context) {
 
     private var ducking = false
 
+    // The service is created at workout launch, not app launch, so the decode starts only moments
+    // before the first cue is due and the very first tone of a workout could lose that race and never
+    // sound. With the default 5s prepare that first cue is now the tick at 2000ms — buildCues drops
+    // the warn that used to land on atMs == 0 — which is far more headroom than it had, but not a
+    // guarantee on a cold device. One slot, not a queue: only the earliest cue can lose, and by the
+    // time a later decode landed the workout would have moved on.
+    private var missed: Cue? = null
+
     init {
-        // No load-completion tracking: play() on a still-loading sound is a silent no-op, and the
-        // three tones are loaded at service creation, well before the first cue can fire.
+        pool.setOnLoadCompleteListener { _, _, status ->
+            // Any successful decode is a chance to retry: if the tone we owe is still the one that
+            // hasn't landed, play() just re-stashes it and the next callback tries again.
+            if (status == 0) synchronized(this) { missed?.let { missed = null; play(it) } }
+        }
         warnId = pool.load(context, R.raw.warn5, 1)
         tickId = pool.load(context, R.raw.tick, 1)
         goId = pool.load(context, R.raw.go, 1)
@@ -89,7 +103,10 @@ class Beeper(context: Context) {
         }
         // The transition whoosh is the one that matters mid-set, so push it louder than the ticks.
         val gain = if (cue == Cue.GO) (v * 1.6f).coerceAtMost(1f) else v
-        pool.play(id, gain, gain, 1, 0, 1f)
+        // play() returns 0 when the sample isn't loaded yet. It also returns 0 on a released pool or
+        // with no free channel, neither of which happens here — re-stashing on those would be
+        // harmless anyway, since nothing would ever complete a load to replay it.
+        if (pool.play(id, gain, gain, 1, 0, 1f) == 0) missed = cue
     }
 
     @Synchronized

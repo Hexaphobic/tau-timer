@@ -95,11 +95,30 @@ half4 main(float2 fragCoord) {
 }
 """
 
+/**
+ * [minFrameMs] throttles what is PUBLISHED, not the frame loop: the loop still rides the animation
+ * clock (which is what stops it when the app isn't visible), it just leaves `value` alone until the
+ * interval has passed, and an unchanged State invalidates no draw. Default 0 publishes every frame,
+ * which is what the running timer wants — nothing here feeds a cue or the clock, but the timer's
+ * glow is the countdown and gets the display's full rate.
+ */
 @Composable
-private fun rememberShaderTime(): State<Float> = produceState(0f) {
+private fun rememberShaderTime(minFrameMs: Long = 0L): State<Float> = produceState(0f) {
+    // Reduced motion: never start the loop, so iTime stays 0 and the drift and the grain's
+    // per-frame reshuffle stop. Not the same as freezing the picture — the running timer still
+    // redraws whenever `progress` ticks, because that brightness IS the countdown rather than
+    // decoration. On the home, where nothing else changes, it really is one frame. The glow stays
+    // either way; it's the phase colour, and dropping it would leave the timer on a black screen.
+    if (Settings.reducedMotion) return@produceState
     val start = withInfiniteAnimationFrameMillis { it }
+    var published = start
     while (true) {
-        withInfiniteAnimationFrameMillis { frame -> value = (frame - start) / 1000f }
+        withInfiniteAnimationFrameMillis { frame ->
+            if (frame - published >= minFrameMs) {
+                published = frame
+                value = (frame - start) / 1000f
+            }
+        }
     }
 }
 
@@ -192,7 +211,10 @@ fun HomeBackground(modifier: Modifier = Modifier) {
     val rest = RestColor
     // Deliberately NOT gated on Settings.minimalBg. Minimal is about the running timer — the screen
     // you actually stare at mid-set. Home, presets and settings keep their aurora; the only way to
-    // lose colour here is to pick a palette that hasn't got any.
+    // lose colour here is to pick a palette that hasn't got any. What they don't need is the
+    // display's full rate: these screens sit idle for minutes with nothing else invalidating, and a
+    // 120Hz panel was rasterizing this full-screen shader 120 times a second for a drift the eye
+    // can't resolve at a quarter of that.
     if (Build.VERSION.SDK_INT < 33) {
         // AGSL fallback: the same three colours as a barely-there vertical wash over black.
         Box(
@@ -204,7 +226,10 @@ fun HomeBackground(modifier: Modifier = Modifier) {
         )
         return
     }
-    val time = rememberShaderTime()
+    // ~30fps. The curtains sway at 0.4 rad/s across a smoothstep 0.34 uv wide — roughly 2px of
+    // travel per 33ms step against a ~370px soft edge — and the grain is ±1.5/255 over black, so
+    // the slower republish is invisible where a quarter of the shader draws is not.
+    val time = rememberShaderTime(minFrameMs = 33)
     val shader = remember { RuntimeShader(HOME_AGSL) }
     val brush = remember { ShaderBrush(shader) }
     Box(

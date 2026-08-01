@@ -46,11 +46,19 @@ object PresetStore {
 
     private fun persist() {
         // Write-then-rename, not truncate-in-place: writeText leaves a partial file if the process
-        // dies before writeback, load() turns any unreadable file into emptyList(), and the next
-        // persist() then makes that loss permanent — and pushes it to the watch. Replace-via-rename
-        // gets the data out before the name flips.
+        // dies before writeback, load() turns a file it can't parse at all into emptyList(), and the
+        // next persist() then makes that loss permanent — and pushes it to the watch. Replace-via-
+        // rename gets the data out before the name flips. renameTo reports failure by returning false
+        // rather than throwing, so check() exists only to route that false down the same path as a
+        // write exception, which is what gets the stale presets.json.tmp deleted — nothing reads it,
+        // and a leftover one would be the newer content under the wrong name. It does not make the
+        // failure visible: on a full disk memory and the watch still move on while presets.json keeps
+        // the old list, and it's the next launch's load() + init() push that reconverges the three,
+        // onto the old list, so the edit comes back gone. Surfacing that would need a path out of
+        // persist() to the UI, which nothing here has.
         file?.let { f ->
-            runCatching { File(f.parentFile, "${f.name}.tmp").apply { writeText(json()) }.renameTo(f) }
+            val tmp = File(f.parentFile, "${f.name}.tmp")
+            runCatching { tmp.writeText(json()); check(tmp.renameTo(f)) }.onFailure { tmp.delete() }
         }
         pushToWatch()
     }
@@ -68,14 +76,20 @@ object PresetStore {
         if (!f.exists()) return emptyList()
         return runCatching {
             val arr = JSONArray(f.readText())
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                val ivs = o.getJSONArray("intervals")
-                val list = (0 until ivs.length()).map { j ->
-                    val s = ivs.getJSONObject(j)
-                    SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
-                }
-                Preset(o.getString("name"), list, o.optInt("repeatAll", 1).coerceAtLeast(1))
+            // Catch per entry, not per file: one preset naming a Phase this build doesn't have (a
+            // downgrade, a hand edit) used to take the whole library down with it, and the next
+            // persist() wrote that emptiness back over the file and pushed it to the watch. Losing
+            // the one bad preset is recoverable; losing all of them isn't.
+            (0 until arr.length()).mapNotNull { i ->
+                runCatching {
+                    val o = arr.getJSONObject(i)
+                    val ivs = o.getJSONArray("intervals")
+                    val list = (0 until ivs.length()).map { j ->
+                        val s = ivs.getJSONObject(j)
+                        SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
+                    }
+                    Preset(o.getString("name"), list, o.optInt("repeatAll", 1).coerceAtLeast(1))
+                }.getOrNull()
             }
         }.getOrDefault(emptyList())
     }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -101,8 +102,11 @@ class DragDropState internal constructor(
     fun onDragStart(key: Any) {
         val info = infoFor(key) ?: return
         // Only this card's own settle is interrupted — cancelling another card's would teleport it
-        // the rest of the way home for no reason.
+        // the rest of the way home for no reason. Its leftover offset is carried into the new
+        // drag: zeroing it would teleport the card to its slot on the frame the finger lands.
+        var carried = 0f
         if (settlingKey == key) {
+            carried = settleOffset
             settleJob?.cancel()
             settlingKey = null
             settleOffset = 0f
@@ -110,7 +114,7 @@ class DragDropState internal constructor(
         draggingKey = key
         draggingIndex = info.index
         pickedUpAt = info.offset
-        dragged = 0f
+        dragged = carried
         lastDelta = 0f
         onPickUp()
     }
@@ -169,7 +173,7 @@ class DragDropState internal constructor(
      * being held against an edge. Driven by frames rather than by pointer events so that holding
      * still at the top or bottom keeps scrolling instead of stalling.
      */
-    internal suspend fun onFrame() {
+    internal suspend fun onFrame(frames: Float) {
         val info = infoFor(draggingKey) ?: return
         val top = pickedUpAt + dragged
         // Skip a frame if the last swap hasn't been laid out yet, otherwise the same move gets
@@ -183,7 +187,7 @@ class DragDropState internal constructor(
                 onSwap()
             }
         }
-        val scroll = edgeScroll(top, info.size)
+        val scroll = edgeScroll(top, info.size, frames)
         // Never scroll the card's own slot off the screen. It can fall behind the finger — a move
         // the owner keeps refusing pins it in place — and once the lazy list stops composing that
         // slot there is nothing left to draw the card with, so it would vanish mid-drag.
@@ -217,8 +221,12 @@ class DragDropState internal constructor(
         return -1
     }
 
-    /** Auto-scroll speed, ramping up over the last [edgePx] of the viewport. */
-    private fun edgeScroll(top: Float, size: Int): Float {
+    /**
+     * Auto-scroll speed, ramping up over the last [edgePx] of the viewport. [frames] is the actual
+     * frame time in units of one 60Hz frame — without it the speed would double on a 120Hz panel
+     * and drift whenever an adaptive display changes rate mid-drag.
+     */
+    private fun edgeScroll(top: Float, size: Int, frames: Float): Float {
         val layout = listState.layoutInfo
         val pastBottom = (top + size) - (layout.viewportEndOffset - edgePx)
         val pastTop = (layout.viewportStartOffset + edgePx) - top
@@ -226,8 +234,8 @@ class DragDropState internal constructor(
         // the tie so it doesn't just pick one and run away.
         return when {
             pastBottom > 0f && (pastTop <= 0f || lastDelta > 0f) ->
-                (pastBottom / edgePx).coerceAtMost(1f) * maxScrollPerFrame
-            pastTop > 0f -> -(pastTop / edgePx).coerceAtMost(1f) * maxScrollPerFrame
+                (pastBottom / edgePx).coerceAtMost(1f) * maxScrollPerFrame * frames
+            pastTop > 0f -> -(pastTop / edgePx).coerceAtMost(1f) * maxScrollPerFrame * frames
             else -> 0f
         }
     }
@@ -263,9 +271,12 @@ fun rememberDragDropState(
     }
     LaunchedEffect(state.isDragging) {
         if (!state.isDragging) return@LaunchedEffect
+        var last = 0L
         while (true) {
-            withFrameNanos { }
-            state.onFrame()
+            val t = withFrameNanos { it }
+            val dt = if (last == 0L) 16_666_666L else (t - last).coerceIn(0L, 50_000_000L)
+            last = t
+            state.onFrame(dt / 16_666_666f)
         }
     }
     return state
@@ -287,6 +298,9 @@ fun DragHandle(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
 ) {
+    // detectDragGestures fires neither callback when its node is torn down mid-gesture — a card
+    // deleted by a second finger, or a header that stops being shown — so the drag would never end.
+    DisposableEffect(key) { onDispose { if (state.isLifted(key)) state.onDragEnd() } }
     Box(
         modifier
             .size(44.dp)

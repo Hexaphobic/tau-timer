@@ -105,15 +105,53 @@ class RepeatAndRestTest {
      * The number printed above GO must be the workout GO runs, in every shape the home can be put
      * into — including the daft ones.
      *
-     * This is a whole-space sweep rather than a handful of cases because the one that broke it was
-     * not a case anyone would think to write down: a single basic section of Work 0 / Rest 15 at one
-     * round. [baseWorkout] plays a lone zero-length work and nothing else, while the sequence builder
-     * drops the empty work, is left holding one rest, and keeps it because a lone interval is the
-     * whole sequence. Two builders, 0s against 15s. Work's floor is 5 so you cannot dial it to zero
-     * — but you can dial a Rest to 0 and tap its label to make it a Work, and the flip does not
-     * re-apply the floor. Reachable, therefore real.
+     * The sets half is swept across the whole space rather than a handful of cases because the one
+     * that broke it was not a case anyone would think to write down: a single basic section of
+     * Work 0 / Rest 15 at one round. [baseWorkout] plays a lone zero-length work and nothing else,
+     * while the sequence builder drops the empty work, is left holding one rest, and keeps it because
+     * a lone interval is the whole sequence. Two builders, 0s against 15s. Work's floor is 5 so you
+     * cannot dial it to zero — but you can dial a Rest to 0 and tap its label to make it a Work.
+     * Reachable, therefore real, and the home is written back on every edit, so a home once put in
+     * that shape comes back in it however the flip behaves afterwards.
+     *
+     * The seconds half cannot be swept the same way. It used to compare the built workout's played
+     * total against [homeSeconds], but both are now the same [homeWorkout] call differing only in
+     * prepare, and prepare adds nothing but a PREPARE interval — so that assertion held by
+     * construction and could not fail whatever the builder did. Nor is there a block-level formula to
+     * sweep against instead: any oracle that drops the empty intervals and keeps the rest disagrees
+     * with [baseWorkout] on Work 0 / Rest 15 × 1, which is shipped behaviour. So the seconds are
+     * pinned as hand-computed constants over shapes that reach both branches — an oracle that cannot
+     * go vacuous because the arithmetic was done off the code, not by it.
      */
     @Test fun theTotalOverGoIsTheWorkoutGoRuns() {
+        // (sets, seconds), worked out from the shape by hand.
+        val cases = listOf(
+            // baseWorkout branch: 3 works, and a rest between rounds but not after the last.
+            Triple(listOf(basicBlock(30, 15, 3)), 1, 3 to 120L),
+            // Rest dialled to 0 puts nothing at all between the rounds.
+            Triple(listOf(basicBlock(30, 0, 2)), 1, 2 to 60L),
+            // The empty work fails homeWorkout's durationSec guard, so this builds as a sequence: the
+            // work is filtered out and the lone rest is the whole workout. Through baseWorkout it
+            // would be 0s and one set instead.
+            Triple(listOf(basicBlock(0, 15, 1)), 1, 0 to 15L),
+            // Same shape at 3 rounds: three rests, the closing one dropped. No work asked of you is
+            // no sets, however many rounds the section says.
+            Triple(listOf(basicBlock(0, 15, 3)), 1, 0 to 30L),
+            // A lone rest survives playable() — dropping it would leave nothing to run.
+            Triple(listOf(Block(listOf(r(15)), 1)), 1, 0 to 15L),
+            // Sequence branch: 120s a pass, twice, less the 10s rest that would end the workout.
+            Triple(listOf(basicBlock(30, 15, 2), basicBlock(20, 10, 1)), 2, 6 to 230L),
+        )
+        for ((blocks, repeatAll, expected) in cases) {
+            val (sets, secs) = expected
+            assertEquals("blocks=$blocks repeatAll=$repeatAll", secs, homeSeconds(blocks, repeatAll))
+            assertEquals(
+                "blocks=$blocks repeatAll=$repeatAll",
+                sets.toLong(),
+                homeSets(blocks, repeatAll).toLong(),
+            )
+        }
+
         val durations = listOf(0, 5, 30)
         val sections = buildList {
             for (phase in listOf(Phase.WORK, Phase.REST)) {
@@ -132,12 +170,15 @@ class RepeatAndRestTest {
         fun check(blocks: List<Block>, repeatAll: Int) {
             // What the screen does: an outer ×N only exists once there is more than one section.
             val effective = if (blocks.size > 1) repeatAll else 1
-            val played = homeWorkout(blocks, effective, prepareMs = 5_000)
-                .intervals.filter { it.phase != Phase.PREPARE }.sumOf { it.durationMs }
+            val workout = homeWorkout(blocks, effective, prepareMs = 5_000)
+            // The count beside the total: a set you are never asked to do is not a set. Work 0 /
+            // Rest 15 × 5 said "5 sets" over five zero-length works the clock walks straight past.
+            // The built workout's own work intervals are the second opinion here — homeSets reads
+            // rounds off that same workout, and rounds are stamped by position, not by duration.
             assertEquals(
                 "blocks=$blocks repeatAll=$repeatAll",
-                played,
-                homeSeconds(blocks, effective) * 1000L,
+                homeSets(blocks, effective).toLong(),
+                workout.intervals.count { it.phase == Phase.WORK && it.durationMs > 0 }.toLong(),
             )
         }
         for (a in sections) for (repeatAll in 1..3) check(listOf(a), repeatAll)
@@ -149,6 +190,34 @@ class RepeatAndRestTest {
         val blocks = groupIntervals(p.intervals)
         assertEquals(listOf(Block(listOf(w(30), r(15)), 3)), blocks)
         assertEquals(p, Preset("t", flatten(blocks), 4))
+    }
+
+    /**
+     * Work, work, rest is one section the home builds first-class, so a preset saved from one has to
+     * come back out of the flat list as one section — mis-grouped it reopens as six separate ×1 rows
+     * and the ×3 the user wrote is gone from the screen.
+     *
+     * Both works are the same length deliberately: the len 1 scan finds a decoy [w30] ×2 covering two
+     * before the len 3 match covering nine is ever tried, so this fails the moment the scan settles
+     * for the first repeat it finds rather than the one covering most.
+     */
+    @Test fun aWorkWorkRestSectionGroupsAsOneBlock() {
+        val flat = (1..3).flatMap { listOf(w(30), w(30), r(15)) }
+        val blocks = groupIntervals(flat)
+        assertEquals(listOf(Block(listOf(w(30), w(30), r(15)), 3)), blocks)
+        assertEquals(flat, flatten(blocks))
+    }
+
+    /**
+     * The longest pattern the scan reaches for. Aperiodic at len 2 — the two works differ — so no
+     * shorter length can match it, and no two rests fall together, so it is a shape `noDoubleRest`
+     * would actually let a user build.
+     */
+    @Test fun aFourLongPatternGroupsAsOneBlock() {
+        val flat = (1..2).flatMap { listOf(w(30), r(10), w(20), r(10)) }
+        val blocks = groupIntervals(flat)
+        assertEquals(listOf(Block(listOf(w(30), r(10), w(20), r(10)), 2)), blocks)
+        assertEquals(flat, flatten(blocks))
     }
 
     // ---- no two rests in a row ----

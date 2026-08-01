@@ -1,6 +1,15 @@
 package com.chrispoole.intervaltimer.model
 
-/** One block in a sequence preset: WORK or REST for a number of seconds. */
+/**
+ * One block in a sequence preset: WORK or REST for a number of seconds.
+ *
+ * Carries no identity field, unlike the Swift mirror, and that asymmetry is deliberate: SwiftUI's
+ * ForEach needs one to tell which row left, while Compose composes these rows positionally
+ * (`IntervalRows`, `IntervalStack` — bare forEachIndexed, no `key`) and gives them no exit
+ * transition at all, so there is nothing here for an id to be misattributed to. It would also cost
+ * more than it does there — a data class can't take a field without it landing in equals(), which
+ * `groupIntervals` compares runs with and which the home's save reads.
+ */
 data class SeqInterval(val phase: Phase, val durationSec: Int)
 
 /**
@@ -84,7 +93,8 @@ fun homePreset(blocks: List<Block>, repeatAll: Int = 1): Preset =
  *
  * It was two: GO branched here while the total was measured off [homePreset] alone, and the two
  * branches do not agree in every state you can reach. Dial a Rest to 0 and tap its label to make it
- * a Work — the flip doesn't re-apply Work's 5s floor — and a single basic section of Work 0 / Rest 15
+ * a Work — the flip re-applies Work's 5s floor now, but every preset saved before it didn't, so the
+ * state still arrives from disk — and a single basic section of Work 0 / Rest 15
  * at one round has [baseWorkout] playing a lone zero-length work (nothing at all) while [homePreset]
  * drops the empty work, leaves one rest, and keeps it because a lone interval is the whole sequence.
  * The label said 15s over a button that ran 0. One builder cannot disagree with itself.
@@ -93,7 +103,16 @@ fun homeWorkout(blocks: List<Block>, repeatAll: Int, prepareMs: Long): Workout {
     val single = blocks.singleOrNull()
     // repeatAll == 1 because an outer ×N is exactly what stops this being a plain "n / rounds"
     // workout, so a leftover one must not silently double a single basic section.
-    return if (single != null && single.isBasic && repeatAll == 1) {
+    //
+    // durationSec > 0 because [baseWorkout] keeps a zero-length work and stamps rounds 1..N on the
+    // rests that follow it: Work 0 / Rest 15 × 5 printed "5 sets" over a workout that never enters
+    // WORK once, and the timer's counter and pips read the same rounds. Sent the sequence way it
+    // meets homePreset's "drop the empties" filter, which is the only rule that should be in play
+    // here, and the count becomes what actually plays. Every other basic shape lands in exactly the
+    // branch it did before; totals are unchanged bar the one round case, where the lone rest is now
+    // played instead of thrown away — [baseWorkout]'s `r < rounds` guard dropped it, so that shape
+    // used to run to nothing at all.
+    return if (single != null && single.isBasic && single.items[0].durationSec > 0 && repeatAll == 1) {
         baseWorkout(
             prepareMs = prepareMs,
             workMs = single.items[0].durationSec * 1000L,

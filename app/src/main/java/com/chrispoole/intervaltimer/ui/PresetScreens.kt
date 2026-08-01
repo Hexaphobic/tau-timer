@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -307,10 +308,18 @@ fun EditorScreen(
      * Compared against what's already there rather than against zero: a sequence that already has
      * a double rest (built with the rule off, or turned on afterwards) must still be editable, so
      * only an edit that *adds* one is refused.
+     *
+     * [baseline] is that "what's already there" count. Event handlers take the default and get it
+     * live; composition passes `restBaseline` instead. `canRest` below is asked once per work row on
+     * every pointer frame of an interval drag, and computing this half there rebuilt a flattened
+     * copy of the whole sequence — plus a Pair per interval — on each of those calls, for an answer
+     * that cannot change until an edit lands.
      */
-    fun violates(candidate: List<Block>, repeat: Int): Boolean =
-        Settings.noDoubleRest &&
-            backToBackRests(candidate, repeat) > backToBackRests(current(), repeatAll)
+    fun violates(
+        candidate: List<Block>,
+        repeat: Int,
+        baseline: Int = backToBackRests(current(), repeatAll),
+    ): Boolean = Settings.noDoubleRest && backToBackRests(candidate, repeat) > baseline
 
     fun allow(candidate: List<Block>, repeat: Int = repeatAll): Boolean {
         if (!violates(candidate, repeat)) return true
@@ -319,6 +328,10 @@ fun EditorScreen(
     }
 
     fun replace(i: Int, b: Block): List<Block> = current().mapIndexed { k, x -> if (k == i) b else x }
+
+    // Fixed for the whole composition: blocks and repeatAll only move through an edit, and every
+    // edit recomposes this. Read once here so the drag path doesn't ask for it per row per frame.
+    val restBaseline = backToBackRests(current(), repeatAll)
 
     /**
      * Every rule-checked edit to a group goes through here; deletes deliberately don't. Returns
@@ -442,7 +455,7 @@ fun EditorScreen(
                     // it's the only one the card needs to grey out.
                     canRest = { j ->
                         val b = ub.block
-                        !violates(replace(i, b.copy(items = b.items.toMutableList().also { it[j] = it[j].copy(phase = Phase.REST) })), repeatAll)
+                        !violates(replace(i, b.copy(items = b.items.toMutableList().also { it[j] = it[j].copy(phase = Phase.REST) })), repeatAll, restBaseline)
                     },
                     handle = {
                         DragHandle(
@@ -565,16 +578,24 @@ fun RepeatAllCard(repeatAll: Int, onChange: (Int) -> Unit) {
                 fontSize = 12.sp,
             )
         }
-        GlassCircle("−", { onChange((repeatAll - 1).coerceAtLeast(1)) }, size = 40.dp)
+        // Hoisted only so the number can offer the same two edits as accessibility actions without
+        // a second copy of them to keep in step. `_` rather than `m` on purpose: alone among the
+        // steppers this one has never doubled on hold, and an accessibility pass is the wrong batch
+        // to start.
+        val less: (Int) -> Unit = { _ -> onChange((repeatAll - 1).coerceAtLeast(1)) }
+        val more: (Int) -> Unit = { _ -> onChange(repeatAll + 1) }
+        GlassCircle("−", less, size = 40.dp)
         Text(
             "× $repeatAll",
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(44.dp),
+            modifier = Modifier
+                .width(44.dp)
+                .stepperSemantics("Repeat everything", "$repeatAll times", less, more),
         )
-        GlassCircle("+", { onChange(repeatAll + 1) }, size = 40.dp)
+        GlassCircle("+", more, size = 40.dp)
     }
 }
 
@@ -654,15 +675,27 @@ private fun BlockEditorCard(
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Repeat this group", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
             Spacer(Modifier.width(12.dp))
-            GlassCircle("−", { m -> onChange(block.copy(repeat = (block.repeat - m).coerceAtLeast(1))) }, size = 44.dp)
+            // (Int) -> Unit spelled out: onChange answers with whether it took the edit, which the
+            // stepper has never had a use for, and an inferred (Int) -> Boolean is not what
+            // GlassCircle takes.
+            val less: (Int) -> Unit = { m -> onChange(block.copy(repeat = (block.repeat - m).coerceAtLeast(1))) }
+            val more: (Int) -> Unit = { m -> onChange(block.copy(repeat = block.repeat + m)) }
+            GlassCircle("−", less, size = 44.dp)
             Text(
                 "× ${block.repeat}",
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 10.dp),
+                modifier = Modifier
+                    .padding(horizontal = 10.dp)
+                    .stepperSemantics(
+                        if (groupCount > 1) "Group ${index + 1} repeats" else "Repeat this group",
+                        "${block.repeat} times",
+                        less,
+                        more,
+                    ),
             )
-            GlassCircle("+", { m -> onChange(block.copy(repeat = block.repeat + m)) }, size = 44.dp)
+            GlassCircle("+", more, size = 44.dp)
         }
     }
 }
@@ -692,6 +725,11 @@ private fun IntervalRows(
     var settling by remember { mutableIntStateOf(-1) }
     var settleOffset by remember { mutableFloatStateOf(0f) }
     var settleJob by remember { mutableStateOf<Job?>(null) }
+    // Whether the last drop was turned down by the rule. A refused move reorders nothing, so the
+    // rows that had stood aside still have the whole gap to travel back — clearing `from` dropped
+    // their offset in a single frame while the dragged row alone sprang home, and half the gesture
+    // glided while half of it jumped.
+    var refused by remember { mutableStateOf(false) }
 
     // The gesture detector is set up once and must outlive every recomposition — re-keying it would
     // tear down a drag in progress, since dragging recomposes these rows on every frame. So the
@@ -701,8 +739,12 @@ private fun IntervalRows(
     val liveItems by rememberUpdatedState(items)
     val liveMove by rememberUpdatedState(onMove)
 
+    // No target for a dead gesture: a second finger deleting a row shrinks the list under a drag
+    // in progress, and the gesture's coroutine is cancelled with it rather than ending. The
+    // handle's dispose clears `from` a frame later; until then it can sit past the new end, or —
+    // when the group shrank to one interval, which composes no handle — on the lone survivor.
     fun target(): Int =
-        if (from < 0 || pitch <= 0f) -1
+        if (from < 0 || from > liveItems.lastIndex || liveItems.lastIndex < 1 || pitch <= 0f) -1
         else (from + (dragged / pitch).roundToInt()).coerceIn(0, liveItems.lastIndex)
 
     fun grab(j: Int) {
@@ -727,6 +769,7 @@ private fun IntervalRows(
         val landedAt = if (moved) end else start
         settleOffset = dragged - (landedAt - start) * pitch
         settling = landedAt
+        refused = !moved
         from = -1
         dragged = 0f
         settleJob = scope.launch {
@@ -746,7 +789,9 @@ private fun IntervalRows(
 
     Column(Modifier.fillMaxWidth()) {
         items.forEachIndexed { j, iv ->
-            val dragging = j == from
+            // A live drag always has a target — target() coerces into range — so `to < 0` here can
+            // only be a dead gesture's leftovers, and nothing may draw lifted off them.
+            val dragging = j == from && to >= 0
             val slide = when {
                 from < 0 || to < 0 || dragging -> 0f
                 from < to && j > from && j <= to -> -pitch
@@ -761,13 +806,17 @@ private fun IntervalRows(
                     .zIndex(if (dragging || j == settling) 1f else 0f)
                     .onSizeChanged { if (it.height > 0) pitch = it.height.toFloat() }
                     .graphicsLayer {
-                        // The rows that stood aside are back in their real slots the moment the drop
-                        // lands, so their offset is dropped in that same frame rather than animated
-                        // away on top of a layout that has already moved them.
+                        // On an accepted drop the rows that stood aside are back in their real slots
+                        // the moment it lands, so their offset is dropped in that same frame rather
+                        // than animated away on top of a layout that has already moved them. A
+                        // refused drop moves nothing, so they keep their spring and glide home
+                        // alongside the row under the finger. `refused` is never cleared: with
+                        // `from` negative the target slide is 0f for every row, so once the spring
+                        // arrives this branch and the `else` are the same value.
                         translationY = when {
                             dragging -> dragged
                             j == settling -> settleOffset
-                            from >= 0 -> animatedSlide
+                            from >= 0 || refused -> animatedSlide
                             else -> 0f
                         }
                     }
@@ -778,6 +827,19 @@ private fun IntervalRows(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (items.size > 1) {
+                    // detectDragGestures fires neither callback when its node is torn down
+                    // mid-gesture — this slot deleted by a second finger, or the group shrunk to
+                    // one interval and the handle gone with it — so the state is cleared here, or
+                    // the stale `dragged` would re-lift this row the next time it has a target.
+                    // Same hazard DragHandle guards, same fix.
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            if (from == j) {
+                                from = -1
+                                dragged = 0f
+                            }
+                        }
+                    }
                     Box(
                         Modifier
                             .size(30.dp)
@@ -817,11 +879,10 @@ private fun IntervalRows(
                     onClick = { onSet(j, iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) },
                 )
                 Spacer(Modifier.width(4.dp))
-                GlassCircle(
-                    "−",
-                    { m -> onSet(j, iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(5))) },
-                    size = 44.dp,
-                )
+                val less: (Int) -> Unit =
+                    { m -> onSet(j, iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(5))) }
+                val more: (Int) -> Unit = { m -> onSet(j, iv.copy(durationSec = iv.durationSec + 5 * m)) }
+                GlassCircle("−", less, size = 44.dp)
                 Text(
                     secLabel(iv.durationSec),
                     color = Color.White,
@@ -831,9 +892,19 @@ private fun IntervalRows(
                     maxLines = 1,
                     // Weighted rather than fixed: still a constant width whatever the label says,
                     // but it gives way first when the row is squeezed on a narrow screen.
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        // Numbered the same way the row's own grip is ("Reorder interval 3"), and
+                        // carrying the phase because the WORK/REST chip beside it is a separate
+                        // stop — landing on the number alone must still say what it belongs to.
+                        .stepperSemantics(
+                            "Interval ${j + 1} ${if (isWork) "work" else "rest"} duration",
+                            secLabel(iv.durationSec),
+                            less,
+                            more,
+                        ),
                 )
-                GlassCircle("+", { m -> onSet(j, iv.copy(durationSec = iv.durationSec + 5 * m)) }, size = 44.dp)
+                GlassCircle("+", more, size = 44.dp)
                 CloseX { onRemove(j) }
             }
         }

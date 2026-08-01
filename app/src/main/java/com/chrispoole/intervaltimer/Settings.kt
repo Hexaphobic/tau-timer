@@ -1,5 +1,6 @@
 package com.chrispoole.intervaltimer
 
+import android.animation.ValueAnimator
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,6 +41,15 @@ object Settings {
     var palette by mutableStateOf(Palette.DEFAULT); private set // phase colours + home aurora
     // Orthogonal to the palette: kills the aura and leaves a black screen, whichever colours are on.
     var minimalBg by mutableStateOf(false); private set
+
+    // The OS's "remove animations" preference. Below API 33 there's no reduce-motion flag of its own
+    // worth depending on; a zeroed animator duration scale is what accessibility (and Samsung's power
+    // saving) actually writes, and what Compose's own animations already honour. areAnimatorsEnabled
+    // is that same Settings.Global value the framework keeps pushed into the process — a static float
+    // compare, no prefs, no ContentResolver, so it needs no caching and tracks a change without a
+    // restart. Not one of ours: no setter, no row in the settings screen. minimalBg is the knob for
+    // people who just want the aura gone; this one is the OS having already been told.
+    val reducedMotion: Boolean get() = !ValueAnimator.areAnimatorsEnabled()
 
     // Two rests in a row is one longer rest with extra steps. On (the default), the editor won't
     // build one; off, you're free to (a stretch-then-breathe cooldown, say).

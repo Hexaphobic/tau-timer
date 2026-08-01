@@ -68,8 +68,6 @@ class TimerService : Service() {
     private var cues: List<ScheduledCue> = emptyList()
     private var cueIdx = 0
 
-    private data class ScheduledCue(val atMs: Long, val cue: Cue)
-
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -150,21 +148,6 @@ class TimerService : Service() {
     private fun activeElapsed(): Long =
         if (paused) pausedActive else SystemClock.elapsedRealtime() - startElapsed
 
-    /** All cue instants across the whole timeline: 5/3/2/1s before each boundary + GO at it. */
-    private fun buildCues(w: Workout): List<ScheduledCue> {
-        val list = mutableListOf<ScheduledCue>()
-        var end = 0L
-        for (iv in w.intervals) {
-            end += iv.durationMs
-            list += ScheduledCue(end - 5_000, Cue.WARN)
-            list += ScheduledCue(end - 3_000, Cue.TICK)
-            list += ScheduledCue(end - 2_000, Cue.TICK)
-            list += ScheduledCue(end - 1_000, Cue.TICK)
-            list += ScheduledCue(end, Cue.GO)
-        }
-        return list.filter { it.atMs >= 0 }.sortedBy { it.atMs }
-    }
-
     private fun fireDueCues(nowMs: Long) {
         while (cueIdx < cues.size && cues[cueIdx].atMs <= nowMs) {
             when (val cue = cues[cueIdx].cue) {
@@ -226,7 +209,7 @@ class TimerService : Service() {
         // Nothing to notify on the last tick: loop() tears the notification down immediately after,
         // so posting "Done" here only made it flash.
         if (!s.done) {
-            val text = formatMs(s.remainingMs)
+            val text = notifText(s)
             if (text != lastNotifText) {
                 lastNotifText = text
                 notify(buildNotification(s))
@@ -237,7 +220,12 @@ class TimerService : Service() {
 
     private fun acquireWakeLock() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wl = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IntervalTimer::clock").also { wakeLock = it }
+        // Not reference-counted: releaseWakeLock() runs on the tick dispatcher (loop()'s done branch)
+        // and on the main thread (pause/stop/onDestroy), and its isHeld check isn't atomic with the
+        // release — both threads can see isHeld and both release, which makes a counted lock throw
+        // "WakeLock under-locked". Uncounted, release() no-ops internally on an already-released lock.
+        val wl = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "IntervalTimer::clock")
+            .also { it.setReferenceCounted(false); wakeLock = it }
         if (!wl.isHeld) wl.acquire(WAKE_LOCK_TIMEOUT_MS)
     }
 
@@ -257,12 +245,7 @@ class TimerService : Service() {
     }
 
     private fun buildNotification(s: TimerUiState): Notification {
-        val text = when {
-            !s.running -> "Ready"
-            s.done -> "Done"
-            s.phase.name == "PREPARE" -> "Get ready · ${formatMs(s.remainingMs)}"
-            else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
-        }
+        val text = notifText(s)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Interval Timer")
@@ -312,4 +295,52 @@ class TimerService : Service() {
         // ponytail: 4h ceiling covers any real workout; re-acquire per interval only if someone runs marathons.
         private const val WAKE_LOCK_TIMEOUT_MS = 4L * 60 * 60 * 1000
     }
+}
+
+internal data class ScheduledCue(val atMs: Long, val cue: Cue)
+
+/**
+ * All cue instants across the whole timeline: 5/3/2/1s before each boundary + GO at it, minus any
+ * that fall at or before the interval's own start. Top-level and pure over the workout for the same
+ * reason as [notifText] — the boundary arithmetic is the part worth testing, and TimerService isn't
+ * constructible off-device.
+ *
+ * That drop is what the `at > start` guard is for: 5s is both the editor's work floor and the
+ * default prepare, and at 5s `end - 5_000` is the *previous* interval's boundary. Both cues then
+ * came due in one fireDueCues pass, so the warn tone played over the transition whoosh and outside
+ * the duck window GO had just torn down. A cue on an interval's start instant belongs to the
+ * boundary before it, which already has its GO.
+ */
+internal fun buildCues(w: Workout): List<ScheduledCue> {
+    val list = mutableListOf<ScheduledCue>()
+    var end = 0L
+    for (iv in w.intervals) {
+        val start = end
+        end += iv.durationMs
+        // `at > start` subsumes the old `atMs >= 0` filter, since start is never negative.
+        fun add(atMs: Long, cue: Cue) { if (atMs > start) list += ScheduledCue(atMs, cue) }
+        add(end - 5_000, Cue.WARN)
+        add(end - 3_000, Cue.TICK)
+        add(end - 2_000, Cue.TICK)
+        add(end - 1_000, Cue.TICK)
+        add(end, Cue.GO)
+    }
+    return list.sortedBy { it.atMs }
+}
+
+/**
+ * The notification's one line. Top-level and pure over the state so publish() can dedupe on the very
+ * string it posts: keying on the time alone meant pause() — which freezes the clock at the second
+ * already posted — never got past the guard, leaving the shade on a live-looking countdown stuck on
+ * one value until resume. Same reason the phase belongs in the key: with ceil-to-second formatting a
+ * 1s interval starts on the same string the previous one ended on, which used to strand the old
+ * phase label. Costs one small string per tick on the ~30fps path — cheap beside progressAt, and a
+ * hand-rolled key would only drift from the text again the next time a branch is added here.
+ */
+internal fun notifText(s: TimerUiState): String = when {
+    !s.running -> "Ready"
+    s.done -> "Done"
+    s.paused -> "Paused · ${formatMs(s.remainingMs)}"
+    s.phase.name == "PREPARE" -> "Get ready · ${formatMs(s.remainingMs)}"
+    else -> "${s.phase.name.lowercase().replaceFirstChar { it.uppercase() }} · ${formatMs(s.remainingMs)}"
 }
