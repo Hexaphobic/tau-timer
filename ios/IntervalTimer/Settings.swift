@@ -17,7 +17,13 @@ final class Settings: ObservableObject {
     private let defaults = UserDefaults.standard
 
     // Volume is read by the Beeper on every cue, and the three home values on every stepper frame.
-    @Published private(set) var volume: Double
+    //
+    // Deliberately NOT @Published — the only view showing it is VolumeSlider, which owns its thumb
+    // locally. @ObservedObject has no per-property tracking, so publishing per touch sample re-ran
+    // the whole settings body — 24 shader swatches and the full language grid — at drag rate. The
+    // Beeper reads the stored value at play(), so a cue mid-drag still gets the live volume.
+    // (Compose doesn't have this problem: snapshot state only recomposes actual readers.)
+    private(set) var volume: Double
     @Published private(set) var muted: Bool
     @Published private(set) var languageCode: String
     @Published private(set) var wordMode: Bool

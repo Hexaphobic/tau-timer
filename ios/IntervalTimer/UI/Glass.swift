@@ -152,7 +152,7 @@ private let REPEAT_EVERY: TimeInterval = 0.090
 private let DOUBLE_AFTER: TimeInterval = 1.0
 
 /// The +/- button. Every one of these in the app is a stepper, so hold-to-repeat lives here rather
-/// than in each caller: press and it fires once, keep holding and it repeats.
+/// than in each caller: tap and it steps once on lift, keep holding and it repeats.
 ///
 /// `onStep` is handed a multiplier — 1 normally, 2 once you've held past `DOUBLE_AFTER` — so a long
 /// hold tops out at twice the speed and no further. Deliberately a hard ceiling: an escalating
@@ -162,30 +162,70 @@ struct GlassCircle: View {
     let onStep: (Int) -> Void
     var size: CGFloat = 54
 
+    /// Reference box for the repeat callback. GlassCircle is a struct, so the timer closure
+    /// captures a frozen copy of it — including whatever `onStep` was current when the press began.
+    /// The editor's steppers close over `let` snapshots (`iv`, `block`), so repeating through the
+    /// captured copy re-applies the same delta to a stale base and the number sticks. @State's
+    /// storage box is shared with the captured copy, so routing every step through this box always
+    /// reaches the closure from the latest body evaluation.
+    private final class StepSink {
+        var step: (Int) -> Void = { _ in }
+    }
+
     @State private var timer: Timer?
     @State private var held: TimeInterval = 0
     @State private var pressing = false
+    @State private var dead = false
+    @State private var fired = false
+    @State private var sink = StepSink()
 
     var body: some View {
-        Text(glyph)
+        // Re-point the sink at the freshest closure every render; begin()/step() only call the sink.
+        sink.step = onStep
+        return Text(glyph)
             .font(.system(size: size * 0.44, weight: .medium))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(glassFill, in: Circle())
             .overlay(Circle().strokeBorder(glassBorder(), lineWidth: 1))
             .contentShape(Circle())
-            // minimumDistance 0 so the press registers immediately; a drag off the button still
-            // ends the repeat through onEnded.
+            // A minimumDistance-0 drag claims the touch outright, so the enclosing ScrollView's pan
+            // never gets a flick that starts on a stepper — exclusive vs simultaneous makes no
+            // difference (measured), it's the same SwiftUI behaviour ReorderState.handleGesture
+            // relies on deliberately. What this layer CAN guarantee is that the stolen flick edits
+            // nothing: no step fires on touch-down, so an aborted gesture leaves the value alone.
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in if !pressing { pressing = true; begin() } }
-                    .onEnded { _ in end() }
+                    .onChanged { v in
+                        guard !dead else { return }
+                        // 24pt: a genuine still hold was measured drifting ~14pt of thumb roll,
+                        // and a real flick travels far further than this before lift.
+                        if max(abs(v.translation.width), abs(v.translation.height)) > 24 {
+                            dead = true
+                            end()
+                            return
+                        }
+                        if !pressing { pressing = true; begin() }
+                    }
+                    .onEnded { _ in
+                        // A tap commits on lift; a hold's first step was the timer's at
+                        // REPEAT_DELAY, and a dead gesture commits nothing.
+                        let tap = pressing && !dead && !fired
+                        end()
+                        dead = false
+                        if tap { sink.step(1) }
+                    }
             )
             .onDisappear(perform: end)
+            // Nothing here for VoiceOver to hold: a bare "+" says nothing about what it adds to, and
+            // the DragGesture above is invisible to the accessibility layer, so the circle could
+            // never be activated anyway. The number it flanks carries the whole control instead —
+            // see `stepperSemantics`.
+            .accessibilityHidden(true)
     }
 
     private func begin() {
-        onStep(1)
+        // Schedules only — stepping on touch-down is what let a cancelled gesture edit the value.
         held = REPEAT_DELAY
         timer = Timer.scheduledTimer(withTimeInterval: REPEAT_DELAY, repeats: false) { _ in
             step()
@@ -194,7 +234,8 @@ struct GlassCircle: View {
     }
 
     private func step() {
-        onStep(held >= DOUBLE_AFTER ? 2 : 1)
+        fired = true
+        sink.step(held >= DOUBLE_AFTER ? 2 : 1)
         held += REPEAT_EVERY
     }
 
@@ -202,7 +243,35 @@ struct GlassCircle: View {
         timer?.invalidate()
         timer = nil
         pressing = false
+        fired = false
         held = 0
+    }
+}
+
+extension View {
+    /// VoiceOver's entire view of a stepper: the number is the control, and swipe up/down is what
+    /// moves it. The circles either side are hidden (see `GlassCircle`), so this is the only element
+    /// left to say what the value is or to change it.
+    ///
+    /// Merge the whole row into one element only where nothing in it needs an element of its own; put
+    /// it on the number alone where the row also holds a grip or a ✕, since merging those away would
+    /// take the grip's Move up / Move down with them. A double-tap-to-reset on the number survives a
+    /// merge either way — VoiceOver can't perform it as a gesture, so both kinds of row re-offer it
+    /// as `.accessibilityAction(named: "Reset")`.
+    ///
+    /// `down`/`up` are the circles' own `onStep` closures, handed the same 1 a single tap sends, so
+    /// the floors and clamps can't drift between adjusting a value and tapping it.
+    func stepperSemantics(_ label: String, _ value: String,
+                          down: @escaping (Int) -> Void, up: @escaping (Int) -> Void) -> some View {
+        accessibilityLabel(label)
+            .accessibilityValue(value)
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: up(1)
+                case .decrement: down(1)
+                @unknown default: break
+                }
+            }
     }
 }
 
@@ -311,6 +380,11 @@ struct RepeatAllCard: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        // The subtitle is the value, spoken and seen — one string, so VoiceOver reads the card the
+        // way it is written rather than a bare number that has to be re-worded here.
+        let sub = repeatAll == 1 ? "Plays through once" : "\(repeatAll) times through"
+        let down: (Int) -> Void = { m in onChange(max(repeatAll - m, 1)) }
+        let up: (Int) -> Void = { m in onChange(repeatAll + m) }
         // 40/44 rather than 44/52: on the narrowest phone the wider stepper left the label too
         // little to sit on one line, and "Repeat everything" folded in half above the subtitle.
         return HStack(spacing: 0) {
@@ -318,21 +392,24 @@ struct RepeatAllCard: View {
                 Text("Repeat everything")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.white)
-                Text(repeatAll == 1 ? "Plays through once" : "\(repeatAll) times through")
+                Text(sub)
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.5))
             }
             Spacer(minLength: 8)
-            GlassCircle(glyph: "−", onStep: { m in onChange(max(repeatAll - m, 1)) }, size: 40)
+            GlassCircle(glyph: "−", onStep: down, size: 40)
             Text("× \(repeatAll)")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 44)
-            GlassCircle(glyph: "+", onStep: { m in onChange(repeatAll + m) }, size: 40)
+            GlassCircle(glyph: "+", onStep: up, size: 40)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(glassFill, in: shape)
         .overlay(shape.strokeBorder(glassBorder(), lineWidth: 1))
+        // Nothing in the card is a control but the stepper, so the card is the control.
+        .accessibilityElement(children: .ignore)
+        .stepperSemantics("Repeat everything", sub, down: down, up: up)
     }
 }

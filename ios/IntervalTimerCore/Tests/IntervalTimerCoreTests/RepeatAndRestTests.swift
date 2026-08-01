@@ -96,14 +96,50 @@ final class RepeatAndRestTests: XCTestCase {
     /// The number printed above GO must be the workout GO runs, in every shape the home can be put
     /// into — including the daft ones.
     ///
-    /// This is a whole-space sweep rather than a handful of cases because the one that broke it was
-    /// not a case anyone would think to write down: a single basic section of Work 0 / Rest 15 at one
-    /// round. `baseWorkout` plays a lone zero-length work and nothing else, while the sequence builder
-    /// drops the empty work, is left holding one rest, and keeps it because a lone interval is the
-    /// whole sequence. Two builders, 0s against 15s. Work's floor is 5 so you cannot dial it to zero
-    /// — but you can dial a Rest to 0 and tap its label to make it a Work, and the flip does not
-    /// re-apply the floor. Reachable, therefore real.
+    /// The sets half is swept across the whole space rather than a handful of cases because the one
+    /// that broke it was not a case anyone would think to write down: a single basic section of
+    /// Work 0 / Rest 15 at one round. `baseWorkout` plays a lone zero-length work and nothing else,
+    /// while the sequence builder drops the empty work, is left holding one rest, and keeps it
+    /// because a lone interval is the whole sequence. Two builders, 0s against 15s. Work's floor is 5
+    /// so you cannot dial it to zero — but you can dial a Rest to 0 and tap its label to make it a
+    /// Work. Reachable, therefore real, and the home is written back on every edit, so a home once
+    /// put in that shape comes back in it however the flip behaves afterwards.
+    ///
+    /// The seconds half cannot be swept the same way. It used to compare the built workout's played
+    /// total against `homeSeconds`, but both are now the same `homeWorkout` call differing only in
+    /// prepare, and prepare adds nothing but a prepare interval — so that assertion held by
+    /// construction and could not fail whatever the builder did. Nor is there a block-level formula
+    /// to sweep against instead: any oracle that drops the empty intervals and keeps the rest
+    /// disagrees with `baseWorkout` on Work 0 / Rest 15 × 1, which is shipped behaviour. So the
+    /// seconds are pinned as hand-computed constants over shapes that reach both branches — an oracle
+    /// that cannot go vacuous because the arithmetic was done off the code, not by it.
     func testTheTotalOverGoIsTheWorkoutGoRuns() {
+        // (sets, seconds), worked out from the shape by hand.
+        let cases: [([Block], Int, (sets: Int, seconds: Int))] = [
+            // baseWorkout branch: 3 works, and a rest between rounds but not after the last.
+            ([basicBlock(workSec: 30, restSec: 15, rounds: 3)], 1, (3, 120)),
+            // Rest dialled to 0 puts nothing at all between the rounds.
+            ([basicBlock(workSec: 30, restSec: 0, rounds: 2)], 1, (2, 60)),
+            // The empty work fails homeWorkout's durationSec guard, so this builds as a sequence: the
+            // work is filtered out and the lone rest is the whole workout. Through baseWorkout it
+            // would be 0s and one set instead.
+            ([basicBlock(workSec: 0, restSec: 15, rounds: 1)], 1, (0, 15)),
+            // Same shape at 3 rounds: three rests, the closing one dropped. No work asked of you is
+            // no sets, however many rounds the section says.
+            ([basicBlock(workSec: 0, restSec: 15, rounds: 3)], 1, (0, 30)),
+            // A lone rest survives playable() — dropping it would leave nothing to run.
+            ([Block([r(15)], 1)], 1, (0, 15)),
+            // Sequence branch: 120s a pass, twice, less the 10s rest that would end the workout.
+            ([basicBlock(workSec: 30, restSec: 15, rounds: 2),
+              basicBlock(workSec: 20, restSec: 10, rounds: 1)], 2, (6, 230)),
+        ]
+        for (blocks, repeatAll, expected) in cases {
+            XCTAssertEqual(expected.seconds, homeSeconds(blocks, repeatAll: repeatAll),
+                           "blocks=\(blocks) repeatAll=\(repeatAll)")
+            XCTAssertEqual(expected.sets, homeSets(blocks, repeatAll: repeatAll),
+                           "blocks=\(blocks) repeatAll=\(repeatAll)")
+        }
+
         let durations = [0, 5, 30]
         var sections: [Block] = []
         for phase in [Phase.work, Phase.rest] {
@@ -121,9 +157,13 @@ final class RepeatAndRestTests: XCTestCase {
         func check(_ blocks: [Block], _ repeatAll: Int) {
             // What the screen does: an outer ×N only exists once there is more than one section.
             let effective = blocks.count > 1 ? repeatAll : 1
-            let played = homeWorkout(blocks, repeatAll: effective, prepareMs: 5_000)
-                .intervals.filter { $0.phase != .prepare }.reduce(0) { $0 + $1.durationMs }
-            XCTAssertEqual(played, homeSeconds(blocks, repeatAll: effective) * 1000,
+            let workout = homeWorkout(blocks, repeatAll: effective, prepareMs: 5_000)
+            // The count beside the total: a set you are never asked to do is not a set. Work 0 /
+            // Rest 15 × 5 said "5 sets" over five zero-length works the clock walks straight past.
+            // The built workout's own work intervals are the second opinion here — homeSets reads
+            // rounds off that same workout, and rounds are stamped by position, not by duration.
+            XCTAssertEqual(homeSets(blocks, repeatAll: effective),
+                           workout.intervals.filter { $0.phase == .work && $0.durationMs > 0 }.count,
                            "blocks=\(blocks) repeatAll=\(repeatAll)")
         }
         for a in sections { for repeatAll in 1...3 { check([a], repeatAll) } }
@@ -135,6 +175,30 @@ final class RepeatAndRestTests: XCTestCase {
         let blocks = groupIntervals(p.intervals)
         XCTAssertEqual([Block([w(30), r(15)], 3)], blocks)
         XCTAssertEqual(p, Preset("t", flatten(blocks), repeatAll: 4))
+    }
+
+    /// Work, work, rest is one section the home builds first-class, so a preset saved from one has to
+    /// come back out of the flat list as one section — mis-grouped it reopens as six separate ×1 rows
+    /// and the ×3 the user wrote is gone from the screen.
+    ///
+    /// Both works are the same length deliberately: the len 1 scan finds a decoy [w30] ×2 covering
+    /// two before the len 3 match covering nine is ever tried, so this fails the moment the scan
+    /// settles for the first repeat it finds rather than the one covering most.
+    func testAWorkWorkRestSectionGroupsAsOneBlock() {
+        let flat = (1...3).flatMap { _ in [w(30), w(30), r(15)] }
+        let blocks = groupIntervals(flat)
+        XCTAssertEqual([Block([w(30), w(30), r(15)], 3)], blocks)
+        XCTAssertEqual(flat, flatten(blocks))
+    }
+
+    /// The longest pattern the scan reaches for. Aperiodic at len 2 — the two works differ — so no
+    /// shorter length can match it, and no two rests fall together, so it is a shape `noDoubleRest`
+    /// would actually let a user build.
+    func testAFourLongPatternGroupsAsOneBlock() {
+        let flat = (1...2).flatMap { _ in [w(30), r(10), w(20), r(10)] }
+        let blocks = groupIntervals(flat)
+        XCTAssertEqual([Block([w(30), r(10), w(20), r(10)], 2)], blocks)
+        XCTAssertEqual(flat, flatten(blocks))
     }
 
     // ---- no two rests in a row ----

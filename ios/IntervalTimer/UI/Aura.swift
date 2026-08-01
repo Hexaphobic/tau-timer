@@ -90,9 +90,16 @@ private struct ShaderCanvas: View {
 
     @State private var start = Date()
 
+    /// Reduce Motion falls into the same branch the swatches use: one frozen frame, not a blank
+    /// screen. These shaders ARE the backgrounds — honouring the setting by drawing black would read
+    /// as the app broken, and the timer's own aura would stop answering to `progress` with it.
+    ///
+    /// Every animated shader in the app comes through here, so this is the only place it's needed.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         GeometryReader { geo in
-            if animated {
+            if animated && !reduceMotion {
                 TimelineView(.animation) { ctx in
                     Rectangle()
                         .fill(.black)

@@ -78,19 +78,30 @@ final class TimerEngine: ObservableObject {
         paused ? pausedActive : monotonicMs() - startMs
     }
 
-    /// All cue instants across the whole timeline: 5/3/2/1s before each boundary + GO at it.
+    /// All cue instants across the whole timeline: 5/3/2/1s before each boundary + GO at it, minus
+    /// any that fall at or before the interval's own start.
+    ///
+    /// That drop is what `at > start` is for: 5s is both the editor's work floor and the default
+    /// prepare, and at 5s `end - 5_000` IS the previous interval's boundary. Both cues then came due
+    /// in one `fireDueCues` pass, so the warn played over the transition whoosh and outside the duck
+    /// window `.go` had just torn down. A cue landing on an interval's start belongs to the boundary
+    /// before it, which already has its `.go`. Kept in step with the Kotlin twin in TimerService.kt —
+    /// the two have to agree or the same preset sounds different on each phone.
     private static func buildCues(_ w: Workout) -> [(at: Int, cue: Cue)] {
         var list: [(at: Int, cue: Cue)] = []
         var end = 0
         for iv in w.intervals {
+            let start = end
             end += iv.durationMs
-            list.append((end - 5_000, .warn))
-            list.append((end - 3_000, .tick))
-            list.append((end - 2_000, .tick))
-            list.append((end - 1_000, .tick))
-            list.append((end, .go))
+            // `at > start` subsumes the old `at >= 0` filter, since start is never negative.
+            func add(_ at: Int, _ cue: Cue) { if at > start { list.append((at, cue)) } }
+            add(end - 5_000, .warn)
+            add(end - 3_000, .tick)
+            add(end - 2_000, .tick)
+            add(end - 1_000, .tick)
+            add(end, .go)
         }
-        return list.filter { $0.at >= 0 }.sorted { $0.at < $1.at }
+        return list.sorted { $0.at < $1.at }
     }
 
     private func fireDueCues(_ nowMs: Int) {
@@ -115,6 +126,12 @@ final class TimerEngine: ObservableObject {
         let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        // A Timer defaults to zero tolerance: 30 exact-deadline main-thread wakeups a second for the
+        // whole workout, including the 45 minutes spent backgrounded with the screen locked, which is
+        // this app's normal mode of use. Slack lets the kernel coalesce them; a Timer never fires
+        // early, so the cost is at most 5ms on top of the 33ms of lateness the tick period already
+        // allows a cue. The rate stays 30fps — `fraction` needs it the instant the screen returns.
+        t.tolerance = 0.005
         RunLoop.main.add(t, forMode: .common)
         ticker = t
     }
@@ -127,7 +144,18 @@ final class TimerEngine: ObservableObject {
             ticker = nil
             // Nothing left to stay resident for. The Done screen is just a view; it needs no audio
             // session, and holding one open would keep the user's music ducked-adjacent for nothing.
-            beeper.stop()
+            //
+            // But the final GO is scheduled on this very tick and only starts on the next audio
+            // render cycle, so stopping here swallowed it — the last thing the user heard was the
+            // 1s tick, which is precisely the cue that matters with the phone in a pocket. Let the
+            // 0.32s tone ring out first. `state.done` is only still true if the user is sat on the
+            // Done screen; End, or backgrounding with run-in-background off, both put the state
+            // back to idle and make this a no-op. The Task inherits main-actor isolation, so it
+            // touches `state`/`beeper` on the same actor as the tick itself.
+            Task {
+                try? await Task.sleep(for: .milliseconds(500))
+                if self.state.done { self.beeper.stop() }
+            }
         }
     }
 

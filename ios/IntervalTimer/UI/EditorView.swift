@@ -75,8 +75,17 @@ struct EditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
+                    // The "what's already there" half of the rule (see `violates`) is the same
+                    // number for every row on screen, so it is asked once a pass rather than twice
+                    // per work row: a group drag re-renders every card on every frame, and each of
+                    // those rows was expanding the whole sequence twice to compare against it. The
+                    // ternary is `violates`' own short-circuit kept intact: with the rule off no row
+                    // can be refused, so hoisting an unconditional expansion here would have added a
+                    // flatten per pass where there used to be none. `canRest` returns before it can
+                    // read the 0.
+                    let baseline = settings.noDoubleRest ? backToBackRests(current, repeatAll) : 0
                     ForEach(Array(blocks.enumerated()), id: \.element.id) { pair in
-                        card(pair.offset, pair.element.block)
+                        card(pair.offset, pair.element.block, baseline)
                             .reportRowHeight(pair.offset)
                             .reorderOffset(groupDrag, pair.offset)
                             .zIndex(groupDrag.isFloating(pair.offset) ? 1 : 0)
@@ -89,6 +98,8 @@ struct EditorView: View {
             }
             // A card under the finger must not also drag the page along with it.
             .scrollDisabled(groupDrag.isDragging || rowDragging)
+            // No scroll indicator anywhere in the app — see HomeView. Owner's standing preference.
+            .scrollIndicators(.never)
             }
 
             if let notice {
@@ -173,14 +184,14 @@ struct EditorView: View {
 
     // MARK: - Cards
 
-    private func card(_ i: Int, _ block: Block) -> some View {
+    private func card(_ i: Int, _ block: Block, _ baseline: Int) -> some View {
         BlockEditorCard(
             block: block,
             index: i,
             groupCount: blocks.count,
             groupDrag: groupDrag,
             rowDragging: $rowDragging,
-            canRest: { j in canRest(i, j) },
+            canRest: { j in canRest(i, j, baseline) },
             moveGroup: moveGroup,
             onChange: { change(index: i, to: $0) },
             onAddItem: { addInterval(i) },
@@ -259,13 +270,22 @@ struct EditorView: View {
 
     /// Switching a work interval to rest is the only edit the rule can refuse, so it's the only one
     /// the cards need to grey out.
-    private func canRest(_ i: Int, _ j: Int) -> Bool {
-        guard blocks.indices.contains(i) else { return true }
+    ///
+    /// `baseline` is `violates`' right-hand side while the rule is on — a placeholder 0 when it is
+    /// off, which the guard below returns before reading — handed down from `body` so it is expanded
+    /// once a pass instead of once a row. Passed in rather than held in state:
+    /// `removeInterval`, `addGroup` and `deleteGroup` all mutate `blocks` without going through
+    /// `change`, so a cached one would go stale and grey rows out against a sequence that no longer
+    /// exists. Recomputed on the same pass that reads it, it can't.
+    private func canRest(_ i: Int, _ j: Int, _ baseline: Int) -> Bool {
+        // The short-circuit `violates` was providing: with the rule off nothing is ever refused, and
+        // the candidate sequence isn't worth building to find that out.
+        guard settings.noDoubleRest, blocks.indices.contains(i) else { return true }
         let b = blocks[i].block
         guard b.items.indices.contains(j) else { return true }
         var items = b.items
-        items[j] = SeqInterval(.rest, items[j].durationSec)
-        return !violates(replace(i, Block(items, b.repeatCount)), repeatAll)
+        items[j] = items[j].with(phase: .rest)
+        return backToBackRests(replace(i, Block(items, b.repeatCount)), repeatAll) <= baseline
     }
 
     // MARK: - Edits
@@ -300,15 +320,25 @@ struct EditorView: View {
         let next = b.items.last?.phase == .work && !violates(replace(i, rest), repeatAll)
             ? rest
             : Block(b.items + [SeqInterval(.work, 30)], b.repeatCount)
-        change(index: i, to: next)
+        // Wrapped here rather than inside `change`, which is also the phase chip's, the ±5s
+        // steppers' and the row reorder's path — easing those would ease every stepper tap and
+        // replay a drop Reorder.swift already springs by hand. Bare, this was the one editor
+        // mutation that jumped the card a row taller in a single frame, while "+ Add group" below
+        // it, and the ✕ that takes the group's last row with it, both eased.
+        withAnimation(.easeInOut(duration: 0.25)) { _ = change(index: i, to: next) }
     }
 
     private func removeInterval(_ i: Int, _ j: Int) {
         guard blocks.indices.contains(i) else { return }
         var items = blocks[i].block.items
         guard items.indices.contains(j) else { return }
+        // The last interval standing takes the group with it — an empty group is nothing. This has
+        // always eased; what it was easing was the wrong row. Under offset keys a middle delete read
+        // as the LAST identity leaving, so the bottom row faded while the tapped one took on its
+        // neighbour's phase and duration in place. Both branches are now keyed by something that
+        // outlives a position — `UiBlock.id` for the cards, `SeqInterval.id` for the rows — which is
+        // what puts the fade on the row you tapped.
         withAnimation(.easeInOut(duration: 0.25)) {
-            // The last interval standing takes the group with it — an empty group is nothing.
             if items.count == 1 {
                 blocks.remove(at: i)
             } else {
@@ -423,7 +453,9 @@ private struct BlockEditorCard: View {
     /// The intervals of one group, reorderable among themselves.
     private var rows: some View {
         VStack(spacing: 0) {
-            ForEach(Array(block.items.enumerated()), id: \.offset) { pair in
+            // Keyed by the interval's own id, with the offset kept only for the height preference
+            // and the row drag, which genuinely are about position.
+            ForEach(Array(block.items.enumerated()), id: \.element.id) { pair in
                 row(pair.offset, pair.element)
                     .background(GeometryReader { geo in
                         Color.clear.preference(key: ItemHeightKey.self,
@@ -439,6 +471,14 @@ private struct BlockEditorCard: View {
     private func row(_ j: Int, _ iv: SeqInterval) -> some View {
         let isWork = iv.phase == .work
         let tint = (isWork ? workColor : restColor).opacity(rowDrag.isLifted(j) ? 0.34 : 0.20)
+        // `with`, not a fresh SeqInterval: the row is keyed by its id, and re-minting one mid-hold
+        // would tear the stepper out from under its own repeat timer.
+        let down: (Int) -> Void = { m in set(j, iv.with(durationSec: max(iv.durationSec - 5 * m, 5))) }
+        let up: (Int) -> Void = { m in set(j, iv.with(durationSec: iv.durationSec + 5 * m)) }
+        // Which duration this is. "Work" alone is no use where eight rows read alike, and the group
+        // is named only when there is more than one — the same test the card header makes.
+        let spoken = "\(isWork ? "Work" : "Rest") interval \(j + 1)"
+            + (groupCount > 1 ? ", group \(index + 1)" : "")
         return HStack(spacing: 0) {
             if block.items.count > 1 {
                 DragHandle(
@@ -457,12 +497,10 @@ private struct BlockEditorCard: View {
                 phase: iv.phase,
                 // Greyed, but still tappable: the tap is what surfaces the reason.
                 dimmed: isWork && !canRest(j),
-                action: { set(j, SeqInterval(isWork ? .rest : .work, iv.durationSec)) }
+                action: { set(j, iv.with(phase: isWork ? .rest : .work)) }
             )
             Spacer().frame(width: 4)
-            GlassCircle(glyph: "−",
-                        onStep: { m in set(j, SeqInterval(iv.phase, max(iv.durationSec - 5 * m, 5))) },
-                        size: 44)
+            GlassCircle(glyph: "−", onStep: down, size: 44)
             Text(secLabel(iv.durationSec))
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(.white)
@@ -470,9 +508,10 @@ private struct BlockEditorCard: View {
                 // Flexible rather than fixed: still a constant width whatever the label says, but it
                 // gives way first when the row is squeezed on a narrow screen.
                 .frame(maxWidth: .infinity)
-            GlassCircle(glyph: "+",
-                        onStep: { m in set(j, SeqInterval(iv.phase, iv.durationSec + 5 * m)) },
-                        size: 44)
+                // On the number, not the row: the grip and the ✕ are controls of their own, and
+                // merging the row would take the grip's Move up / Move down with them.
+                .stepperSemantics(spoken, secLabel(iv.durationSec), down: down, up: up)
+            GlassCircle(glyph: "+", onStep: up, size: 44)
             CloseX { onRemoveItem(j) }
         }
         .padding(6)
@@ -482,24 +521,30 @@ private struct BlockEditorCard: View {
 
     /// Stated in words so there's no guessing what the number applies to.
     private var repeatRow: some View {
-        HStack(spacing: 0) {
+        let down: (Int) -> Void = { m in _ = onChange(Block(block.items, max(block.repeatCount - m, 1))) }
+        let up: (Int) -> Void = { m in _ = onChange(Block(block.items, block.repeatCount + m)) }
+        return HStack(spacing: 0) {
             Text("Repeat this group")
                 .font(.system(size: 14))
                 .foregroundStyle(.white.opacity(0.7))
             Spacer(minLength: 12)
-            GlassCircle(glyph: "−",
-                        onStep: { m in _ = onChange(Block(block.items, max(block.repeatCount - m, 1))) },
-                        size: 44)
+            GlassCircle(glyph: "−", onStep: down, size: 44)
             Text("× \(block.repeatCount)")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 52)
-            GlassCircle(glyph: "+",
-                        onStep: { m in _ = onChange(Block(block.items, block.repeatCount + m)) },
-                        size: 44)
+            GlassCircle(glyph: "+", onStep: up, size: 44)
         }
         .padding(.top, 10)
         .padding(.leading, 10)
+        // The stepper is the only control in the row, so the row is the control. Named by group
+        // where there is more than one, since every card carries one of these — and the value is
+        // spoken in words, because after that index a bare "3" is a second numeral with nothing to
+        // say which of them is the count.
+        .accessibilityElement(children: .ignore)
+        .stepperSemantics(groupCount > 1 ? "Repeat group \(index + 1)" : "Repeat this group",
+                          block.repeatCount == 1 ? "once" : "\(block.repeatCount) times",
+                          down: down, up: up)
     }
 
     private func set(_ j: Int, _ iv: SeqInterval) {

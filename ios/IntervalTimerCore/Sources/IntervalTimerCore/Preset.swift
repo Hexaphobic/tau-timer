@@ -1,13 +1,43 @@
 import Foundation
 
 /// One block in a sequence preset: work or rest for a number of seconds.
+///
+/// `id` is for SwiftUI and nothing else. Both interval `ForEach`es keyed on array position, so a
+/// middle delete presented as "the last identity left": the bottom row faded out while the tapped
+/// one took on its neighbour's phase and duration in place. It is deliberately out of `CodingKeys`
+/// and out of `==` — every wire format is written field by field (PresetStore, Settings, and their
+/// Android twins), and `==` is load-bearing in two places that must not see it: `groupIntervals`
+/// recovers a group's ×N by comparing runs of intervals, and the home saves off
+/// `.onChange(of: rows)`, which would then fire on every reload. Decoding therefore mints a fresh
+/// id, which is right — rows read off disk are new rows.
+///
+/// Kotlin's mirror has no counterpart on purpose; the reason is written there.
 public struct SeqInterval: Equatable, Codable, Sendable {
-    public let phase: Phase
-    public let durationSec: Int
+    /// `private(set)` so an edit has to go through `with`, which carries `id` across. Rebuilding one
+    /// through `init` mints a new identity, and SwiftUI reads that as the row leaving and another
+    /// arriving — which tears down the row's `GlassCircle`s mid-press, and their `onDisappear` kills
+    /// the hold-to-repeat timer on the very first step.
+    public private(set) var phase: Phase
+    public private(set) var durationSec: Int
+    public let id = UUID()
+
+    private enum CodingKeys: String, CodingKey { case phase, durationSec }
 
     public init(_ phase: Phase, _ durationSec: Int) {
         self.phase = phase
         self.durationSec = durationSec
+    }
+
+    /// The same row with a value changed, rather than a different row holding the new value.
+    public func with(phase: Phase? = nil, durationSec: Int? = nil) -> SeqInterval {
+        var copy = self
+        if let phase { copy.phase = phase }
+        if let durationSec { copy.durationSec = durationSec }
+        return copy
+    }
+
+    public static func == (a: SeqInterval, b: SeqInterval) -> Bool {
+        a.phase == b.phase && a.durationSec == b.durationSec
     }
 }
 
@@ -96,7 +126,8 @@ public func homePreset(_ blocks: [Block], repeatAll: Int = 1) -> Preset {
 ///
 /// It was two: GO branched here while the total was measured off `homePreset` alone, and the two
 /// branches do not agree in every state you can reach. Dial a Rest to 0 and tap its label to make it
-/// a Work — the flip doesn't re-apply Work's 5s floor — and a single basic section of Work 0 / Rest
+/// a Work — the flip re-applies Work's 5s floor now, but every preset saved before it didn't, so the
+/// state still arrives from disk — and a single basic section of Work 0 / Rest
 /// 15 at one round has `baseWorkout` playing a lone zero-length work (nothing at all) while
 /// `homePreset` drops the empty work, leaves one rest, and keeps it because a lone interval is the
 /// whole sequence. The label said 15s over a button that ran 0. One builder cannot disagree with
@@ -104,7 +135,16 @@ public func homePreset(_ blocks: [Block], repeatAll: Int = 1) -> Preset {
 public func homeWorkout(_ blocks: [Block], repeatAll: Int, prepareMs: Int) -> Workout {
     // repeatAll == 1 because an outer ×N is exactly what stops this being a plain "n / rounds"
     // workout, so a leftover one must not silently double a single basic section.
-    if blocks.count == 1, let b = blocks.first, b.isBasic, repeatAll == 1 {
+    //
+    // durationSec > 0 because `baseWorkout` keeps a zero-length work and stamps rounds 1..N on the
+    // rests that follow it: Work 0 / Rest 15 × 5 printed "5 sets" over a workout that never enters
+    // work once, and the timer's counter and pips read the same rounds. Sent the sequence way it
+    // meets homePreset's "drop the empties" filter, which is the only rule that should be in play
+    // here, and the count becomes what actually plays. Every other basic shape lands in exactly the
+    // branch it did before; totals are unchanged bar the one round case, where the lone rest is now
+    // played instead of thrown away — `baseWorkout`'s `r < rounds` guard dropped it, so that shape
+    // used to run to nothing at all.
+    if blocks.count == 1, let b = blocks.first, b.isBasic, b.items[0].durationSec > 0, repeatAll == 1 {
         return baseWorkout(
             prepareMs: prepareMs,
             workMs: b.items[0].durationSec * 1000,
@@ -154,6 +194,8 @@ public struct Block: Equatable, Sendable {
     }
 }
 
+/// A group's ×N repeats its items *as they are*, so a repeated interval comes back carrying the same
+/// `id` each time. A list over this output must key on position; `\.id` would be a duplicate key.
 public func flatten(_ blocks: [Block]) -> [SeqInterval] {
     blocks.flatMap { b in Array(repeating: b.items, count: max(b.repeatCount, 0)).flatMap { $0 } }
 }

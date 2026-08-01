@@ -137,6 +137,10 @@ struct HomeView: View {
             }
             // A card under the finger must not also drag the page along with it.
             .scrollDisabled(reorder.isDragging)
+            // No scroll indicator, here or on any other screen: a bar that flashes up to say how far
+            // down a short list you are answers a question none of these screens leave open. Owner's
+            // standing preference — don't add it back.
+            .scrollIndicators(.never)
         }
     }
 
@@ -154,7 +158,9 @@ struct HomeView: View {
         // to the same thing and is continuous: the outer pair opens as the inner one closes, walking
         // the control from the plain home's spread row — lined up with Work and Rest above it — to
         // centred under the group. The cap only has to exceed the slack a phone row can have.
-        HStack(spacing: 0) {
+        let down: (Int) -> Void = { m in setHomeRounds(homeRounds - m) }
+        let up: (Int) -> Void = { m in setHomeRounds(homeRounds + m) }
+        return HStack(spacing: 0) {
             Spacer().frame(maxWidth: grouped ? 260 : 0)
             Text("Rounds")
                 .font(.system(size: 20))
@@ -167,7 +173,7 @@ struct HomeView: View {
             // The weighted gap collapses to nothing when centred, which butts the label against the
             // −. A fixed sliver keeps them apart once there is no flexible space left to do it.
             Spacer().frame(width: grouped ? 12 : 0)
-            GlassCircle(glyph: "−", onStep: { m in setHomeRounds(homeRounds - m) }, size: grouped ? 50 : 54)
+            GlassCircle(glyph: "−", onStep: down, size: grouped ? 50 : 54)
             Text("\(homeRounds)")
                 .font(.system(size: 24, weight: .bold))
                 // scaleEffect, not a bigger font: a font-size change re-renders the glyph and snaps,
@@ -178,11 +184,17 @@ struct HomeView: View {
                 .frame(width: grouped ? 78 : 96)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { setHomeRounds(DEFAULT_ROUNDS) }
-            GlassCircle(glyph: "+", onStep: { m in setHomeRounds(homeRounds + m) }, size: grouped ? 50 : 54)
+            GlassCircle(glyph: "+", onStep: up, size: grouped ? 50 : 54)
             Spacer().frame(maxWidth: grouped ? 260 : 0)
         }
         .padding(.top, grouped ? 4 : 16)
         .padding(.bottom, grouped ? 2 : 32)
+        // One element rather than "Rounds" followed by two nameless circles. All the merge costs is
+        // the number's double-tap reset, and that is a gesture VoiceOver cannot make in the first
+        // place — it comes back below as a rotor action, which is the only form it can take.
+        .accessibilityElement(children: .ignore)
+        .stepperSemantics("Rounds", "\(homeRounds)", down: down, up: up)
+        .accessibilityAction(named: "Reset") { setHomeRounds(DEFAULT_ROUNDS) }
     }
 
     /// What GO will run, at the top where you read it before you start rather than at the bottom
@@ -230,6 +242,8 @@ struct HomeView: View {
         // would run off them and keep the other.
         let up: (() -> Void)? = i > 0 ? { _ = move(i, i - 1) } : nil
         let down: (() -> Void)? = isLast ? nil : { _ = move(i, i + 1) }
+        let fewer: (Int) -> Void = { m in change(i) { $0.repeatCount = max($0.repeatCount - m, 1) } }
+        let more: (Int) -> Void = { m in change(i) { $0.repeatCount += m } }
         return VStack(spacing: solo ? 16 : 6) {
             // The header carries the drag grip, the per-section ×N, the section's own running time
             // and the ✕ — every one of which is meaningless when there is only one section. It
@@ -240,12 +254,19 @@ struct HomeView: View {
                         index: i, label: "section \(i + 1)", state: reorder,
                         commit: move, onMoveUp: up, onMoveDown: down
                     )
-                    GlassCircle(glyph: "−", onStep: { m in change(i) { $0.repeatCount = max($0.repeatCount - m, 1) } }, size: 36)
+                    GlassCircle(glyph: "−", onStep: fewer, size: 36)
                     Text("× \(b.repeatCount)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 52)
-                    GlassCircle(glyph: "+", onStep: { m in change(i) { $0.repeatCount += m } }, size: 36)
+                        // On the number, not the header row: the grip and the ✕ share this row and
+                        // merging it would swallow the grip's Move up / Move down. Spoken in words
+                        // because the label ends in an index — "section 2, 3" is two numerals in a
+                        // row where only one of them is a count.
+                        .stepperSemantics("Repeat section \(i + 1)",
+                                          b.repeatCount == 1 ? "once" : "\(b.repeatCount) times",
+                                          down: fewer, up: more)
+                    GlassCircle(glyph: "+", onStep: more, size: 36)
                     Spacer(minLength: 6)
                     // How long this block is — the intervals under it, run the × N to its left. M:SS,
                     // not formatMs: these are block lengths now rather than shares of the whole
@@ -439,6 +460,10 @@ private let DRIFT_SECONDS: Double = 9
 /// out of a hold that overshot.
 struct StepperRow: View {
     let label: String
+    /// What VoiceOver calls this row. The visible label is a bare "Work", which is all you need when
+    /// you can see which row you are on and nothing at all when three of them read alike, so the
+    /// caller says which one it is.
+    let spokenLabel: String
     let value: String
     let onMinus: (Int) -> Void
     let onPlus: (Int) -> Void
@@ -452,6 +477,7 @@ struct StepperRow: View {
     var onDelete: (() -> Void)?
 
     @ObservedObject private var settings = Settings.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 0) {
@@ -471,6 +497,12 @@ struct StepperRow: View {
                 .frame(width: compact ? 72 : 96)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2, perform: onReset)
+                // On the number, not the row: the label is a tap target of its own (work↔rest) and
+                // the ✕ is a button, and merging the row would take both with it.
+                .stepperSemantics(spokenLabel, value, down: onMinus, up: onPlus)
+                // VoiceOver cannot perform the double-tap above, so the way out of a hold that
+                // overshot is offered as a rotor action instead.
+                .accessibilityAction(named: "Reset", onReset)
             GlassCircle(glyph: "+", onStep: onPlus, size: compact ? 40 : 54)
             if let onDelete {
                 CloseX(action: onDelete)
@@ -490,10 +522,17 @@ struct StepperRow: View {
     /// Minimal mode's timer is black with only the perimeter stroke, so its preview is the same idea:
     /// a bubble around the edge, nothing filled in. Only glow rows pay for an animation clock; plain
     /// and minimal rows never start one.
+    ///
+    /// Reduce Motion pauses that clock rather than dropping the wash: paused still renders, so the
+    /// row keeps its full phase colour and only the dips stop sliding across it.
     @ViewBuilder private var wash: some View {
         if let tint, !settings.minimalBg {
             GeometryReader { geo in
-                TimelineView(.animation) { ctx in
+                // Capped at 30Hz: every tinted row runs its own clock, and at display refresh a
+                // grouped home rebuilt a seven-stop gradient per row per frame — 120 a second each
+                // on ProMotion — to move the wash 0.5pt. The drift covers a span in 9s (~55pt/s),
+                // so a 33ms step is under 2pt of soft gradient with no edge in it to judder.
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { ctx in
                     // The stops are one span of the pattern written twice, so the two spans of
                     // gradient always cover the row whatever the phase, and sliding it exactly one
                     // span over the loop makes the wrap invisible.
@@ -542,12 +581,18 @@ struct IntervalStack: View {
 
     var body: some View {
         VStack(spacing: tinted ? 6 : 16) {
-            ForEach(Array(block.items.enumerated()), id: \.offset) { pair in
+            // Keyed by the interval's own id, not by position: `remove` below eases, and under
+            // positional keys a middle delete presented as "the last identity left" — the bottom
+            // row faded while the tapped one took on its neighbour's label and duration. The offset
+            // stays for the spoken label, which really is a position.
+            ForEach(Array(block.items.enumerated()), id: \.element.id) { pair in
                 let j = pair.offset
                 let iv = pair.element
                 let isWork = iv.phase == .work
+                let phase = isWork ? "Work" : "Rest"
                 StepperRow(
-                    label: isWork ? "Work" : "Rest",
+                    label: phase,
+                    spokenLabel: "\(phase) interval \(j + 1)",
                     value: secLabel(iv.durationSec),
                     // Work has a 5s floor; rest keeps its 0, because dialling rest to nothing has
                     // always been how you say "no rest here" and the row stays put so you can dial
@@ -580,6 +625,11 @@ struct IntervalStack: View {
 
     private func remove(_ j: Int) {
         guard block.items.count > 1, block.items.indices.contains(j) else { return }
+        // Animated, matching append(): on the last section, three intervals down to a plain
+        // work/rest pair flips `solo` — the whole carded→plain transition rides this one mutation.
+        // That means the card chrome and wash, the row spacing, every ✕, the footer's "+ Add
+        // intervals". Leaving the mutation bare snapped all of that in one frame, and left
+        // "+ interval" fading away the box that the ✕ beside it slammed back.
         withAnimation(.easeInOut(duration: 0.2)) {
             onChange(Block(block.items.enumerated().filter { $0.offset != j }.map(\.element),
                            block.repeatCount))
@@ -596,12 +646,6 @@ struct IntervalStack: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             onChange(Block(block.items + [next], block.repeatCount))
         }
-    }
-}
-
-private extension SeqInterval {
-    func with(phase: Phase? = nil, durationSec: Int? = nil) -> SeqInterval {
-        SeqInterval(phase ?? self.phase, durationSec ?? self.durationSec)
     }
 }
 

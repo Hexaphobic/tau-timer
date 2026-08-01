@@ -35,7 +35,7 @@ final class PresetStore: ObservableObject {
     private func persist() {
         let dto = saved.map { p in
             PresetDTO(name: p.name,
-                      intervals: p.intervals.map { IntervalDTO(phase: $0.phase.rawValue, sec: $0.durationSec) },
+                      intervals: p.intervals.map { IntervalDTO(phase: $0.phase, sec: $0.durationSec) },
                       repeatAll: p.repeatAll > 1 ? p.repeatAll : nil)
         }
         guard let data = try? JSONEncoder().encode(dto) else { return }
@@ -47,13 +47,28 @@ final class PresetStore: ObservableObject {
 
     private static func load(_ url: URL) -> [Preset] {
         guard let data = try? Data(contentsOf: url),
-              let dto = try? JSONDecoder().decode([PresetDTO].self, from: data) else { return [] }
-        return dto.map { p in
+              let dto = try? JSONDecoder().decode([Lenient].self, from: data) else { return [] }
+        return dto.compactMap(\.value).map { p in
             Preset(p.name,
-                   p.intervals.map { SeqInterval(Phase(rawValue: $0.phase) ?? .work, $0.sec) },
+                   p.intervals.map { SeqInterval($0.phase, $0.sec) },
                    repeatAll: max(p.repeatAll ?? 1, 1))
         }
     }
+}
+
+/// Decodes to nil instead of throwing, so a preset this build can't read costs that preset and not
+/// the library. Decoding the array as `[PresetDTO]` is all-or-nothing: one entry naming a Phase that
+/// doesn't exist here — a downgrade, a hand edit, a file written by a newer Android build — took
+/// every other preset down with it, and the next save wrote that emptiness back over the file.
+/// Losing the one bad preset is recoverable; losing all of them isn't. Android drops per entry in
+/// exactly the same places (PresetStore.load, PresetRepo.parse), which matters because the same
+/// presets.json moves between the two.
+///
+/// A malformed entry still costs the whole *file* if the outer JSON isn't an array at all — that one
+/// really is unrecoverable, and it's what the atomic write in persist() exists to prevent.
+private struct Lenient: Decodable {
+    let value: PresetDTO?
+    init(from decoder: Decoder) throws { value = try? PresetDTO(from: decoder) }
 }
 
 private struct PresetDTO: Codable {
@@ -62,7 +77,11 @@ private struct PresetDTO: Codable {
     let repeatAll: Int?
 }
 
+// `phase` is the Phase itself rather than its String: the raw values ARE the Android names, so the
+// bytes are unchanged either way, but decoding it strictly is what makes an unknown phase fail the
+// entry — the same drop Android's Phase.valueOf gives it — instead of silently coercing to .work and
+// handing back a workout the user never built.
 private struct IntervalDTO: Codable {
-    let phase: String
+    let phase: Phase
     let sec: Int
 }

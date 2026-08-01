@@ -59,6 +59,8 @@ struct PresetsView: View {
                 // Clear of the pill at rest; scrolled, the list simply travels under it.
                 .padding(.top, 60)
             }
+            // No scroll indicator anywhere in the app — see HomeView. Owner's standing preference.
+            .scrollIndicators(.never)
             }
             BackPill(onBack: onBack).padding(.leading, 12).padding(.top, 4)
         }

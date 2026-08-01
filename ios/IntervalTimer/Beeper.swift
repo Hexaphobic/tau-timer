@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 
 enum Cue { case warn, tick, go }
 
@@ -51,8 +52,16 @@ final class Beeper {
         // A route change (headphones out, a call ending on a Bluetooth headset) can tear the engine
         // down. Without this the rest of the workout runs silently, which on this app is the same
         // as not running at all.
-        center.addObserver(self, selector: #selector(handleConfigChange),
+        center.addObserver(self, selector: #selector(handleRestart),
                            name: .AVAudioEngineConfigurationChange, object: engine)
+        // And `.ended` never arrives if iOS suspended us during the interruption — which it is free
+        // to do the moment `.began` stopped the engine, because the stopped engine is no longer what
+        // holds the app up. That left `running == true` over a dead engine for the rest of the
+        // workout: `activeElapsed()` is a monotonic-clock read, so the count on screen stayed
+        // correct while every remaining cue was silent and background residency was gone. Becoming
+        // active again is the backstop, and it is an event rather than a poll.
+        center.addObserver(self, selector: #selector(handleRestart),
+                           name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -133,23 +142,41 @@ final class Beeper {
     }
 
     @objc private func handleInterruption(_ note: Notification) {
+        // `userInfo` is read here rather than inside the hop, so the Notification itself is never
+        // captured across threads.
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         switch type {
         case .began:
-            // The system has already stopped us; just record it so `.ended` knows to come back.
-            engine.stop()
+            // The system has already silenced us; matching that in the engine's own state is what
+            // makes `restart()`'s `isRunning` check tell the truth afterwards.
+            DispatchQueue.main.async { [self] in engine.stop() }
         case .ended:
-            guard running else { return }
-            try? AVAudioSession.sharedInstance().setActive(true)
-            startEngine()
+            restart()
         @unknown default:
             break
         }
     }
 
-    @objc private func handleConfigChange(_ note: Notification) {
-        guard running else { return }
-        startEngine()
+    @objc private func handleRestart(_ note: Notification) { restart() }
+
+    /// Re-establishes the session and engine after anything tore them down.
+    ///
+    /// Everything past the hop runs on the main thread, which is where `TimerEngine` (`@MainActor`)
+    /// drives `play()`, `start()` and `stop()` from. `AVAudioEngineConfigurationChange` is posted on
+    /// an arbitrary thread, and the interruption notification promises nothing either, so without
+    /// this a route change landing between a cue's `node.volume` write and its `scheduleBuffer` was
+    /// an unsynchronised mutation of the same graph — and `running` was read and written from two
+    /// threads at once. The hop also keeps every engine call off the internal queue that posted the
+    /// notification, which is the re-entrancy `AVAudioEngine.h` warns can deadlock.
+    private func restart() {
+        DispatchQueue.main.async { [self] in
+            guard running, !engine.isRunning else { return }
+            // Fails soft while an interruption is genuinely still in progress: `setActive` throws,
+            // `engine.start()` throws, `startEngine()` returns, and the next `.ended` — or the next
+            // trip to the foreground — tries again. Nothing here retries on its own.
+            try? AVAudioSession.sharedInstance().setActive(true)
+            startEngine()
+        }
     }
 }

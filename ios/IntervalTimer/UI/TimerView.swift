@@ -405,7 +405,7 @@ private struct OverallProgress: View {
 
     private var done: Int { min(max(round, 0), totalRounds) }
 
-    /// `breath` is the pulse's current brightness, sampled from the clock rather than animated into.
+    /// The pulse's current brightness, sampled from the clock rather than animated into.
     ///
     /// It has to be a continuously varying number, NOT a Bool flipped inside a `repeatForever`
     /// `withAnimation`. That is the obvious way to write this and it is wrong here: the animation
@@ -413,18 +413,7 @@ private struct OverallProgress: View {
     /// happened to be current when the view appeared. Every later round would inherit a settled
     /// value and sit still. Sampling time has no such edge: whichever pip is current reads the phase
     /// the workout is already in.
-    private func alpha(_ i: Int, breath: Double) -> Double {
-        if live && i == done - 1 { return breath }
-        return i < done ? 0.85 : 0.22
-    }
-
-    var body: some View {
-        // Paused when the clock is, so a still screen costs no frames.
-        TimelineView(.animation(paused: !live || done == 0)) { ctx in
-            grid(breath: Self.breath(at: ctx.date))
-        }
-    }
-
+    ///
     /// The trough stays above the unlit 0.22 so the current pip never reads as one you haven't done.
     private static func breath(at date: Date) -> Double {
         let phase = date.timeIntervalSinceReferenceDate
@@ -432,8 +421,28 @@ private struct OverallProgress: View {
         return 0.45 + 0.55 * (0.5 - 0.5 * cos(2 * .pi * phase))
     }
 
+    /// Only the pip you are on carries a frame clock. The whole grid used to sit inside one
+    /// `TimelineView`, which re-ran the layout maths and rebuilt all thirty-two rectangles at
+    /// display refresh — up to 120Hz on ProMotion — to change the opacity of exactly one of them.
+    /// Everything else in here is constant for the whole round. This is the Kotlin reading
+    /// `breath.value` inside `drawBehind` rather than in composition, arrived at from the other end.
+    ///
+    /// `live && i == done - 1` implies `done > 0`, so both halves of the old
+    /// `.animation(paused: !live || done == 0)` gate survive: nothing animates unless the clock is
+    /// running and a set is under way.
     @ViewBuilder
-    private func grid(breath: Double) -> some View {
+    private func pip(_ i: Int, cell: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cell * 0.34)
+        if live && i == done - 1 {
+            TimelineView(.animation) { ctx in
+                shape.fill(.white.opacity(Self.breath(at: ctx.date)))
+            }
+        } else {
+            shape.fill(.white.opacity(i < done ? 0.85 : 0.22))
+        }
+    }
+
+    var body: some View {
         let layout = Pips.rows(totalRounds, pass: roundsPerPass)
         if !layout.isEmpty {
             // One cell size for the whole grid, from the width a full row of eight needs — so three
@@ -451,8 +460,9 @@ private struct OverallProgress: View {
                 ForEach(layout.indices, id: \.self) { r in
                     HStack(spacing: gap) {
                         ForEach(0..<layout[r], id: \.self) { c in
-                            RoundedRectangle(cornerRadius: cell * 0.34)
-                                .fill(.white.opacity(alpha(starts[r] + c, breath: breath)))
+                            // Sized from out here, because a `TimelineView` takes whatever size it
+                            // is proposed and the live pip would otherwise fill the row.
+                            pip(starts[r] + c, cell: cell)
                                 .frame(width: cell, height: cell)
                         }
                     }
@@ -560,6 +570,16 @@ private struct ConfettiBurst: View {
 
     @State private var start = Date()
 
+    /// The shells are over after `startDelay + BURST_COUNT * SHELL_SEC`, but the schedule wasn't:
+    /// the Canvas guard-returned and SwiftUI went on re-rendering that nothing through a 26pt blur
+    /// at display refresh for as long as Done was up — and Done deliberately holds the screen awake.
+    @State private var spent = false
+
+    /// Reduce Motion gets no fireworks at all. Paused from the first frame the clock never reaches
+    /// the first shell, so nothing is thrown — which is the same still frame the burst ends on
+    /// anyway. Freezing it mid-flight instead would leave permanent blurred blobs over the finish.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     init(seed: Int, startDelay: Double) {
         self.startDelay = startDelay
         let palette: [Color] = [workColor, restColor, prepColor, .white]
@@ -577,7 +597,7 @@ private struct ConfettiBurst: View {
     }
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(paused: spent || reduceMotion)) { ctx in
             Canvas { gc, size in
                 // The delay lets the finish land first, so the fireworks read as a reward rather
                 // than as part of the transition.
@@ -601,6 +621,13 @@ private struct ConfettiBurst: View {
                 }
             }
             .blur(radius: 26)
+        }
+        // Wall-clock sleep rather than a frame counter: the same `start`-relative time the Canvas
+        // reads, so the clock stops on the frame after the last shell has faded.
+        .task {
+            try? await Task.sleep(for: .seconds(startDelay + Double(BURST_COUNT) * SHELL_SEC))
+            guard !Task.isCancelled else { return }
+            spent = true
         }
     }
 }

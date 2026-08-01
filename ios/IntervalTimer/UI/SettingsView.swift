@@ -64,6 +64,8 @@ struct SettingsView: View {
                 .padding(.top, 60)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // No scroll indicator anywhere in the app — see HomeView. Owner's standing preference.
+                .scrollIndicators(.never)
             }
             BackPill(onBack: onBack).padding(.leading, 16).padding(.top, 4)
         }
@@ -160,11 +162,17 @@ private struct ToggleRow: View {
 private struct VolumeSlider: View {
     @ObservedObject private var settings = Settings.shared
 
+    /// The thumb's own copy of the volume. `Settings.volume` is deliberately not @Published (see its
+    /// comment), so the drag renders from here and pushes the value through `updateVolume` for the
+    /// Beeper to read. Safe to seed once: this slider is the only writer, so the two can't diverge,
+    /// and re-entering Settings re-seeds it anyway.
+    @State private var value = Settings.shared.volume
+
     private let thumb: CGFloat = 28
 
     var body: some View {
         // Muted pins the slider to 0; dragging up un-mutes.
-        let value = settings.muted ? 0 : settings.volume
+        let value = settings.muted ? 0 : value
         GeometryReader { geo in
             let travel = max(geo.size.width - thumb, 1)
             ZStack(alignment: .leading) {
@@ -186,6 +194,7 @@ private struct VolumeSlider: View {
     private func set(_ raw: Double) {
         let v = min(max(raw, 0), 1)
         if settings.muted && v > 0 { settings.updateMuted(false) }
+        value = v
         settings.updateVolume(v)
     }
 }
@@ -276,6 +285,7 @@ private struct PaletteSwatch: View {
 private struct LanguageGrid: View {
     @ObservedObject private var settings = Settings.shared
     @State private var start = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Chinese and Japanese draw the same numerals from the same digits and the same 十 rule —
@@ -285,18 +295,29 @@ private struct LanguageGrid: View {
             .filter { $0 != .ja }
             .map { $0 == .zh && settings.languageCode == "ja" ? Language.ja : $0 }
         let rows = rowsOfThree(langs)
-        TimelineView(.periodic(from: start, by: 1)) { ctx in
-            let second = 9 - max(0, Int(ctx.date.timeIntervalSince(start))) % 9
-            // Tight gaps: the tiles are the content here, and wide gutters left the panel mostly black.
-            VStack(spacing: 8) {
-                ForEach(rows.indices, id: \.self) { r in
-                    HStack(spacing: 8) {
-                        ForEach(0..<3, id: \.self) { c in
-                            if let lang = rows[r][c] {
-                                LanguageTile(lang: lang, second: second)
-                            } else {
-                                emptyCell
-                            }
+        // Reduce Motion holds the grid on one second instead of dropping it — the tiles are here to
+        // be read, and a blank panel picks no language. Nine because that's where the count starts,
+        // so a still grid shows the same frame a moving one opens on. `.periodic` has no `paused:`
+        // form the way `.animation` does, hence a branch rather than a flag.
+        if reduceMotion {
+            grid(rows, second: 9)
+        } else {
+            TimelineView(.periodic(from: start, by: 1)) { ctx in
+                grid(rows, second: 9 - max(0, Int(ctx.date.timeIntervalSince(start))) % 9)
+            }
+        }
+    }
+
+    // Tight gaps: the tiles are the content here, and wide gutters left the panel mostly black.
+    private func grid(_ rows: [[Language?]], second: Int) -> some View {
+        VStack(spacing: 8) {
+            ForEach(rows.indices, id: \.self) { r in
+                HStack(spacing: 8) {
+                    ForEach(0..<3, id: \.self) { c in
+                        if let lang = rows[r][c] {
+                            LanguageTile(lang: lang, second: second)
+                        } else {
+                            emptyCell
                         }
                     }
                 }

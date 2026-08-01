@@ -22,9 +22,25 @@ final class ReorderState: ObservableObject {
 
     @Published private(set) var draggingIndex: Int?
     @Published private(set) var dragged: CGFloat = 0
-    /// Bumped at every release; the pending landing commit checks it, so a re-grab during the
-    /// glide-in can never have a stale commit fire underneath it.
+    /// Bumped at every release and again when a gesture claims the card; the pending landing commit
+    /// checks it, so a re-grab during the glide-in can never have a stale commit fire underneath it.
     private var dropGeneration = 0
+    /// `dragged` at the moment the live gesture claimed the card; nil when no gesture is down.
+    private var grabBase: CGFloat?
+    /// True while a refused drop is springing the card home. For that whole glide the MODEL value
+    /// of `dragged` is already 0 — only the presentation is still travelling — so a re-grab would
+    /// rebase from 0 and pin the card a full drag's travel off the finger. Grabs are simply ignored
+    /// until the spring lands: the window is ~0.3s and the card is already going where a refusal
+    /// sends it. Cleared in the refusal animation's completion, and defensively wherever
+    /// `draggingIndex` resets — a stuck flag would dead-lock every handle on this state.
+    private var landingRefused = false
+    /// Set when a gesture touches down during the refusal glide. Its translation is measured from
+    /// a touch-down point that goes stale while the glide is being ignored, so if it claimed the
+    /// moment `landingRefused` cleared it would pin the card that stale distance off the finger
+    /// for the whole drag. A refused gesture never claims; the poison lifts with the finger.
+    /// Shared, like `buzzed`: a second finger's release on another handle clears it a beat early —
+    /// a two-finger window nobody hits by accident, at worst one stale-offset drag.
+    private var grabRefused = false
 
     private var heights: [Int: CGFloat] = [:]
     private var count = 0
@@ -110,11 +126,30 @@ final class ReorderState: ObservableObject {
         // touch-down disables the scroll before there is any movement to steal.
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
+                // The grabBase rebase below is only sound on the accepted glide, where the model
+                // value of `dragged` IS the visual destination. On the refusal glide it is the
+                // START of the journey home (0), so a rebase would teleport the card — refuse the
+                // claim instead and let the spring finish. Refusing once poisons the whole
+                // gesture: its touch-down point is stale by however far the card still had to
+                // travel, so a late claim after the flag clears would drag the card that far off
+                // the finger. Checked BEFORE ownership: the neighbours are springing home too, so
+                // a grab on ANY handle in this window has a stale origin — and no live drag can
+                // exist while the flag is set, so the poison can't kill one.
+                guard !self.landingRefused else { self.grabRefused = true; return }
                 // Own or claimable only: draggingIndex stays set through the landing glide, and
                 // without this a drag begun on another card's handle in that window would steer
                 // the card that is still landing.
                 guard self.draggingIndex == nil || self.draggingIndex == index else { return }
-                if self.draggingIndex == nil {
+                guard !self.grabRefused else { return }
+                if self.grabBase == nil {                 // this gesture is claiming — fresh grab or mid-glide re-grab
+                    self.dropGeneration += 1              // void any pending landing commit
+                    // 0 on a fresh grab; delta if a glide was in flight. On the accepted glide the
+                    // model value is the destination, so a re-grab is off by at most the
+                    // un-travelled remainder — under half a row by construction of `target`. Same
+                    // bound on the to == from spring-back (a sub-half-pitch drag riding home).
+                    // Both accepted; `landingRefused` only covers the refusal glide, whose
+                    // residual would be the whole drag.
+                    self.grabBase = self.dragged
                     self.draggingIndex = index
                     #if DEBUG
                     dragLog.debug("begin idx=\(index) heights=\(self.heights.count)")
@@ -129,14 +164,22 @@ final class ReorderState: ObservableObject {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 }
                 let previous = self.target
-                self.dragged = self.clamped(value.translation.height, from: index)
+                self.dragged = self.clamped((self.grabBase ?? 0) + value.translation.height, from: index)
                 if self.target != previous {
                     UISelectionFeedbackGenerator().selectionChanged()
                 }
             }
             .onEnded { _ in
                 self.buzzed = false
-                guard self.draggingIndex == index else { return }
+                self.grabRefused = false  // the poison lifts with the finger, whatever the guards below decide
+                // A gesture releasing during a refusal glide never claimed anything (its onChanged
+                // was refused above), so its release must not bump the generation or start a second
+                // landing — the refusal completion owns the cleanup.
+                guard self.draggingIndex == index, !self.landingRefused else { return }
+                // Past the guard so a second finger's release on another handle can't clear the
+                // live gesture's base — that would make its next onChanged re-claim and rebase,
+                // double-counting the translation.
+                self.grabBase = nil
                 let from = index
                 let to = self.target ?? from
                 // NEVER commit while anything is animating — that is the lesson this drop has now
@@ -166,13 +209,37 @@ final class ReorderState: ObservableObject {
                 let land = {
                     var t = Transaction()
                     t.disablesAnimations = true
-                    withTransaction(t) {
-                        let moved = to != from && commit(from, to)
-                        #if DEBUG
-                        dragLog.debug("land moved=\(moved)")
-                        #endif
-                        self.draggingIndex = nil
-                        self.dragged = 0
+                    // Ask inside the disabled transaction: an accepted move rewrites the array and must not
+                    // animate. A refusal mutates nothing, so there is no layout jump to cancel — but nothing
+                    // unwinds "continuously" either: `dragged` is @Published, not Animatable, so the refusal
+                    // branch below is ONE body pass in which target and every neighbour's shift snap to 0 at
+                    // the model level. The card's offset rides that branch's explicit spring; the neighbours
+                    // ride their own `.animation(value: shift)` spring in reorderOffset. They only stay in
+                    // step because both springs share response 0.31 / damping 1 and start the same instant —
+                    // change one without the other and the card and its neighbours part company mid-glide.
+                    let moved = withTransaction(t) { to != from && commit(from, to) }
+                    #if DEBUG
+                    dragLog.debug("land moved=\(moved)")
+                    #endif
+                    if moved || to == from {
+                        withTransaction(t) {
+                            self.draggingIndex = nil
+                            self.dragged = 0
+                        }
+                        // Defensive pair to the completion's clear: anywhere draggingIndex resets,
+                        // the refusal flag must too, or a missed completion strands every handle.
+                        self.landingRefused = false
+                    } else {
+                        self.landingRefused = true
+                        withAnimation(.spring(response: 0.31, dampingFraction: 1), completionCriteria: .logicallyComplete) {
+                            self.dragged = 0
+                        } completion: {
+                            // Before the guard: whatever else happened, the glide is over and grabs
+                            // must come back — a stuck flag would dead-lock every handle.
+                            self.landingRefused = false
+                            guard gen == self.dropGeneration, self.draggingIndex == from else { return }
+                            self.draggingIndex = nil
+                        }
                     }
                 }
                 if abs(self.dragged - delta) < 0.5 {
