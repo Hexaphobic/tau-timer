@@ -61,7 +61,15 @@ Written the night before (2026-07-30). Everything below assumes the tree as it s
 
 ---
 
-### Status, 2026-08-01 evening — resume here
+### Status, 2026-08-02 afternoon — resume here
+
+**The AABs were rebuilt on 2026-08-02 at 16:09** and supersede the 08-01 pair. The earlier bundles
+predate the overscroll fix (`ba12464`, PUNCHLIST §52) — do not upload them. Re-verified after the
+rebuild: both signed `CN=Christopher Poole, OU=MidaMultiMedia`, SHA-256
+`3B:25:08:5F:0F:CD:27:73:02:BD:C3:9D:74:38:5B:E0:1C:8C:41:7D:16:4C:3D:4F:7E:4D:B1:0E:36:09:5A:D6`,
+identical on both modules, `jarsigner -verify` clean. Phone 3.28MB / wear 2.42MB. versionCode 1 and
+1000 — deliberately separate ranges so they can't collide under one listing; versionName 1.0.0 on
+both. Nothing has been submitted, so versionCode 1 is still correct.
 
 Done, needs nothing from you:
 
@@ -111,9 +119,10 @@ source (word mode is 12 languages, not 3).
    `xcodebuild archive`. The `.xcodeproj` is hand-written and has only ever built for the
    simulator with signing off — budget friction here.
 
-10. **Known iOS bug to fix before submission**: hold-to-repeat on − / + doesn't accumulate
-    (`GlassCircle`'s timer captures `self` by value — PUNCHLIST §27). Small fix, real usability
-    difference on a 300s interval.
+10. ~~**Known iOS bug to fix before submission**: hold-to-repeat on − / + doesn't accumulate.~~
+    **Not a bug — it was fixed in `f533a26` and the punchlist entry was stale for four commits.**
+    Verified on an iPhone 17 simulator: one hold on Work's − walks 30s down to the 5s floor. See
+    PUNCHLIST §27. Nothing to do here.
 
 11. **You: App Store Connect**: bundle ID + app record, 1024 icon, per-size screenshots (Claude
     captures from the sim at required sizes), privacy nutrition labels (same honest "collects
