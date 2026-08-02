@@ -508,13 +508,17 @@ it. **15 raised, 9 refuted, 6 confirmed.** Four were mine and are fixed; two are
    the plain home — which has no `+ interval`, so nothing on screen could put the Rest back. `solo`
    now also requires `items.count == 2`.
 
-**Confirmed but NOT mine and NOT fixed — worth a look later:**
+**Confirmed but NOT mine — since fixed:**
 
-- **iOS hold-to-repeat doesn't accumulate.** `GlassCircle`'s auto-repeat runs from a
-  `Timer.scheduledTimer` closure that captures `self` **by value** at press time, so every repeat
-  recomputes from the value the gesture started on. Hold − on a 30s Work row: Android walks
-  30→25→20→15…, iOS pins at 25. Affects the editor as well as the home, and it means the two builds
-  land on different durations from the same gesture. Pre-dates this session.
+- **iOS hold-to-repeat doesn't accumulate.** `GlassCircle`'s auto-repeat ran from a
+  `Timer.scheduledTimer` closure that captured `self` **by value** at press time, so every repeat
+  recomputed from the value the gesture started on. Hold − on a 30s Work row: Android walked
+  30→25→20→15…, iOS pinned at 25. Affected the editor as well as the home, and it meant the two
+  builds landed on different durations from the same gesture. Pre-dated this session.
+  **Fixed in `f533a26`** — every step now routes through a `StepSink` reference box that `body`
+  re-points at the freshest `onStep` on each render, so the frozen struct copy in the timer closure
+  still reaches the current closure. This entry sat marked "not fixed" for four commits after the
+  fix landed; it was flagged again during launch prep on that stale reading.
 
 **Refuted, recorded so nobody re-raises them:** drag state leaking through the header's exit
 animation (`clampToRegion` zeroes it next frame); the accessibility move actions being unguarded
