@@ -65,8 +65,5 @@ also be noted in the app's release notes on Google Play.
 
 ## Contact
 
-Questions about this policy: **[SUPPORT EMAIL — fill this in before publishing]**
+Questions about this policy: **privacy@midamultimedia.com**
 
-Google Play requires a publicly visible contact email on your store listing regardless, so this
-address will be public either way. Use a dedicated address rather than a personal one if you would
-rather not have your main inbox scraped.

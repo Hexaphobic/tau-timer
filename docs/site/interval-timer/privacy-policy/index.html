@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Interval Timer</title>
+<meta name="description" content="Interval Timer collects no personal information. Everything stays on your device.">
+<style>
+  :root { color-scheme: light dark; --fg: #16181c; --dim: #5b6169; --bg: #fbfbfa; --rule: #e3e3e0; --accent: #1d7a45; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e9ecef; --dim: #9aa3ad; --bg: #0c0d10; --rule: #24262c; --accent: #6ec68a; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .6rem; letter-spacing: -.01em; }
+  .updated { color: var(--dim); font-size: .9rem; margin: 0 0 2rem; }
+  .lede { font-size: 1.05rem; border-left: 3px solid var(--accent); padding-left: 1rem; margin: 2rem 0; }
+  ul { padding-left: 1.2rem; }
+  li { margin: .4rem 0; }
+  a { color: var(--accent); }
+  code { font-size: .92em; background: color-mix(in srgb, var(--fg) 8%, transparent); padding: .1em .35em; border-radius: 3px; }
+  footer { margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); color: var(--dim); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy Policy — Interval Timer</h1>
+  <p class="updated">Last updated: 27 July 2026</p>
+
+  <p>Interval Timer is an interval workout timer for Android and Wear OS, published by Chris Poole.</p>
+
+  <p class="lede"><strong>Interval Timer does not collect, store, or transmit any personal
+  information.</strong> There is no account, no sign-in, and no analytics. The app does not hold the
+  Android <code>INTERNET</code> permission, so it is technically incapable of sending anything
+  anywhere over a network.</p>
+
+  <h2>What is stored, and where</h2>
+  <p>Everything the app remembers is stored <strong>only on your own device</strong>, in the app's
+  private storage:</p>
+  <ul>
+    <li>Your timer settings — work, rest and round counts, the "get ready" countdown, sound volume
+      and mute state, the display language, the colour theme, and the Minimal toggle.</li>
+    <li>Any interval sequences ("presets") you create, including the names you give them.</li>
+    <li>Which built-in presets you have chosen to hide.</li>
+  </ul>
+  <p>None of this leaves your device except in the one case described below. Uninstalling the app
+  deletes all of it. There is no cloud backup and no copy held by the developer.</p>
+
+  <h2>Wear OS watch sync</h2>
+  <p>If you have a paired Wear OS watch and install the Interval Timer watch app, the phone app
+  sends your preset names and their interval durations to <strong>your own watch</strong> so the
+  same workouts are available there. This uses the Google Play Services Wearable Data Layer, which
+  is the standard Android mechanism for phone-to-watch communication.</p>
+  <p>This data goes only to your own paired watch. It is not sent to the developer and is not used
+  for any other purpose. The transport itself is provided by Google Play Services and is governed
+  by <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>. If you do not use a
+  Wear OS watch, nothing is transmitted at all.</p>
+
+  <h2>Permissions, and why they exist</h2>
+  <ul>
+    <li><strong>Foreground service / special use</strong> — keeps your interval clock running
+      accurately and plays the cue tones while the screen is off or you are in another app. Active
+      only while a workout is running, and always shows an ongoing notification while it is.</li>
+    <li><strong>Wake lock</strong> — prevents the device sleeping mid-workout so the timer does not
+      lose time.</li>
+    <li><strong>Post notifications</strong> — displays the ongoing workout notification. You can
+      decline this; the timer still works.</li>
+  </ul>
+  <p>The app requests no access to your location, camera, microphone, contacts, files, health data,
+  or device sensors.</p>
+
+  <h2>Advertising</h2>
+  <p>Interval Timer currently contains <strong>no advertising and no advertising SDKs</strong>. If
+  advertising is added in a future version, this policy will be updated before that version is
+  released, and the Google Play Data Safety disclosure will be updated to match.</p>
+
+  <h2>Children</h2>
+  <p>The app collects no data from anyone, including children under 13. It contains no
+  user-generated content, no social features, and no external links.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>Any change will be published on this page with a new "last updated" date. Material changes
+  will also be noted in the app's release notes on Google Play.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy: <a href="mailto:privacy@midamultimedia.com">privacy@midamultimedia.com</a></p>
+
+  <footer>Interval Timer — MidaMultiMedia</footer>
+</main>
+</body>
+</html>
