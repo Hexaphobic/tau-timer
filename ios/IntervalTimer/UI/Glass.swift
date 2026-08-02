@@ -24,22 +24,21 @@ private func hex(_ v: UInt32) -> Color {
 ///
 /// They also want one channel near zero. These colours are painted as a full-screen bloom, and a
 /// pale one has no dark channel to keep the background black with.
-///
-/// Declaration order IS the order of the picker, so it's hand-set rather than alphabetical: the
-/// strongest and most distinct themes lead, and Mono sits third rather than exiled to the end —
-/// it's a deliberate choice, not the leftover at the bottom of the list.
 enum Palette: String, CaseIterable, Identifiable {
+    // Case order IS the order of the picker, so it's hand-set rather than alphabetical: the two
+    // plainest lead, the loud ones follow, and Vesper — the quietest — sits near the end where you go
+    // looking for it rather than land on it. Mono is second rather than exiled to the bottom: it's a
+    // deliberate choice, not the leftover.
     case standard = "DEFAULT"
-    case vesper = "VESPER"
     // No hue at all. Paired with the Minimal switch this is the plain black-and-white timer; on its
     // own it's a white aura. Work and rest look identical here — that is the whole point, but it
     // does mean the preset list and editor lose their colour coding while it's selected.
     case mono = "MONO"
+    case spidey = "SPIDEY"
     case miami = "MIAMI"
     case trance = "TRANCE"
-    case grape = "GRAPE"
-    case spidey = "SPIDEY"
     case laser = "LASER"
+    case vesper = "VESPER"
     case tron = "TRON"
 
     var id: String { rawValue }
@@ -51,7 +50,6 @@ enum Palette: String, CaseIterable, Identifiable {
         case .mono: return "Mono"
         case .miami: return "Miami"
         case .trance: return "Trance"
-        case .grape: return "Grape"
         case .spidey: return "Spidey"
         case .laser: return "Laser"
         case .tron: return "Tron"
@@ -65,7 +63,6 @@ enum Palette: String, CaseIterable, Identifiable {
         case .mono: return .white
         case .miami: return hex(0xFF2D8F)
         case .trance: return hex(0x02D3B0)
-        case .grape: return hex(0xFF8F00)
         case .spidey: return hex(0xE23636)
         case .laser: return hex(0xA8D400)
         case .tron: return hex(0xFF6600)
@@ -79,7 +76,6 @@ enum Palette: String, CaseIterable, Identifiable {
         case .mono: return .white
         case .miami: return hex(0x05DFD7)
         case .trance: return hex(0x6C8BE8)
-        case .grape: return hex(0xB14EFF)
         case .spidey: return hex(0x0476F2)
         case .laser: return hex(0x22C9DC)
         case .tron: return hex(0x00D4FF)
@@ -93,7 +89,6 @@ enum Palette: String, CaseIterable, Identifiable {
         case .mono: return .white
         case .miami: return hex(0xFFC400)
         case .trance: return hex(0xE51376)
-        case .grape: return hex(0xFF4081)
         case .spidey: return hex(0xFFD400)
         case .laser: return hex(0xFF3D7F)
         case .tron: return hex(0xF0E800)
@@ -372,44 +367,36 @@ struct PlainTextButton: View {
 
 /// The outer ×N: the whole sequence, top to bottom, that many times.
 ///
-/// Shared by the preset editor and the home screen rather than copied, so building a sequence in one
-/// puts the same control in the same words in the same place as building one in the other.
-struct RepeatAllCard: View {
+/// Presented as the home's Rounds control, because it is the same number — and the home says what
+/// that number governs by *where it sits*, directly under the stack of cards, rather than in a
+/// sentence. So the sentence is gone: "Repeat everything" over "Plays through once", in a glass card
+/// of its own, was the screen explaining in words what the layout can say by itself.
+struct RoundsRow: View {
     let repeatAll: Int
     let onChange: (Int) -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        // The subtitle is the value, spoken and seen — one string, so VoiceOver reads the card the
-        // way it is written rather than a bare number that has to be re-worded here.
-        let sub = repeatAll == 1 ? "Plays through once" : "\(repeatAll) times through"
         let down: (Int) -> Void = { m in onChange(max(repeatAll - m, 1)) }
         let up: (Int) -> Void = { m in onChange(repeatAll + m) }
-        // 40/44 rather than 44/52: on the narrowest phone the wider stepper left the label too
-        // little to sit on one line, and "Repeat everything" folded in half above the subtitle.
+        // The home's resting numbers — 18pt label, 12pt gap, 50pt circles, a 30pt count in a 78pt
+        // box. If those move on the home, they move here.
         return HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Repeat everything")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-                Text(sub)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-            Spacer(minLength: 8)
-            GlassCircle(glyph: "−", onStep: down, size: 40)
-            Text("× \(repeatAll)")
-                .font(.system(size: 18, weight: .bold))
+            Text("Rounds")
+                .font(.system(size: 18))
                 .foregroundStyle(.white)
-                .frame(width: 44)
-            GlassCircle(glyph: "+", onStep: up, size: 40)
+            Spacer().frame(width: 12)
+            GlassCircle(glyph: "−", onStep: down, size: 50)
+            Text("\(repeatAll)")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 78)
+            GlassCircle(glyph: "+", onStep: up, size: 50)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(glassFill, in: shape)
-        .overlay(shape.strokeBorder(glassBorder(), lineWidth: 1))
-        // Nothing in the card is a control but the stepper, so the card is the control.
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
+        // Nothing in the row is a control but the stepper, so the row is the control.
         .accessibilityElement(children: .ignore)
-        .stepperSemantics("Repeat everything", sub, down: down, up: up)
+        .stepperSemantics("Rounds", "\(repeatAll) times", down: down, up: up)
     }
 }

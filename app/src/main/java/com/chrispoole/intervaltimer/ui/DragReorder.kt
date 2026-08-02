@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -298,9 +297,6 @@ fun DragHandle(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
 ) {
-    // detectDragGestures fires neither callback when its node is torn down mid-gesture — a card
-    // deleted by a second finger, or a header that stops being shown — so the drag would never end.
-    DisposableEffect(key) { onDispose { if (state.isLifted(key)) state.onDragEnd() } }
     Box(
         modifier
             .size(44.dp)

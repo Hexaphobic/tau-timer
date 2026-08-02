@@ -101,40 +101,57 @@ struct HomeView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 56, alignment: .top)
-                    if !solo { saveControl }
-                    summaryLine
-                    // The group box: one rounded frame around the ×N and every section under it, so
-                    // "repeat all of this" is something you can see rather than a sentence you read.
+
+                    // Everything below the header, and the ONLY thing that centres. The minHeight
+                    // used to sit on the whole stack, header included, so a home short enough not
+                    // to scroll — one plain section — centred the header along with the rest and
+                    // left it floating in the middle of the page instead of at the top of it.
+                    // The header keeps its 56 at the top; the page centres in what is left.
+                    //
+                    // 112 = that 56 plus the bottom padding below, so short content still fills the
+                    // scroll view exactly and long content grows past it and scrolls, taking the
+                    // header up with it exactly as before.
                     VStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { pair in
-                        section(pair.offset, pair.element)
-                            // The copy grows downward out of the card above it, and its spring is
-                            // held back a beat so the box lands first: box closes, then it pushes a
-                            // duplicate out below. Anchored to the top because that is the edge it
-                            // is supposed to be emerging from.
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.94, anchor: .top)
-                                    .combined(with: .opacity)
-                                    .animation(.spring(response: 0.34, dampingFraction: 0.82).delay(0.14)),
-                                removal: .scale(scale: 0.94, anchor: .top)
-                                    .combined(with: .opacity)
-                                    .animation(.easeIn(duration: 0.18))
-                            ))
+                        if !solo { saveControl }
+                        summaryLine
+                        // The group box: one rounded frame around the ×N and every section under
+                        // it, so "repeat all of this" is something you can see rather than read.
+                        VStack(spacing: 0) {
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { pair in
+                                section(pair.offset, pair.element)
+                                    // The copy grows downward out of the card above it, and its
+                                    // spring is held back a beat so the box lands first: box
+                                    // closes, then it pushes a duplicate out below. Anchored to the
+                                    // top because that is the edge it is emerging from.
+                                    .transition(.asymmetric(
+                                        insertion: .scale(scale: 0.94, anchor: .top)
+                                            .combined(with: .opacity)
+                                            .animation(.spring(response: 0.34, dampingFraction: 0.82).delay(0.14)),
+                                        removal: .scale(scale: 0.94, anchor: .top)
+                                            .combined(with: .opacity)
+                                            .animation(.easeIn(duration: 0.18))
+                                    ))
+                            }
+                            homeRoundsRow
+                        }
+                        .padding(grouped ? 8 : 0)
+                        .background(groupBox)
+                        footer
                     }
-                    homeRoundsRow
-                    }
-                    .padding(grouped ? 8 : 0)
-                    .background(groupBox)
-                    footer
+                    .frame(maxWidth: .infinity, minHeight: max(0, geo.size.height - 112))
                 }
                 .onPreferenceChange(RowHeightKey.self) { reorder.record($0) }
                 .padding(.horizontal, 24)
                 // No top padding: the header row is the list's first item now and holds that space
                 // open itself.
                 .padding(.bottom, 56)
-                // minHeight, not a fixed one: short content sits centred, long content scrolls.
-                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                .frame(maxWidth: .infinity)
             }
+            // A page that fits has nothing to scroll, so it should not answer a drag at all — the
+            // plain home rubber-banded and read as a page with more below it. basedOnSize bounces
+            // only when the content actually overflows, which is exactly the question being asked;
+            // the alternative is measuring the content ourselves, and §37 is what that costs.
+            .scrollBounceBehavior(.basedOnSize)
             // A card under the finger must not also drag the page along with it.
             .scrollDisabled(reorder.isDragging)
             // No scroll indicator, here or on any other screen: a bar that flashes up to say how far

@@ -17,10 +17,19 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual([Block([w(60)], 10)], groupIntervals((1...10).map { _ in w(60) }))
     }
 
-    func testNonRepeatingLadderStaysFlat() {
+    /// Nothing repeats, so every group is ×1 — but a work still keeps the rest that follows it.
+    func testNonRepeatingLadderPairsEachWorkWithItsRest() {
         let flat = [w(20), r(20), w(30), r(20), w(40)]
+        let blocks = groupIntervals(flat)
+        XCTAssertEqual([Block([w(20), r(20)], 1), Block([w(30), r(20)], 1), Block([w(40)], 1)], blocks)
+        XCTAssertEqual(flat, flatten(blocks))
+    }
+
+    /// The pairing must not swallow the first interval of a pattern that starts right after it.
+    func testPairingLeavesALaterRepeatIntact() {
+        let flat = [w(20), r(20)] + (1...3).flatMap { _ in [w(30), r(10)] }
+        XCTAssertEqual([Block([w(20), r(20)], 1), Block([w(30), r(10)], 3)], groupIntervals(flat))
         XCTAssertEqual(flat, flatten(groupIntervals(flat)))
-        XCTAssertEqual(5, groupIntervals(flat).count)
     }
 
     func testMixedSequenceGroupsGreedily() {

@@ -35,7 +35,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -94,6 +93,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,9 +112,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.offset
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -507,9 +513,12 @@ private fun SetupScreen(
     }
 
     val listState = rememberLazyListState()
-    // The save control is a list item above the cards whenever they are showing, so it displaces
-    // them by one. The group's ×N sits below them and doesn't.
-    val firstCard = if (solo) 0 else 1
+    // The drag works in *list* indices, so every item above the cards displaces them: the header row
+    // and the summary always, plus the save control once the cards are showing. Two of those three
+    // arrived after this count was first written and it was never updated — a stale range here
+    // clamps a lifted card to the top of the page and lets nothing swap (PUNCHLIST §42). The group's
+    // ×N sits below the cards and doesn't count.
+    val firstCard = if (solo) 2 else 3
     val dragDrop = rememberDragDropState(
         listState = listState,
         draggable = firstCard until firstCard + rows.size,
@@ -538,8 +547,17 @@ private fun SetupScreen(
             // because the sections are separate lazy items — that's what makes drag-reorder work,
             // and a card carried out of the stack must not take a slice of the frame with it.
             val groupFill = GlassFill.copy(alpha = GlassFill.alpha * 0.45f)
+            // A page that fits has nothing to scroll, so it should not answer a drag at all — the
+            // plain home bounced on the stretch overscroll and read as a page with more below it.
+            // Asked of the list rather than of `solo`, so it is true whenever the content genuinely
+            // fits, not just for the one shape we expect to. derivedStateOf so this recomposes on
+            // the answer changing, not on every scroll that changes canScrollForward at an end.
+            val scrollable by remember {
+                derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
+            }
             LazyColumn(
                 state = listState,
+                userScrollEnabled = scrollable,
                 modifier = Modifier.fillMaxSize().drawBehind {
                     if (!grouped) return@drawBehind
                     val info = listState.layoutInfo
@@ -583,7 +601,7 @@ private fun SetupScreen(
                     top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 4.dp,
                     bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 56.dp,
                 ),
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = CenterUnderHeader,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // The whole header row is the list's first item: Presets and Settings scroll away
@@ -597,6 +615,12 @@ private fun SetupScreen(
                 // it moved. The offsets undo the TextButton's own 14.dp so the labels land 18.dp
                 // from the edge, where they have always been, rather than 34 in from the gutter.
                 item(key = "mark") {
+                    // No offset trickery here: CenterUnderHeader (the list's arrangement) pins this
+                    // row in the same layout pass it centres everything else. The old version undid
+                    // the centring with an offset { } that read listState.layoutInfo — which is
+                    // published *after* measure, so while add/remove animations re-centred the page
+                    // every frame, the header was always placed from the previous frame's layout
+                    // and visibly wobbled. Arrangement math has no such lag.
                     Box(Modifier.fillMaxWidth().height(52.dp)) {
                         TextButton(
                             onPresets, "Presets",
@@ -620,7 +644,7 @@ private fun SetupScreen(
                     item(key = "save") {
                         // animateContentSize turns the swap into the button growing into the
                         // field, rather than one control vanishing and another appearing.
-                        Column(Modifier.animateItem().animateContentSize(tween(260))) {
+                        Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).animateContentSize(tween(260))) {
                             if (naming) {
                                 NameField(
                                     value = name,
@@ -654,7 +678,7 @@ private fun SetupScreen(
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.animateItem().padding(bottom = 14.dp),
+                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).padding(bottom = 14.dp),
                     )
                 }
                 itemsIndexed(rows, key = { _, r -> r.id }) { i, row ->
@@ -679,10 +703,18 @@ private fun SetupScreen(
                             // box formed. The lazy list re-lays out every frame as that height
                             // changes, which is what moves everything below along with it.
                             //
-                            // No fade-in delay either. A new item takes its full space the instant
-                            // it is added, so waiting to draw it left a section-sized hole in the
-                            // list and then popped the card into it.
-                            .then(if (floating) Modifier else Modifier.animateItem(fadeInSpec = tween(220))),
+                            // The fade-in waits for the shuffle. A new item takes its full space the
+                            // instant it is added, and everything around it — the first section
+                            // closing into its card, Rounds and GO sliding down — spends the next
+                            // ~quarter second animating through that space. Drawn immediately, the
+                            // new card sat overlapped with the rows still moving out of its slot.
+                            // So: everything gets out of the way first, then the card fades into the
+                            // gap. The fade is long enough to read as an arrival, not a pop — which
+                            // is what an earlier, shorter delayed fade got wrong.
+                            .then(
+                                if (floating) Modifier
+                                else Modifier.animateItem(fadeInSpec = tween(260, delayMillis = 240), placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                            ),
                     ) {
                     // ONE composable whether it's the plain home or a card — never two branches of
                     // an `if`. Two branches is what made "Add intervals" a dissolve: Compose threw
@@ -700,7 +732,11 @@ private fun SetupScreen(
                         showHeader = grouped,
                         lifted = lifted,
                         onChange = { change(i, it) },
-                        onRemove = { removeBlock(i) },
+                        // Not while a card is in the air. Deleting the section under the finger —
+                        // or the last one keeping the group grouped — takes the drag handle with it
+                        // mid-gesture, and nothing is worth carrying that case: no one removes a
+                        // section with a second finger while moving another one.
+                        onRemove = { if (!dragDrop.isDragging) removeBlock(i) },
                         handle = {
                             DragHandle(
                                 key = row.id,
@@ -733,11 +769,11 @@ private fun SetupScreen(
                         onMinus = { m -> setHomeRounds(homeRounds - m) },
                         onPlus = { m -> setHomeRounds(homeRounds + m) },
                         onReset = { setHomeRounds(DEFAULT_ROUNDS) },
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)),
                     )
                 }
                 item(key = "footer") {
-                    Column(Modifier.animateItem()) {
+                    Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing))) {
                         if (!solo) {
                             // Clear of the group frame's bottom edge — the + adds a section *to* the
                             // group, so it sits just outside it rather than inside.
@@ -786,6 +822,25 @@ private fun SetupScreen(
 }
 
 /**
+ * Arrangement.Center, except the first item — the Presets/Δτ/Settings row — sits at the very top.
+ *
+ * The content stays centred on a short home; the header alone is pinned to the top edge. Lazy lists
+ * only consult the arrangement when the content fits the viewport, so the moment the page can
+ * scroll, items stack normally and the header travels with the scroll like everything else — which
+ * is exactly the rule the old offset hack was approximating, minus its one-frame lag.
+ */
+private val CenterUnderHeader = object : Arrangement.Vertical {
+    override fun Density.arrange(totalSize: Int, sizes: IntArray, outPositions: IntArray) {
+        var y = ((totalSize - sizes.sum()) / 2).coerceAtLeast(0)
+        for (i in sizes.indices) {
+            outPositions[i] = y
+            y += sizes[i]
+        }
+        if (outPositions.isNotEmpty()) outPositions[0] = 0
+    }
+}
+
+/**
  * One section, plain or boxed — deliberately ONE composable rather than two branches of an `if`.
  *
  * [boxed] false is the classic home: the same work and rest rows, with no chrome at all around them
@@ -808,17 +863,23 @@ private fun HomeSection(
     val shape = RoundedCornerShape(28.dp)
     // 0 on the plain home, 1 as a card. Everything the box is made of rides on this one number, so
     // the chrome arrives and leaves as a single move rather than as four separate ones.
-    val box by animateFloatAsState(
+    //
+    // A State, deliberately, and never unwrapped with `by`. Every read below happens inside a
+    // layout or draw lambda, so the 260ms it spends animating re-lays-out and re-draws this card
+    // without ever recomposing it. Unwrapped, the reads land in composition and the whole section
+    // rebuilds on every frame of the crossing — see `paddingBy` for the numbers.
+    val box = animateFloatAsState(
         if (boxed) 1f else 0f,
         tween(durationMillis = 260, easing = FastOutSlowInEasing),
         label = "box",
     )
-    // Same lift language as the presets editor: brighten the glass AND cast a shadow. On a near-black
-    // background a shadow alone all but disappears, which is what made a dragged card read as a
-    // smear over the one it was passing rather than as something held above it.
+    // Same lift language as the presets editor: brighten the glass and light its edge. No elevation
+    // shadow — a platform shadow assumes an opaque caster and skips the part of itself the card is
+    // meant to hide, so through glass you see the ring it *did* draw and a hard-edged rectangle
+    // where the skipped part ends (PUNCHLIST §44). On this near-black background the shadow was
+    // worth almost nothing anyway; brightening the glass is what says "held above".
     val fill by animateColorAsState(if (lifted) Color.White.copy(alpha = 0.20f) else GlassFill, label = "fill")
     val edge by animateFloatAsState(if (lifted) 0.5f else 0f, label = "edge")
-    val elevation by animateDpAsState(if (lifted) 20.dp else 0.dp, label = "elevation")
     // The phase colours fade in as the card lands, rather than popping alongside it.
     val appear = remember { Animatable(0f) }
     LaunchedEffect(boxed) { appear.animateTo(if (boxed) 1f else 0f, tween(320)) }
@@ -826,19 +887,23 @@ private fun HomeSection(
         modifier
             // Outside the card's own background: this is the gap between the card and the group
             // frame drawn around the whole stack, so it has to be margin, not padding.
-            .padding(horizontal = lerp(0.dp, 8.dp, box))
-            .padding(bottom = lerp(0.dp, 10.dp, box))
+            .paddingBy(8.dp, 0.dp, bottom = 10.dp) { box.value }
             .fillMaxWidth()
-            .shadow(elevation * box, shape, clip = false)
-            .background(fill.copy(alpha = fill.alpha * box), shape)
-            // A brush both ways, so the resting edge keeps the glass gradient every other card has.
-            .border(
-                1.dp,
-                if (lifted) SolidColor(Color.White.copy(alpha = edge * box))
-                else SolidColor(Color.White.copy(alpha = 0.10f * box)),
-                shape,
-            )
-            .padding(horizontal = lerp(0.dp, 12.dp, box), vertical = lerp(0.dp, 10.dp, box)),
+            // The fill and the edge, drawn rather than composed. `background()` and `border()` both
+            // take their colour as an argument, so an alpha riding `box` had to be computed in
+            // composition; drawn here the same alpha is read per frame with nothing rebuilt.
+            .drawBehind {
+                val k = box.value
+                if (k <= 0.001f) return@drawBehind
+                val r = CornerRadius(28.dp.toPx(), 28.dp.toPx())
+                drawRoundRect(fill.copy(alpha = fill.alpha * k), Offset.Zero, size, r)
+                val edgeAlpha = if (lifted) edge * k else 0.10f * k
+                drawRoundRect(
+                    Color.White.copy(alpha = edgeAlpha), Offset.Zero, size, r,
+                    style = Stroke(1.dp.toPx()),
+                )
+            }
+            .paddingBy(12.dp, 10.dp) { box.value },
     ) {
         // The lid of the box: it arrives with the box and leaves with it. Its *height* is animated,
         // not just its alpha — an `if` around it made the card jump a whole row taller the instant
@@ -880,7 +945,7 @@ private fun HomeSection(
                 CloseX { onRemove() }
             }
         }
-        IntervalStack(b, appear.value, onChange, compact = boxed)
+        IntervalStack(b, { appear.value }, onChange, compact = boxed, t = { box.value })
     }
 }
 
@@ -903,7 +968,10 @@ private fun HomeRounds(
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val g by animateFloatAsState(
+    // Deferred exactly like HomeSection's `box`, and for the same measured reason: as a plain
+    // composition read this one row cost 9ms on the 90th-percentile frame all by itself (23ms with
+    // it, 14ms with it made instant).
+    val g = animateFloatAsState(
         if (grouped) 1f else 0f,
         tween(durationMillis = 260, easing = FastOutSlowInEasing),
         label = "grouped",
@@ -914,45 +982,81 @@ private fun HomeRounds(
     // plain home went on writing to the *section's* repeat long after Rounds had become the group's.
     // Same hazard GlassCircle already guards against, same fix.
     val reset by rememberUpdatedState(onReset)
-    // Weights, not two arrangements. A Row can't animate from SpaceBetween to Center, but it can
-    // animate the space either side of its contents, which comes to the same thing and is
-    // continuous: outer 0→1 and inner 1→0 walks the control from the plain home's left-aligned row —
-    // lined up with Work and Rest above it — to centred under the group. Weights must stay above
-    // zero, hence the floor rather than a plain lerp.
-    val outer = 0.0001f + g
-    val inner = 1.0001f - g
-    Row(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = lerp(0.dp, 8.dp, g))
-            .padding(top = lerp(16.dp, 4.dp, g), bottom = lerp(32.dp, 2.dp, g)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(Modifier.weight(outer))
-        Text(
-            "Rounds",
-            color = Color.White,
-            fontSize = (20f - 2f * g).sp,
-            modifier = Modifier.padding(vertical = 6.dp),
-        )
-        Spacer(Modifier.weight(inner))
-        // The weighted gap collapses to nothing when centred, which butts the label against the −.
-        // A fixed sliver keeps them apart once there is no flexible space left to do it.
-        Spacer(Modifier.width(lerp(0.dp, 12.dp, g)))
-        GlassCircle("−", onMinus, size = lerp(54.dp, 50.dp, g))
-        Text(
-            "$rounds",
-            color = Color.White,
-            fontSize = (24f + 6f * g).sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .width(lerp(96.dp, 78.dp, g))
-                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) }
-                .stepperSemantics("Rounds", "$rounds", onMinus, onPlus),
-        )
-        GlassCircle("+", onPlus, size = lerp(54.dp, 50.dp, g))
-        Spacer(Modifier.weight(outer))
+    // A hand-written Layout rather than a Row with animated weights.
+    //
+    // Weights were the honest way to say "walk this control from left-aligned to centred", but a
+    // weight is a composition-time argument, so every frame of that walk rebuilt the row and both
+    // glass circles inside it. Placing the two pieces by hand moves the same walk into the layout
+    // pass, where `g` can be read per frame for free.
+    //
+    // Every size below rides `g` too, through a scale rather than through the font size. Snapped on
+    // `grouped` the number went big in one frame and only then walked to the middle, which is
+    // backwards — it should grow ON THE WAY. Composed at its grouped size and scaled, it does, and
+    // still costs no recomposition. The number is the one place a scale can't say it alone: the
+    // digits grow 24→30 while the box around them SHRINKS 96→78, so the box gets its own
+    // interpolated width and the text scales inside it.
+    Layout(
+        content = {
+            Text(
+                "Rounds",
+                color = Color.White,
+                fontSize = 18.sp,
+                modifier = Modifier
+                    .scaledBy { 20f / 18f + (1f - 20f / 18f) * g.value }
+                    .padding(vertical = 6.dp),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val circle: () -> Float = { 54f / 50f + (1f - 54f / 50f) * g.value }
+                Box(Modifier.scaledBy(circle)) {
+                    GlassCircle("−", onMinus, size = 50.dp)
+                }
+                Box(
+                    Modifier.widthBy(96.dp, 78.dp) { g.value },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "$rounds",
+                        color = Color.White,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .scaledBy { 24f / 30f + (1f - 24f / 30f) * g.value }
+                            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset() }) }
+                            .stepperSemantics("Rounds", "$rounds", onMinus, onPlus),
+                    )
+                }
+                Box(Modifier.scaledBy(circle)) {
+                    GlassCircle("+", onPlus, size = 50.dp)
+                }
+            }
+        },
+        modifier = modifier.fillMaxWidth().paddingBy(8.dp, 0.dp) { g.value },
+    ) { measurables, constraints ->
+        // minWidth = 0, NOT the incoming constraints. fillMaxWidth() makes the width TIGHT, and
+        // handing that straight to a child forces it to fill the row — which stretched both pieces
+        // to the full width, drove the centred origin negative, and put the label off the left edge
+        // with the + hanging off the right.
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val label = measurables[0].measure(loose)
+        val cluster = measurables[1].measure(loose)
+        val k = g.value
+        val w = constraints.maxWidth
+        // Plain sits well clear of GO below it; grouped tucks up inside the frame.
+        val top = ((16.dp.toPx() * (1 - k)) + (4.dp.toPx() * k)).roundToInt()
+        val bot = ((32.dp.toPx() * (1 - k)) + (2.dp.toPx() * k)).roundToInt()
+        val h = maxOf(label.height, cluster.height)
+        layout(w, h + top + bot) {
+            // Plain: label hard left, cluster hard right — lined up with the Work and Rest rows
+            // above it. Grouped: the pair travels to the middle as one unit with a 12dp gap, which
+            // is what stops the label butting against the − once the slack runs out.
+            val gap = (12.dp.toPx() * k).roundToInt()
+            val centred = (w - label.width - gap - cluster.width) / 2
+            val labelX = (centred * k).roundToInt()
+            val clusterX = ((w - cluster.width) * (1 - k) + (centred + label.width + gap) * k).roundToInt()
+            label.place(labelX, top + (h - label.height) / 2)
+            cluster.place(clusterX, top + (h - cluster.height) / 2)
+        }
     }
 }
 
@@ -983,9 +1087,13 @@ private fun chromeOut(towards: Alignment.Vertical) =
 @Composable
 private fun IntervalStack(
     b: Block,
-    appear: Float,
+    /** The tint's alpha, as a lambda so the rows fade without recomposing. */
+    appear: () -> Float,
     onChange: (Block) -> Unit,
     compact: Boolean = true,
+    /** The box-forming fraction — the steppers' sizes ride it so they shrink WITH the card.
+     *  A lambda for the same reason `appear` is one: read at layout, never in composition. */
+    t: () -> Float = { if (compact) 1f else 0f },
 ) {
     fun set(j: Int, iv: SeqInterval) =
         onChange(b.copy(items = b.items.toMutableList().also { it[j] = iv }))
@@ -1003,7 +1111,9 @@ private fun IntervalStack(
             onReset = { set(j, iv.copy(durationSec = if (isWork) DEFAULT_WORK_SEC else DEFAULT_REST_SEC)) },
             number = j + 1,
             compact = compact,
-            tint = (if (isWork) WorkColor else RestColor).copy(alpha = appear),
+            t = t,
+            tint = if (isWork) WorkColor else RestColor,
+            tintAlpha = appear,
             onLabelClick = if (compact) {
                 // Flipping to Work re-applies the 5s floor the minus stepper enforces: a rest
                 // dialled to 0 and then flipped was the one way to build a 0-second work interval,
@@ -1018,7 +1128,11 @@ private fun IntervalStack(
             } else null,
             // Only once there is something to remove — a section with one interval is the floor. On
             // the plain home, dialling a rest to 0 is how you drop it, same as it has always been.
-            trailing = if (compact && b.items.size > 1) {
+            // `b.items.size > 1` alone — NOT `compact &&`. Gated on compact it popped out of
+            // existence the moment a remove started, narrowing the cluster in one frame at the far
+            // end of the same crossing. Composed throughout and scaled by `t`, it grows in and
+            // shrinks away with the card, and on the plain home `t` is 0 so it costs no width.
+            trailing = if (b.items.size > 1) {
                 { CloseX { onChange(b.copy(items = b.items.filterIndexed { k, _ -> k != j })) } }
             } else null,
         )
@@ -1066,6 +1180,85 @@ private fun TextButton(onClick: () -> Unit, text: String, modifier: Modifier = M
     }
 }
 
+/**
+ * Every size a stepper row changes across the plain↔card crossing, as one ratio.
+ *
+ * label 15/20 = .750, value 17/24 = .708, circles 40/54 = .741, label box 66/90 = .733,
+ * value box 68/96 = .708 — every one of them within 3% of the same number. Five independent
+ * dimensions that are really one, which is what makes a single scale able to stand in for all of
+ * them and lets the whole row cross on the GPU instead of through the measure pass.
+ */
+private const val CardScale = 0.728f
+
+/**
+ * Draw a subtree at [s] and tell the parent the room it now takes — WITHOUT re-measuring it.
+ *
+ * This is the whole performance fix. Animating fontSize, widths and circle diameters directly
+ * re-ran text measurement and re-rasterised every glyph on every frame, for two Text nodes per
+ * row, two rows per section — which measured out at 27–48ms a frame against the 8.33ms this
+ * 120Hz panel actually allows, so the app missed two vsyncs out of every three and the crossing
+ * arrived in visible steps. A scale is a matrix the GPU applies to a raster that already exists:
+ * the glyphs are measured once, at the size they will come to rest at.
+ *
+ * Order matters. `graphicsLayer` is outer and `layout` inner, so `layout` measures the content at
+ * its natural size and reports `s ×` that upward, while the layer scales the drawing by the same
+ * `s` about the top-left. Node size and drawn size therefore agree, and the row occupies exactly
+ * the space it looks like it occupies. Origin is top-left rather than centred because the Row
+ * places these with SpaceBetween — the label is flush left and the cluster flush right whatever
+ * width they report, so anchoring anywhere else would fight the arrangement.
+ *
+ * Top-left is also the ONLY origin that registers correctly here, which cost a round trip to learn.
+ * The pivot is a fraction of the node's size, and this node reports `s ×` its content — so a centred
+ * pivot sits at `s·W/2` while the content's own centre is at `W/2`, and the drawing comes out offset
+ * by `(s-1)·W/2`. At (0,0) the content spans 0..W, scales to 0..sW, and matches the reported size
+ * exactly. Centring is the parent's job, done with the size this reports.
+ */
+private fun Modifier.scaledBy(s: () -> Float) =
+    graphicsLayer {
+        val v = s()
+        scaleX = v
+        scaleY = v
+        transformOrigin = TransformOrigin(0f, 0f)
+    }.layout { measurable, constraints ->
+        val v = s()
+        val p = measurable.measure(constraints)
+        layout((p.width * v).roundToInt(), (p.height * v).roundToInt()) { p.place(0, 0) }
+    }
+
+/** A width that interpolates at layout time, for the one case a scale can't express: a box whose
+ *  content grows while the box itself shrinks. */
+private fun Modifier.widthBy(from: Dp, to: Dp, f: () -> Float) =
+    layout { measurable, constraints ->
+        val w = (from.toPx() + (to.toPx() - from.toPx()) * f()).roundToInt()
+        val p = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+        layout(w, p.height) { p.place(0, 0) }
+    }
+
+/**
+ * Padding whose amount is read at LAYOUT time rather than at composition time.
+ *
+ * This is the other half of the same fix, and the more important half. `Modifier.padding(lerp(a, b,
+ * box))` reads `box` while the composable is running, so every frame of the 260ms crossing marked
+ * the whole section — its header, both stepper rows, every glass circle — as needing to recompose.
+ * Profiling the transition put the Choreographer's `animation` phase, which is where Compose ticks
+ * animations and then recomposes, at 25ms on its worst frame; measure, layout and draw together
+ * never exceeded 16ms, and the GPU sat flat at 3ms the whole time. Making `box` and `g` instant
+ * dropped the 90th percentile frame from 32ms to 8ms and missed vsyncs from 13 to 2, which is what
+ * identified recomposition rather than drawing as the cost.
+ *
+ * Read inside the `layout` lambda, the same value re-runs layout alone and skips composition
+ * entirely. The animation is unchanged; only what it invalidates is.
+ */
+private fun Modifier.paddingBy(h: Dp, v: Dp, bottom: Dp = 0.dp, f: () -> Float) =
+    layout { measurable, constraints ->
+        val k = f()
+        val px = (h.toPx() * k).roundToInt()
+        val py = (v.toPx() * k).roundToInt()
+        val pb = (bottom.toPx() * k).roundToInt()
+        val p = measurable.measure(constraints.offset(-2 * px, -(2 * py + pb)))
+        layout(p.width + 2 * px, p.height + 2 * py + pb) { p.place(px, py) }
+    }
+
 /** Double-tapping the number puts it back to the stock value — the way out of a hold that overshot. */
 @Composable
 private fun Stepper(
@@ -1077,7 +1270,15 @@ private fun Stepper(
     /** Which row this is, for the spoken label — "Work" alone repeats inside a section. */
     number: Int,
     compact: Boolean = false,
+    /** The plain↔card size fraction. [compact] flips at the *start* of that transition, so sizing
+     *  off the boolean snapped the circles and digits a whole animation ahead of the card they sit
+     *  in. The fraction is the same `box` value the card's own chrome rides. */
+    t: () -> Float = { if (compact) 1f else 0f },
+    /** The phase colour at FULL alpha — a stable value, so the pill's gradient shader is built once
+     *  and not once per frame. How much of it shows is [tintAlpha]. */
     tint: Color? = null,
+    /** The tint's alpha, read per frame inside the draw lambda so fading it recomposes nothing. */
+    tintAlpha: () -> Float = { 1f },
     /** Tap the label to flip work↔rest. Its own hit box, well clear of the steppers: the editor
      *  learned the hard way that a whole-row tap turns a near-miss on − into a phase change. */
     onLabelClick: (() -> Unit)? = null,
@@ -1090,13 +1291,26 @@ private fun Stepper(
     // Block, an older row index and an older onChange, which put the whole section back as it was and
     // silently reverted every other edit. Same hazard GlassCircle and HomeRounds already guard, same fix.
     val reset by rememberUpdatedState(onReset)
+    // The row is always composed at the size it is going to REST at — `compact` picks that, and it
+    // flips the instant the crossing starts. What animates is how far from that size the row is
+    // currently drawn: coming in as a card it starts a touch over 1 and settles to 1; going back to
+    // the plain home it starts at CardScale and opens out to 1. Either way it ends at exactly 1.0,
+    // so the text at rest is rasterised at its true size and never resampled — the scale only exists
+    // during the 260ms nobody is reading it.
+    val scale: () -> Float = {
+        val k = t()
+        if (compact) 1f + (1f / CardScale - 1f) * (1f - k) else 1f + (CardScale - 1f) * k
+    }
     val minimal = Settings.minimalBg
     // An invisible tint is not a pill. The plain home hands these rows the phase colour at alpha 0 so
     // it can fade up when the box arrives — but they were still paying the pill's 12dp inset either
     // side for a pill nobody can see. That cost the row 24dp it needed: Modifier.size coerces into
     // whatever the parent leaves, so the last child, the + circle, was quietly clamped to 48dp inside
     // a 54dp box and drew as an ellipse. It also sat Work and Rest 12dp in from Rounds.
-    val visibleTint = tint?.takeIf { it.alpha > 0.01f }
+    // Whether the pill exists at all is still a composition-level question — a plain row genuinely
+    // has no pill and must not pay for its 12dp inset — but it is asked of `compact`, which flips
+    // once per crossing, not of an alpha that changes every frame.
+    val visibleTint = tint?.takeIf { compact }
     // Only glow rows pay for an animation clock; plain and minimal rows never start one.
     val drift = if (visibleTint != null && !minimal) {
         rememberInfiniteTransition(label = "glow").animateFloat(
@@ -1114,14 +1328,19 @@ private fun Stepper(
                     // Minimal mode's timer is black with only the perimeter stroke, so the preview
                     // is the same idea: a bubble around the edge, nothing filled in.
                     minimal -> Modifier
-                        .border(1.5.dp, visibleTint.copy(alpha = visibleTint.alpha * 0.55f), shape)
+                        .drawBehind {
+                            drawRoundRect(
+                                visibleTint.copy(alpha = tintAlpha() * 0.55f),
+                                cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+                                style = Stroke(1.5.dp.toPx()),
+                            )
+                        }
                         .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 6.dp)
                     // Otherwise: what GO actually shows is a full wash of the phase colour. So the
                     // row is filled edge to edge, and the only movement is dips in brightness
                     // drifting across it. No shape inside the pill — a shape is what read as a
                     // sticker sitting on the row instead of the row being lit.
                     else -> Modifier
-                        .border(1.dp, visibleTint.copy(alpha = visibleTint.alpha * 0.28f), shape)
                         .clip(shape)
                         // Built in the cache block, not the draw body: Compose caches the native
                         // LinearGradient inside the Brush instance, so a Brush built per frame is a
@@ -1129,7 +1348,12 @@ private fun Stepper(
                         // display refresh rate, for every tinted row, the whole time the home shows
                         // a boxed section. Same trap SplitProgress documents.
                         .drawWithCache {
-                            val a = visibleTint.alpha
+                            // Full alpha in the stops, and the fade applied at draw. The stops used
+                            // to carry the animating alpha, so the cache block — whose whole job is
+                            // to build the native shader ONCE — was invalidated on every frame of
+                            // the fade, allocating a gradient per row per frame. Now the only thing
+                            // that changes per frame is a float multiplier.
+                            val a = 1f
                             // Repeated so it never seams; first and last stop match, and one cycle
                             // of `drift` slides it exactly one span, so the loop is invisible. The
                             // span sits at -span..0 rather than following `shift`, so translating
@@ -1150,10 +1374,18 @@ private fun Stepper(
                                 // drift is read here and never in the cache block — captured up
                                 // there it would rebuild the brush every frame, which is the cost
                                 // this is removing.
+                                val alpha = tintAlpha()
                                 val shift = drift!!.value * span
                                 translate(left = shift) {
-                                    drawRect(brush, topLeft = Offset(-shift, 0f), size = size)
+                                    drawRect(brush, topLeft = Offset(-shift, 0f), size = size, alpha = alpha)
                                 }
+                                // The edge, drawn with the wash rather than composed as a border,
+                                // so the two fade together off one per-frame read.
+                                drawRoundRect(
+                                    visibleTint.copy(alpha = alpha * 0.28f),
+                                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+                                    style = Stroke(1.dp.toPx()),
+                                )
                             }
                         }
                         .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 6.dp)
@@ -1167,6 +1399,7 @@ private fun Stepper(
             color = Color.White,
             fontSize = if (compact) 15.sp else 20.sp,
             modifier = Modifier
+                .scaledBy(s = scale)
                 .then(
                     if (onLabelClick == null) Modifier
                     else Modifier.clip(RoundedCornerShape(50)).clickable { onLabelClick() },
@@ -1174,7 +1407,7 @@ private fun Stepper(
                 .width(if (compact) 66.dp else 90.dp)
                 .padding(vertical = 6.dp),
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.scaledBy(s = scale), verticalAlignment = Alignment.CenterVertically) {
             GlassCircle("−", onMinus, size = if (compact) 40.dp else 54.dp)
             Text(
                 value,
@@ -1188,7 +1421,26 @@ private fun Stepper(
                 textAlign = TextAlign.Center,
             )
             GlassCircle("+", onPlus, size = if (compact) 40.dp else 54.dp)
-            trailing?.let { Spacer(Modifier.width(2.dp)); it() }
+            // Scaled by the crossing fraction, not switched on by `compact`.
+            //
+            // This is what made the row "teleport to the left and then shrink". The cluster is
+            // placed flush right, so its width sets where the − starts. Appearing at full width the
+            // instant `compact` flipped, the ✕ made the cluster ~30dp wider in a single frame and
+            // shoved everything left before any of it had begun to move. Grown from nothing on the
+            // same clock as the card, the arithmetic comes out exact: (40+68+40+2) × 1/0.728 = 206dp,
+            // against the plain row's 54+96+54+2 = 206dp. The cluster now starts precisely where it
+            // already was.
+            trailing?.let {
+                // The gap goes INSIDE the scaled box with the ✕, not beside it. Left outside, its
+                // 2dp survived at t = 0 and sat the plain home's whole −/value/+ cluster 2dp left
+                // of where it had always been.
+                Box(Modifier.scaledBy { t() }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.width(2.dp))
+                        it()
+                    }
+                }
+            }
         }
     }
 }
@@ -1257,12 +1509,21 @@ private fun SettingsScreen(onBack: () -> Unit) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        SettingsCard("Theme") {
+        // Minimal rides the title line rather than sitting under the grid. Orthogonal to the palette
+        // on purpose — Minimal + Vesper is a black timer with Vesper on the edge, and Mono as well
+        // gives the plain black-and-white one — so it belongs to the whole card, not to the row of
+        // swatches it used to hang below.
+        SettingsCard(
+            "Theme",
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Minimal", color = Color.White.copy(alpha = 0.75f), fontSize = 14.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Switch(Settings.minimalBg, { Settings.updateMinimalBg(it) })
+                }
+            },
+        ) {
             PalettePicker()
-            Spacer(Modifier.height(18.dp))
-            // Orthogonal to the palette on purpose: Minimal + Vesper is a black timer with Vesper
-            // on the edge. Pick Mono as well and you get the plain black-and-white one.
-            ToggleRow("Minimal", Settings.minimalBg) { Settings.updateMinimalBg(it) }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -1276,7 +1537,12 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 fontSize = 15.sp,
             )
             Spacer(Modifier.height(16.dp))
-            ToggleRow("Word mode", Settings.wordMode, sub = "Thirty-two, not 32 (under 60s only). Languages with their own numerals keep them.") { Settings.updateWordMode(it) }
+            // One line, and short enough to stay one. The second sentence explained a rule you can
+            // see for yourself the moment you flip it — the Chinese tile keeps 九 either way — and
+            // it was the longest string on the screen to say it. "≤60s" rather than "under 60s
+            // only": the symbol says it in two characters, and what it buys is vertical space
+            // between this row and the grid, not brevity for its own sake.
+            ToggleRow("Word mode", Settings.wordMode, sub = "Thirty-two, not 32  ( ≤60s )") { Settings.updateWordMode(it) }
             Spacer(Modifier.height(8.dp))
             Spacer(Modifier.height(16.dp))
             LanguageGrid()
@@ -1315,8 +1581,13 @@ private fun LanguageGrid() {
     // Tight gaps: the tiles are the content here, and wide gutters left the panel mostly black.
     tiles.chunked(3).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // A short last row is centred, half a hole either side, rather than left-aligned against
+            // one big gap. The spacers keep the tiles at the same width as every other row — laying
+            // the row out without them would stretch two tiles across the full width instead.
+            val holes = 3 - row.size
+            if (holes > 0) Spacer(Modifier.weight(holes / 2f))
             row.forEach { lang -> LanguageTile(lang, second, Modifier.weight(1f)) }
-            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            if (holes > 0) Spacer(Modifier.weight(holes / 2f))
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -1326,8 +1597,9 @@ private fun LanguageGrid() {
 private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modifier) {
     val selected = lang.code == Settings.languageCode
     // A bubble, not a box: a percentage radius stays organic at any tile size, matching the
-    // gradients drifting inside them rather than framing them in hard corners.
-    val shape = RoundedCornerShape(percent = 38)
+    // gradients drifting inside them rather than framing them in hard corners. Halved from 38 —
+    // that much rounding was eating the corners of a tile whose whole job is to hold a numeral.
+    val shape = RoundedCornerShape(percent = 19)
     // Follows the Word mode switch, which sits directly above this grid. It used to spell whatever
     // the setting said, on the grounds that English, Russian, Spanish and French otherwise print the
     // same Western 9 and the tiles would be indistinguishable. They aren't: the phase word up top is
@@ -1370,6 +1642,9 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
                 // Both halves of the shared tile take Chinese's seed, so cycling relabels the tile
                 // instead of restamping its aura — otherwise a tap reads as a different tile.
                 seed = (if (lang.han) Language.ZH.ordinal else lang.ordinal) * 3.7f,
+                // Full frame, unlike the theme stripes. A tile this size has room for the falloff to
+                // read as depth behind the numeral rather than as the darkness it became at 35×40.
+                zoom = 1f,
             )
             val measurer = androidx.compose.ui.text.rememberTextMeasurer()
             val density = LocalDensity.current
@@ -1395,7 +1670,10 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 softWrap = false,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 9.dp),
+                // 3, down from 9. Measured on device: the glyphs are 6.7dp tall and sat 8dp below the
+                // tile's coloured edge, so this lifts them by about their own height and leaves 2dp
+                // of air. Any less and the ascender line would touch the tint.
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 3.dp),
             )
             if (lang.cistercian) {
                 // Tighter than the text budget, not the same: a fitted glyph draws well inside its
@@ -1460,11 +1738,16 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
 private fun PalettePicker() {
     // No heading of its own: the card it sits in is called Theme, and two of those in a row read as
     // a section inside a section.
-    Palette.entries.chunked(3).forEach { row ->
+    // Two across, not three. Width is the only dimension a swatch can grow in without looking
+    // stretched — the stripes are the aura seen through a slot, and a tall thin slot shows less of
+    // it than a wide one, not more. Two cells across a 280dp card put each stripe at 39dp instead of
+    // 23, which is where a theme stops being a colour chip and starts being a picture of the screen.
+    // The cost is five rows instead of three, on a page that already scrolls.
+    Palette.entries.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             row.forEach { p -> PaletteSwatch(p, Modifier.weight(1f)) }
             // Keeps a short final row left-aligned at the same cell width instead of stretching it.
-            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
         }
         Spacer(Modifier.height(14.dp))
     }
@@ -1474,11 +1757,20 @@ private fun PalettePicker() {
 private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
     val selected = p == Settings.palette
     val shape = RoundedCornerShape(12.dp)
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    // 6dp off each side, which takes ~10% off every stripe. The shader corrects for aspect
+    // (`p.x *= iResolution.x / iResolution.y`), so a box wider than it is tall reaches further out
+    // into the falloff horizontally and the corners go black — at 39×36 that vignette was the first
+    // thing you saw. Back at ~35×36 the stripe is square enough to sit inside the bloom.
+    Column(modifier.padding(horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                // 48: the 44 it always was, plus 10%. Height alone was the wrong lever — at three
+                // across it gave 23×54 slivers, and stretching a swatch the long way reads as a
+                // distortion rather than as more of anything. With the width fixed first (two across,
+                // then 10% back off it) the stripe is 35×40, and the extra height costs no vignette:
+                // the shader's `p.x *= w/h` means a taller box reaches *less* far into the falloff.
+                .height(48.dp)
                 .clip(shape)
                 // Ring only on the selected one. A frame around every swatch was a grid of boxes
                 // competing with the colours they were framing; now the ring means something.
@@ -1513,8 +1805,13 @@ private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
     }
 }
 
+/** @param trailing a control that belongs to the whole card, parked on its title line. */
 @Composable
-private fun SettingsCard(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+private fun SettingsCard(
+    title: String,
+    trailing: @Composable (() -> Unit)? = null,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
     val shape = RoundedCornerShape(24.dp)
     Column(
         Modifier
@@ -1524,13 +1821,17 @@ private fun SettingsCard(title: String, content: @Composable androidx.compose.fo
             .border(1.dp, glassBorder(), shape)
             .padding(20.dp),
     ) {
-        Text(
-            title.uppercase(),
-            color = Color.White.copy(alpha = 0.45f),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title.uppercase(),
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                modifier = Modifier.weight(1f),
+            )
+            trailing?.invoke()
+        }
         Spacer(Modifier.height(14.dp))
         content()
     }

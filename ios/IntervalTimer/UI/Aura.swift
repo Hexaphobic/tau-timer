@@ -19,6 +19,9 @@ struct AuraBackground: View {
                     .float2(size.width, size.height),
                     .float(Float(time)),
                     .float(Float(min(max(progress, 0), 1))),
+                    // The whole composition: the blooms AND the black they sit in. That contrast is
+                    // the effect on a screen you're staring at for a minute.
+                    .float(1),
                     .color(glow)
                 )
             }
@@ -29,6 +32,9 @@ struct AuraBackground: View {
 /// Mid-interval: what a phase looks like for most of the time you're staring at it. The swatch is
 /// frozen here rather than at either end, where the glow is still building or already peaked.
 private let SWATCH_PROGRESS: Float = 0.5
+
+/// Kept in step with the Kotlin's SWATCH_ZOOM.
+private let SWATCH_ZOOM: Float = 0.35
 
 /// The timer's own aura, shrunk to a swatch. Deliberately the same shader the running workout draws,
 /// so a theme previews as what GO actually shows instead of as a hand-tuned imitation of it that
@@ -43,9 +49,15 @@ private let SWATCH_PROGRESS: Float = 0.5
 /// other, so separated seeds give genuinely different compositions rather than the same picture
 /// twice. Left at 0 every swatch is the identical frame, which is what made a grid of them read as
 /// one image stamped out repeatedly.
+///
+/// `zoom` is how much of the composition to show. The default crops to the lit middle, which is what
+/// a colour sample wants. Pass 1 where the swatch is big enough for the falloff to read as depth
+/// rather than as darkness — the language tiles are five times the area of a theme stripe, and they
+/// hold a numeral that the gradient sits behind.
 struct AuraSwatch: View {
     let glow: Color
     let seed: Float
+    var zoom: Float = SWATCH_ZOOM
 
     var body: some View {
         ShaderCanvas(animated: false) { size, _ in
@@ -53,6 +65,12 @@ struct AuraSwatch: View {
                 .float2(size.width, size.height),
                 .float(seed),
                 .float(SWATCH_PROGRESS),
+                // Cropped to the middle of the composition. At full frame a 35×40 stripe puts its
+                // corners out where the blooms have fallen away, and the darkest pixel measured
+                // 2–9% of the brightest — a swatch that is mostly showing you black. On the timer
+                // that contrast is the effect; here the job is to show a colour, so this takes the
+                // lit middle and leaves the vignette to the screen that earns it.
+                .float(zoom),
                 .color(glow)
             )
         }
@@ -64,19 +82,53 @@ struct AuraSwatch: View {
 /// Deliberately NOT gated on `minimalBg`. Minimal is about the running timer — the screen you
 /// actually stare at mid-set. Home, presets and settings keep their aurora; the only way to lose
 /// colour here is to pick a palette that hasn't got any.
+/// A theme swap repaints it between one frame and the next, so the three colours cross-fade. That is
+/// the whole of the transition: the shader is a sum of three coloured curtains, so interpolating what
+/// it is handed interpolates what it draws — no second layer, no blend pass, nothing to keep in sync.
+///
+/// 80ms, linear, matching the Kotlin. Enough to read as a fade rather than a cut without anyone
+/// waiting for it; linear because a colour ramp with an ease on it arrives late and draws attention
+/// to itself, which is the opposite of the point.
+///
+/// Done by hand rather than with `.animation`: these colours are shader arguments, not view
+/// properties, so nothing interpolates them for us. `ShaderCanvas` already re-evaluates this closure
+/// every frame, so the mix only needs a start time and the clock it is handed anyway.
 struct HomeBackground: View {
     @ObservedObject private var settings = Settings.shared
 
+    @State private var from: (work: Color, prep: Color, rest: Color)?
+    @State private var fadeStart: TimeInterval = 0
+    /// The clock `ShaderCanvas` hands the closure, kept so `onChange` can stamp a start from it.
+    @State private var now: TimeInterval = 0
+
+    private static let FADE: TimeInterval = 0.08
+
     var body: some View {
         ShaderCanvas(animated: true) { size, time in
-            ShaderLibrary.homeAurora(
+            now = time
+            let k = from == nil ? 1 : min(max((time - fadeStart) / Self.FADE, 0), 1)
+            return ShaderLibrary.homeAurora(
                 .float2(size.width, size.height),
                 .float(Float(time)),
-                .color(workColor),
-                .color(prepColor),
-                .color(restColor)
+                .color(mix(from?.work, workColor, k)),
+                .color(mix(from?.prep, prepColor, k)),
+                .color(mix(from?.rest, restColor, k))
             )
         }
+        .onChange(of: settings.palette) { old, _ in
+            from = (old.work, old.prep, old.rest)
+            fadeStart = now
+        }
+    }
+
+    /// SwiftUI `Color` has no arithmetic, so the mix goes through the resolved components. sRGB, like
+    /// everything else at this boundary — see the note in Shaders.metal about not transcoding.
+    private func mix(_ a: Color?, _ b: Color, _ k: Double) -> Color {
+        guard let a, k < 1 else { return b }
+        let x = UIColor(a).cgColor.components ?? [0, 0, 0, 1]
+        let y = UIColor(b).cgColor.components ?? [0, 0, 0, 1]
+        func c(_ i: Int) -> Double { Double(x[min(i, x.count - 1)]) * (1 - k) + Double(y[min(i, y.count - 1)]) * k }
+        return Color(.sRGB, red: c(0), green: c(1), blue: c(2), opacity: 1)
     }
 }
 

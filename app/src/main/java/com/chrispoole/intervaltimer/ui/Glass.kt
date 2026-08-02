@@ -56,27 +56,26 @@ val GlassFill = Color.White.copy(alpha = 0.16f)
  * rest must be far enough apart in hue to tell apart at a glance mid-set (Aurora was 33°), and a
  * theme must not be a near-copy of one already here (Aurora sat 23° from Default, Solarized 15°
  * from Laser). Gruvbox and Rosé Pine went for saturation — 0.21 and 0.28 — which reads as mud
- * once a colour fills a whole row or screen rather than edging one. Joker went the same way as
- * Aurora: lime-and-purple was Grape's pairing already.
+ * once a colour fills a whole row or screen rather than edging one. Joker was cut for duplicating
+ * Grape's lime-and-purple; Grape itself has since gone too, so that pairing is simply free again.
  */
-// Declaration order IS the order of the picker, so it's hand-set rather than alphabetical: the
-// strongest and most distinct themes lead, and Mono sits third rather than exiled to the end —
-// it's a deliberate choice, not the leftover at the bottom of the list.
+// Declaration order IS the order of the picker, so it's hand-set rather than alphabetical: the two
+// plainest lead, the loud ones follow, and Vesper — the quietest — sits near the end where you go
+// looking for it rather than land on it. Mono is second rather than exiled to the bottom: it's a
+// deliberate choice, not the leftover.
 enum class Palette(val label: String, val work: Color, val rest: Color, val prep: Color) {
-    // Dracula went the way of Aurora: 15° from Default is the same theme with a different name.
     DEFAULT("Default", Color(0xFF22E06A), Color(0xFF38BDF8), Color(0xFF8B5CF6)),
-    VESPER("Vesper", Color(0xFF99FFE4), Color(0xFFFFC799), Color(0xFFFF8080)),
 
     // No hue at all. Paired with the Minimal switch this is the plain black-and-white timer; on its
     // own it's a white aura. Work and rest look identical here — that is the whole point, but it
     // does mean the preset list and editor lose their colour coding while it's selected.
     MONO("Mono", Color.White, Color.White, Color.White),
 
+    SPIDEY("Spidey", Color(0xFFE23636), Color(0xFF0476F2), Color(0xFFFFD400)),
     MIAMI("Miami", Color(0xFFFF2D8F), Color(0xFF05DFD7), Color(0xFFFFC400)),
     TRANCE("Trance", Color(0xFF02D3B0), Color(0xFF6C8BE8), Color(0xFFE51376)),
-    GRAPE("Grape", Color(0xFFFF8F00), Color(0xFFB14EFF), Color(0xFFFF4081)),
-    SPIDEY("Spidey", Color(0xFFE23636), Color(0xFF0476F2), Color(0xFFFFD400)),
     LASER("Laser", Color(0xFFA8D400), Color(0xFF22C9DC), Color(0xFFFF3D7F)),
+    VESPER("Vesper", Color(0xFF99FFE4), Color(0xFFFFC799), Color(0xFFFF8080)),
     TRON("Tron", Color(0xFFFF6600), Color(0xFF00D4FF), Color(0xFFF0E800)),
 }
 

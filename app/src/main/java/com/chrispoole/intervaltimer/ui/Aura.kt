@@ -2,6 +2,9 @@ package com.chrispoole.intervaltimer.ui
 
 import android.graphics.RuntimeShader
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -39,12 +42,16 @@ private val AURA_AGSL = """
 uniform float2 iResolution;
 uniform float iTime;
 uniform float iProgress;
+// How much of the frame the box shows. 1 is the whole composition, blooms and the black between
+// them, which is what the timer wants. Below 1 it crops to the middle, where the light is.
+uniform float iZoom;
 layout(color) uniform half4 glow;
 $HASH
 half4 main(float2 fragCoord) {
     float2 uv = fragCoord / iResolution;
     float2 p = uv - 0.5;
     p.x *= iResolution.x / iResolution.y;
+    p *= iZoom;
     float t = iTime * 0.6;
     float prog = 0.62 + 0.38 * iProgress;   // start brighter (was 0.4); glow still builds toward the boundary
 
@@ -144,6 +151,9 @@ fun AuraBackground(glow: Color, progress: Float, modifier: Modifier = Modifier) 
     Box(
         modifier.drawWithCache {
             shader.setFloatUniform("iResolution", size.width, size.height)
+            // The whole composition: the blooms AND the black they sit in. That contrast is the
+            // effect on a screen you're staring at for a minute.
+            shader.setFloatUniform("iZoom", 1f)
             onDrawBehind {
                 shader.setFloatUniform("iTime", time.value)
                 shader.setFloatUniform("iProgress", progress.coerceIn(0f, 1f))
@@ -177,15 +187,35 @@ private const val SWATCH_PROGRESS = 0.5f
  * brightness multiplier, so varying it would make some themes look brighter than others for
  * reasons that have nothing to do with the theme.
  */
+private const val SWATCH_ZOOM = 0.35f
+
+/**
+ * @param zoom how much of the composition to show. The default crops to the lit middle, which is
+ *   what a colour sample wants. Pass 1f where the swatch is big enough for the falloff to read as
+ *   depth rather than as darkness — the language tiles are five times the area of a theme stripe,
+ *   and they hold a numeral that the gradient sits behind.
+ */
 @Composable
-fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float) {
+fun AuraSwatch(
+    glow: Color,
+    modifier: Modifier = Modifier,
+    seed: Float,
+    zoom: Float = SWATCH_ZOOM,
+) {
     if (Build.VERSION.SDK_INT < 33) {
-        // Same fallback as the timer, so the two still agree on pre-33 devices. The seed is
-        // ignored here: there's no shader to re-time, and pre-33 devices get identical swatches
-        // rather than a second bespoke gradient to keep in sync. ponytail: API 33 is the floor
+        // The seed is ignored here: there's no shader to re-time, and pre-33 devices get identical
+        // swatches rather than a second bespoke gradient to keep in sync. The outer stop is the
+        // glow rather than the timer fallback's near-black, for the same reason SWATCH_ZOOM exists —
+        // a swatch is a colour sample, not a picture of a dark screen. ponytail: API 33 is the floor
         // this app is really built for.
         val prog = 0.55f + 0.45f * SWATCH_PROGRESS
-        Box(modifier.background(Brush.radialGradient(listOf(glow.copy(alpha = 0.5f * prog), Color(0xFF070709)))))
+        Box(
+            modifier.background(
+                Brush.radialGradient(
+                    listOf(glow.copy(alpha = 0.62f * prog), glow.copy(alpha = 0.38f * prog)),
+                ),
+            ),
+        )
         return
     }
     val shader = remember { RuntimeShader(AURA_AGSL) }
@@ -193,6 +223,12 @@ fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float) {
     Box(
         modifier.drawWithCache {
             shader.setFloatUniform("iResolution", size.width, size.height)
+            // Cropped to the middle of the composition. At full frame a 35×40 stripe puts its
+            // corners out where the blooms have fallen away, and the darkest pixel measured 2–9% of
+            // the brightest — a swatch that is mostly showing you black. On the timer that contrast
+            // is the effect; here the job is to show a colour, so this takes the lit middle and
+            // leaves the vignette to the screen that earns it.
+            shader.setFloatUniform("iZoom", zoom)
             onDrawBehind {
                 shader.setFloatUniform("iTime", seed)
                 shader.setFloatUniform("iProgress", SWATCH_PROGRESS)
@@ -203,12 +239,27 @@ fun AuraSwatch(glow: Color, modifier: Modifier = Modifier, seed: Float) {
     )
 }
 
-/** Distant weaving aurora over AMOLED black, in the current palette's colours. */
+/**
+ * Distant weaving aurora over AMOLED black, in the current palette's colours.
+ *
+ * A theme swap repaints it between one frame and the next, so the three colours cross-fade. That is
+ * the whole of the transition: the shader is a sum of three coloured curtains, so interpolating what
+ * it is handed interpolates what it draws — no second layer, no blend pass, nothing to keep in sync.
+ *
+ * 80ms, linear: five frames at 60Hz and ten at 120, which is enough to read as a fade rather than a
+ * cut without anyone waiting for it. Linear because a colour ramp with an ease on it arrives late
+ * and draws attention to itself, which is the opposite of the point.
+ *
+ * Held as State and read inside the draw lambda, never unwrapped with `by` — the same rule
+ * `HomeSection`'s `box` follows. Read in composition, the whole background would rebuild on every
+ * frame of the fade for three values only the shader ever sees.
+ */
 @Composable
 fun HomeBackground(modifier: Modifier = Modifier) {
-    val work = WorkColor
-    val prep = PrepColor
-    val rest = RestColor
+    val fade = tween<Color>(durationMillis = 80, easing = LinearEasing)
+    val work = animateColorAsState(WorkColor, fade, label = "work")
+    val prep = animateColorAsState(PrepColor, fade, label = "prep")
+    val rest = animateColorAsState(RestColor, fade, label = "rest")
     // Deliberately NOT gated on Settings.minimalBg. Minimal is about the running timer — the screen
     // you actually stare at mid-set. Home, presets and settings keep their aurora; the only way to
     // lose colour here is to pick a palette that hasn't got any. What they don't need is the
@@ -220,7 +271,11 @@ fun HomeBackground(modifier: Modifier = Modifier) {
         Box(
             modifier.background(
                 Brush.verticalGradient(
-                    listOf(prep.copy(alpha = 0.10f), work.copy(alpha = 0.06f), Color(0xFF060608)),
+                    listOf(
+                        prep.value.copy(alpha = 0.10f),
+                        work.value.copy(alpha = 0.06f),
+                        Color(0xFF060608),
+                    ),
                 ),
             ),
         )
@@ -237,9 +292,9 @@ fun HomeBackground(modifier: Modifier = Modifier) {
             shader.setFloatUniform("iResolution", size.width, size.height)
             onDrawBehind {
                 shader.setFloatUniform("iTime", time.value)
-                shader.setColorUniform("cWork", work.toArgb())
-                shader.setColorUniform("cPrep", prep.toArgb())
-                shader.setColorUniform("cRest", rest.toArgb())
+                shader.setColorUniform("cWork", work.value.toArgb())
+                shader.setColorUniform("cPrep", prep.value.toArgb())
+                shader.setColorUniform("cRest", rest.value.toArgb())
                 drawRect(brush)
             }
         }

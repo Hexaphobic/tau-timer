@@ -832,6 +832,423 @@ Presets still opens, on both. The case that killed every animated version — cr
 points of where the old barrier sat, lift, then touch again — now does nothing at all, because
 there is no state to disagree with the scroll position.
 
+### 38. The header floated down the page on a home that doesn't scroll
+
+Fallout from §37, caught on the Flip. The home centres its content vertically, and once the header
+became part of that content it centred along with it — so a plain one-section home, short enough not
+to scroll, left Presets / Δτ / Settings hovering a third of the way down an empty screen instead of
+sitting at the top of it.
+
+The header needs a floor: it can travel **up** with the page and never down below its resting place.
+The content should still centre. Both platforms now do exactly that, by different routes because the
+layout systems differ:
+
+- **Android** offsets the row up by the leading space `Arrangement.Center` inserted, clamped with
+  `coerceAtLeast(0)`. That clamp is the whole rule — the lead is only ever positive, so this can
+  cancel a downward push and can never become one. Scrolled, the lead is 0 and nothing happens.
+  `Modifier.offset { }` (the lambda form) so it re-places without recomposing, and it reads item 0's
+  own slot position, which the lazy list reports pre-offset, so there is no feedback loop.
+- **iOS** moves the `minHeight` off the whole stack and onto everything *below* the header, at
+  `viewport − 112` (the header's 56 plus the bottom padding). The header keeps its 56 at the top; the
+  page centres in what is left; long content grows past it and scrolls as before.
+
+Verified both cases on both: solo home — header at the top, content centred; multi-section — header
+scrolls up and off exactly as it did.
+
+### 39. Add/remove interval: three rough edges in one transition (Android)
+
+All reported together off the device, all in the solo↔grouped crossing:
+
+1. **The new card arrived overlapped** with the rows still animating out of its slot, then they
+   spread apart. A new lazy item takes its full space instantly, and everything around it spends the
+   next quarter second moving through that space. Fix: the new item's fade-in now waits out the
+   shuffle — `animateItem(fadeInSpec = tween(260, delayMillis = 240))`. Everything gets out of the
+   way first, then the card fades into the gap. (An earlier, shorter delayed fade read as a pop and
+   was documented as a dead end; the delay wasn't the mistake, the pop-length fade was.)
+2. **The header wobbled during add/remove** even though it shouldn't react to anything but scroll.
+   §38's Android route was the culprit: `Modifier.offset { }` reading `listState.layoutInfo`, which
+   is published *after* measure — so while the transition re-centred the page every frame, the
+   header was placed from the previous frame's layout, one frame behind, and jittered. Replaced with
+   `CenterUnderHeader`, a custom `Arrangement.Vertical`: centre everything, then pin item 0 to the
+   top, all in the same layout pass. Lazy lists only consult the arrangement when content fits the
+   viewport, so a scrollable home stacks normally and the header scrolls away as before. The offset
+   hack is deleted.
+3. **The − / + circles and digits snapped** at the end of a remove while the card melted around
+   them. `Stepper`'s geometry was discrete `if (compact)` sizes, and `compact` flips at the *start*
+   of the transition. The sizes now ride the same `box` fraction the card's own chrome does —
+   `lerp(54.dp, 40.dp, t)` and friends, threaded `HomeSection → IntervalStack → Stepper`. `compact`
+   stays boolean for behaviour (tap-to-flip, the ✕); only geometry interpolates.
+
+**None of that fixed it** — the user reported all three still wrong. See §40.
+
+### 40. The transition was dropping two vsyncs out of three (Android)
+
+§39 was three guesses at a symptom whose cause is one thing, found by measuring the device instead
+of reading the code. Everything below is `dumpsys gfxinfo` on the Flip 7, reset immediately before
+the gesture and dumped one second later.
+
+**Before:** 90th percentile frame **32ms**, 95th **34ms**, **13 missed vsyncs**, 22% janky. The
+panel runs at **120Hz**, so the budget is **8.33ms**, not 16.7 — the app was rendering at 20–35fps
+through the crossing and the IntendedVsync trace shows it plainly:
+
+    8 8 8 8 8 8 8 8 8 8 | 42 17 17 17 25 17 25 17 17 17 17 17 17 25 17 | 8 8 8 …
+    <-- idle, 120Hz ---> <---------------- the transition ------------> <- recovered ->
+
+Irregular cadence like that reads as stepping, which is what "about 5 frames per second" and "two
+discrete steps" were describing. It was never a *motion design* problem.
+
+**It is recomposition, not drawing.** `atrace view gfx` put the Choreographer's `animation` phase —
+where Compose ticks animations and then recomposes — at 25ms on its worst frame, while measure,
+layout and draw together never passed 16ms and the GPU sat flat at 3ms. Making `box` and `g`
+instant dropped the 90th percentile to 8ms and missed vsyncs to 2, which is what proved it.
+
+The cause: `Modifier.padding(lerp(0.dp, 8.dp, box))` and friends read the animated float **during
+composition**, so every frame of the 260ms crossing invalidated the whole section — its header, both
+stepper rows, every glass circle — and rebuilt it. Same for `HomeRounds`, whose animated Row
+*weights* are composition-time arguments by construction.
+
+**The fix is to keep every animation and change only what it invalidates.** `box` and `g` stay
+`animateFloatAsState` but are held as `State` and never unwrapped with `by`; every read moved inside
+a layout or draw lambda:
+
+- `paddingBy(h, v, bottom) { box.value }` — a `Modifier.layout` that reads the fraction at layout
+  time. Replaces four `padding(lerp(...))` calls.
+- `.drawBehind { }` for the card's fill and edge. `background()` and `border()` take a colour as an
+  argument, so an alpha riding `box` had to be computed in composition; drawn, the same alpha is a
+  per-frame read that rebuilds nothing.
+- `scaledBy { }` — `graphicsLayer` scale plus a `layout` reporting the scaled size, so a stepper row
+  is composed once at its resting size and the crossing is a GPU transform. The five ratios are all
+  within 3% of one number (15/20, 17/24, 40/54, 66/90, 68/96 → **0.728**), which is what makes one
+  scale able to stand in for all of them.
+- `HomeRounds` became a hand-written `Layout` that places the label and the −/N/+ cluster from `g`
+  read in the layout pass. The weights are gone; the sizes snap on `grouped` (a 2sp label and a 4dp
+  circle, changing while the whole control is in motion).
+- The pill's gradient stops carry full alpha and the fade is applied at `drawRect(alpha = …)`. The
+  stops used to carry the animating alpha, so `drawWithCache` — whose entire job is to build the
+  native shader once — was invalidated every frame of the fade.
+
+**After:** 90th percentile **13ms**, **1 missed vsync**, 9.9% janky. Remove is clean; add still
+misses a handful (a lazy insert, the save pill arriving and `animateContentSize` all land together).
+
+**Two wrong turns worth keeping.** I first read gfxinfo over a 2-second window and got "1.16% janky,
+7ms median — not a performance problem", because ~180 idle frames diluted the 18 bad ones and
+Android scores "janky" against a ~16.7ms heuristic while this panel wants 8.33ms. Then I rewrote the
+stepper geometry as a GPU scale on the theory that animating `fontSize` was re-measuring text — it
+changed the numbers not at all, because recomposition dominated. **Measure the window that contains
+the gesture, and confirm the cause by removing it, before writing the fix.**
+
+Also caught here: a custom `Layout` must measure children with `constraints.copy(minWidth = 0)`.
+`fillMaxWidth()` makes the width *tight*, and passing that straight down forced both children to
+fill the row, drove the centred origin negative and put "Rounds" off the left edge with the + hanging
+off the right. Caught on a screenshot, not by the compiler.
+
+### 41. Size snapped while position animated (Android)
+
+What was left once the judder was gone, and both halves of it are the same mistake: something
+changes size in one frame and then spends 260ms travelling, when it should do both at once.
+
+1. **The stepper rows "teleported to the left, then shrank."** The ✕ that removes an interval was
+   gated on `compact`, which flips the instant the crossing starts — so it appeared at full width
+   immediately. The cluster is placed flush right, so its width decides where the − begins, and a
+   ✕ arriving out of nowhere made it ~30dp wider in a single frame and shoved the whole row left
+   before any of it had begun to move. It is now composed whenever the section has more than one
+   interval and scaled by the crossing fraction, so it grows in and shrinks away on the card's own
+   clock. The arithmetic then comes out exact: (40+68+40+2) × 1/0.728 = 206dp against the plain
+   row's 54+96+54+2 = 206dp — the cluster starts precisely where it already was.
+2. **Rounds got big, then walked to the centre.** Its sizes were snapped on `grouped` while its
+   position rode `g`. Every size now rides `g` too, through a scale rather than a font size, so the
+   number grows *on the way* rather than before setting off. The number is the one place a single
+   scale can't say it: the digits grow 24→30 while the box around them shrinks 96→78, so the box
+   gets an interpolated width (`widthBy`) and the text scales inside it.
+
+**`scaledBy` must anchor at the top-left, and that cost a round trip.** A `graphicsLayer` pivot is a
+fraction of the *node's* size, and this node reports `s ×` its content — so a centred pivot sits at
+`s·W/2` while the content's own centre is at `W/2`, and the drawing lands `(s-1)·W/2` off. The
+Rounds + circle came out 7px short of where it had always been. At (0,0) the content spans 0..W,
+scales to 0..sW, and matches the reported size exactly; centring is the parent's job, done with the
+size this reports.
+
+Verified by masking the screenshots to their bright pixels — the aurora background drifts over tens
+of minutes, so a raw image diff is useless — and comparing the x-extent of each row against a
+screenshot taken before any of this work: Work, Rest and Rounds all match to the pixel on the plain
+home, and the grouped Rounds row matches at [158..926].
+
+### 42. Home drag-reorder was pointing at the wrong two items (Android)
+
+> "I can't slide them around on Android. If I tap it, it instantly floats to the very, very top."
+
+An off-by-two, and both symptoms fall out of it. `DragDropState` works in **list** indices, so the
+home tells it which ones may be reordered: `firstCard until firstCard + rows.size`. `firstCard` was
+written as "0 solo, 1 grouped" when the save pill was the only thing above the cards. Two more
+items have gone in above them since — the header row and the summary line, both in `54b0514`, the
+commit that moved the header into the list — and the count was never updated. The range therefore
+named the save pill and the summary rather than any card at all.
+
+- **The jump to the top.** `clampToRegion` reads the top of the region's first item and the bottom
+  of its last. Pointed at two items that sit *above* every card, `hi` came out far less than `lo`,
+  and `hi.coerceAtLeast(lo)` collapsed the whole allowed span to a single line — the top of the save
+  pill. The card was clamped there on the first frame of the gesture, which is the "instantly floats
+  to the very top".
+- **Nothing ever swapped.** `neighbourToSwapWith` only considers a neighbour whose index is `in
+  range`. The real cards were at 3 and 4 against a range of 1..2, so no candidate ever qualified.
+
+Fixed by counting what is actually above the cards: header + summary always, plus the save pill when
+the cards are showing → `if (solo) 2 else 3`. The sequence editor's own `FIRST_CARD` was right all
+along; it has exactly the one header item it counts.
+
+Verified on the phone with `input motionevent`, holding mid-gesture: the lifted card sits under the
+finger 205px down rather than at the top, the swap commits while still held, and it survives the
+release. The screen was left exactly as it was found (two ×1 sections, Work 20s / Rest 15s,
+Rounds 6).
+
+**Not the review's doing** — the audit commit only touched the settle carry-over and the 120Hz
+autoscroll. It landed on top of a range that was already stale.
+
+### 43. Deleting mid-drag: the case that isn't worth carrying (Android)
+
+> "if I wanted to press X while something was being moved, it would still work. That's overkill."
+
+Agreed, and it was paying for itself twice: `detectDragGestures` fires neither `onDragEnd` nor
+`onDragCancel` when its node is torn down mid-gesture, so both drag systems carried a
+`DisposableEffect` to notice the handle disappearing and clean up after it.
+
+The scenario is now closed instead of handled: while a drag is live, the deletes that could pull a
+handle out from under it do nothing — the section ✕ on the home, the group ✕ and the row ✕ in the
+sequence editor. Both `DisposableEffect`s are gone. The index bounds checks stay: they are three
+tokens each, they also cover the accessibility move actions, and one of them is what keeps a
+`coerceIn` honest on an empty list.
+
+### 44. A hard-edged rectangle inside a lifted card (Android)
+
+> "a new rectangle that spans the width of the rest to the ✕, and is tall too. Only when it's
+> currently selected. When I let go, it goes away."
+
+**A platform elevation shadow, seen through the glass it was supposed to be hidden behind.** Nothing
+in the app draws it, which is what made it hard to find — and pre-existing, not new: it has been
+there as long as the lift has, and the home drag has been broken for two commits (§42), so this was
+the first chance to see it.
+
+Measured off the device, because guessing at it went nowhere. The rectangle sits inset 85px left,
+86px right, 128px top and 46px bottom from the card's outline — horizontally symmetric, vertically
+not. That asymmetry is the tell: a uniform ~29dp inset plus a 41px shove *downward*, which is
+exactly what a shadow cast by a light above the screen's centre looks like. HWUI tessellates a
+shadow as an umbra with a penumbra fading outward, and it skips filling the umbra when it decides
+the caster is opaque and would hide it. This caster is glass at α 0.16, so the ring it did draw
+shows straight through the card, and the umbra boundary — a 28dp rounded rect inset by 29dp, which
+eats the corners entirely — is the hard-edged rectangle. Its top lands below the header because the
+shadow is shoved down; its width is the pill content's because that is where the inset happens to
+land.
+
+Confirmed by building with `elevation` forced to 0: the hard edges at x=155 and x=922 vanish
+completely (they show up in 300–460 of the card's 640 rows with the shadow on, and in none of them
+with it off), and the brightness step across them drops from +5.8 levels to +0.6, which is noise.
+
+Fixed by dropping the shadow from both lifts — the home section and the editor's group card. The
+comment beside each already said a drop shadow "all but disappears" on this near-black background:
+it was contributing nothing but this artifact, and the lift still reads clearly off the brightened
+glass, the lit edge and the 1.03 scale. If a shadow is ever wanted back here it has to be drawn by
+hand, outside the card's own outline — `Modifier.shadow` cannot do it behind anything translucent.
+
+### 45. Ladder opened as nine groups, and the editor didn't look like the home
+
+> "Group 1 is just work. Group 2 is just rest. They're both 20 seconds. That obviously should be its
+> own group." · "it's more square. There's an extra bubble around work and rest, and there's an
+> extra line on the far left side."
+
+**The grouping.** `groupIntervals` recovers ×N blocks from a flat list by looking for a repeated
+pattern at each position. Ladder climbs 20/30/40/50/60 and repeats nothing, so every position fell
+through to the fallback — a block of one interval — and a nine-interval preset reopened as nine
+groups with "work 20" and "rest 20" sitting in separate boxes.
+
+The fallback now keeps the rest that follows a work: same block. A work and its recovery are one
+thing you do, which is exactly the shape the home builds its sections from, so the two screens now
+agree about what a group is. Ladder comes back as five: (20 + 20), (30 + 20), (40 + 20), (50 + 20),
+and the closing 60.
+
+It absorbs **only rests**, which is what keeps it from eating the start of a pattern — a repeat
+always begins at the interval after the last rest, so the scan at the next position still sees it
+whole. There's a test for exactly that (`pairingLeavesALaterRepeatIntact`), because it is the one
+way this change could quietly cost a ×N. Tabata still groups to one ×8 pair and EMOM to one ×10.
+
+**The look.** Three differences from a home section, all of them deliberate once and none of them
+worth keeping now that the same object appears on both screens:
+
+1. **Corner radius 16 → 28.** The home's number. 16 read as a different kind of surface.
+2. **The chip inside the pill.** Each row is already a coloured pill that means work or rest, and it
+   held a second coloured pill saying the same word. The word now sits directly on the tint, exactly
+   as a home row says it, and is still the only part of the row that flips the phase — the row used
+   to swap on any tap, and a near-miss on a stepper flipped work to rest instead of nudging the
+   clock. It still greys when the rule won't allow a rest there, and still answers a tap so the tap
+   can surface the reason. `PhaseChip` is deleted on both platforms.
+3. **The bracket rail.** A 3dp line down the left of the rows, holding a group together visually.
+   The card already does that, and the home draws no such line around the same intervals. Gone, and
+   the card's lopsided 4/14 padding — which existed to make room for it — is even 12dp now.
+4. **"Repeat everything / Plays through once", in a glass card at the bottom.** The same number the
+   home calls Rounds, explained in a sentence because it had nothing else to say it with. The home
+   says it by *position*: the word, a big count between two circles, sitting directly under the
+   stack of cards it governs. So that is what this is now, and the sentence and the card are gone.
+   The add button moved below it to keep the home's order — it is being under the whole stack that
+   makes it read as governing the whole stack, so nothing may come between them.
+5. **"Repeat this group", and the header words with it.** The same argument one level down. The card
+   header is now the home section's header control for control — grip, ×N, how long the group runs,
+   ✕ — and the row at the bottom is gone. "Group 3" went too: the grip beside it already says
+   "Reorder group 3" to a screen reader, and the number was only there to be counted off against a
+   heading nobody needed. "Delete" became the ✕, the same button in one glyph. What's left in a card
+   is Work, Rest and "+ interval" — the same words the home uses.
+
+   The ×N was originally kept away from the grip in case a reorder control beside a counter read as
+   driving it. The home has put those two side by side since it grew sections and nobody has read it
+   that way, so that caution is retired rather than carried. The sentences survive where they are
+   still needed: `stepperSemantics` still speaks "Repeat group 3", "3 times".
+
+Row corners went to a full pill with the same change, since 12dp corners were the other half of
+"more square".
+
+The Rounds row copies the home's resting numbers (18sp label, 12dp gap, 50dp circles, a 30sp count
+in a 78dp box) rather than sharing the composable: the home's is a hand-written `Layout` that walks
+the row from left-aligned to centred as the group box forms, and none of that clock exists here.
+Screenshotted side by side at 1:1 — label, circles and number land on the same pixels.
+
+Verified on the phone: Ladder now opens as five groups, tapping Work/Rest flips the phase both ways,
+the greying still appears on the row above a rest, the Rounds stepper counts up and back down, and
+in the card header the ×N steps (the duration readout follows it, 0:40 → 1:20) and the ✕ deletes the
+group. Cancelled out each time, so the built-in is untouched at 9 intervals · 4:40. iOS carries the
+same model change (its core tests pass) and the same five visual edits; it compiles, but has not
+been looked at on a simulator.
+
+---
+
+### 46. Theme swatches too small to show a theme (both platforms)
+
+> "they don't very well represent what they're going to be. I think we need to make them just a
+> little bit bigger."
+
+Three cells across a 280dp card leave each stripe 23dp wide, and at a 44dp row height that made them
+23×36 — squat chips that showed a colour but not the aura it belongs to. The swatch is the real
+shader, so there was nothing wrong with it except that at that size there was no room for the bloom
+to fall off; every theme reduced to a flat rectangle, and a theme has to be picked on what the
+screen is going to look like.
+
+**First attempt: taller.** 62dp, on the reasoning that 23×54 is 0.43 — the proportions of the phone
+itself, the same argument the language tile's `aspectRatio(0.82f)` makes. Wrong:
+
+> "that much verticality just looks weird. I think increasing the width was really what we needed."
+
+Right, and the phone-proportions argument was the trap. The stripe is not a picture of the screen,
+it is the aura seen through a **slot**, and a tall thin slot shows less of a bloom than a wide one,
+not more — while stretching a swatch the long way reads as distortion rather than as more of
+anything. Height was also the only dimension available without touching the grid, which is what made
+it look like the answer.
+
+**Two across instead of three**, height left at 44. Each stripe goes 23dp → 39dp wide, and 39×36 is
+close to square. Areas across all three versions: 828dp² before, 1242 taller, **1404 now** — the
+widened one is the biggest as well as the only one that doesn't look stretched. Costs five rows
+instead of three on a page that already scrolls.
+
+Mirrored to iOS. Its `rowsOfThree` is shared with the language grid, which stays three across, so it
+grew an `across:` parameter rather than a second copy.
+
+**Then 10% back off the width**, 6dp of padding each side:
+
+> "you see too much of the black vignetting on certain corners"
+
+Mechanical, not taste. The shader corrects for aspect — `p.x *= iResolution.x / iResolution.y` — so a
+box wider than it is tall reaches further out into the falloff horizontally, and the corners go
+black. At 39×36 (aspect 1.09) the blooms sat inside a visible vignette; at ~35×36 (0.98) the stripe
+is square enough to sit inside the bloom instead. Which is also why the original 23dp stripes never
+showed it: they were narrow enough to be cropped to the middle of the frame.
+
+**Then 10% back onto the height**, 44dp → 48. Final stripe: 35×40, from 23×36. Height was the wrong
+lever to reach for *first* — alone it just makes slivers — but once the width is settled it costs
+nothing, and by the same aspect maths it can only help: a taller box reaches *less* far into the
+falloff, so the corners keep what the narrowing won back.
+
+### 47. The swatch was still mostly showing black (both platforms)
+
+> "On the actual screen it looks cool because it's the animation that's live, but for these I want to
+> get rid of that, because it's really just trying to show off the colours."
+
+Sizing had run out of road: the vignette is the shader's own falloff, and a 35×40 box puts its
+corners where the blooms have gone. Modelled over all 27 stripes actually drawn (9 palettes × 3
+phases, at their real seeds), the darkest pixel in a stripe was **2–15% of the brightest, mean 9%** —
+a colour sample that is mostly a picture of the dark.
+
+So the shader takes an `iZoom`: how much of the frame the box shows. 1 is the whole composition,
+blooms and the black between them, which is what the timer wants and what it passes. The swatch
+passes **0.35**, cropping to the lit middle, which brings the same measure to **47–77%, mean 66%** —
+a gradient with grain over it rather than a vignette. The alternative, a second hand-tuned gradient
+for previews, is exactly what the original comment on `AuraSwatch` was written to prevent: it would
+drift the first time the real aura was touched. One uniform keeps it the same shader.
+
+Both call sites set it explicitly on both platforms — an unset AGSL uniform is 0, which would
+collapse `p` to a point and paint one flat colour. The Metal twin takes the same parameter in the
+same position, so the documented cross-platform pixel check (same seed, same input, same output)
+still holds.
+
+**The language tiles keep the full frame.** They share `AuraSwatch`, so the first build flattened
+them too — they are five times the area of a theme stripe and hold a numeral the gradient sits
+behind, where the falloff reads as depth rather than as darkness. `zoom` is a parameter with the
+swatch value as its default and `1f` passed at that one call site; the tiles are pixel-identical to
+before the change (0 differing pixels of 307,100).
+
+### 48. Language tiles rounded to bubbles (both platforms)
+
+> "for the Word Mode with the languages, can you reduce the rounding of the corners a little bit?
+> Reduce them by about half?"
+
+`RoundedCornerShape(percent = 38)` → 19, and `min(w, h) * 0.38` → `* 0.19` on iOS. At 38% an 85×104dp
+tile has a 32dp radius, which rounds the corners nearly to a stadium and eats the space a numeral
+needs — "三" and "구" were sitting in an oval. The comment defending it (organic, matching the
+gradients inside) still holds at 19%: it is a percentage radius, so it still scales with the tile.
+
+### 49. The aurora cut to the new theme in one frame (both platforms)
+
+> "could you make it so there's just a subtle fade, super fast, maybe five frames"
+
+The three colour uniforms cross-fade, and that is the whole transition — the shader is a sum of three
+coloured curtains, so interpolating what it is handed interpolates what it draws. No second layer, no
+blend pass, nothing to keep in sync.
+
+**80ms, linear.** Five frames at 60Hz and ten at 120: a duration in ms is the only frame-rate
+independent way to say "five frames", and on a 120Hz panel a literal five would be 42ms, which is
+under the point where a fade reads as a fade rather than a stutter if anything drops. Linear because
+a colour ramp with an ease on it arrives late and draws attention to itself.
+
+Android holds the three as `State` read inside the draw lambda, never unwrapped with `by` — same rule
+as `HomeSection`'s `box` (§40). Read in composition the whole background would rebuild every frame of
+the fade for three values only the shader ever sees.
+
+iOS does it by hand: these are shader arguments, not view properties, so `.animation` has nothing to
+interpolate. `ShaderCanvas` already re-evaluates its closure every frame under `TimelineView`, so the
+mix needs only a start stamp and the clock it is handed anyway.
+
+### 50. Theme card: eight themes, a chosen order, and Minimal on the title line
+
+> "getting rid of the grape theme … reorder … make the minimal button just to the right of the theme
+> … cut that second sentence"
+
+- **Grape is gone**, leaving eight — which is exactly four rows of two in the new grid. Both
+  platforms already stored the palette by name and degraded an unknown one to Default, so anyone
+  holding Grape lands on Default rather than on a crash; that comment was written for this and is
+  now doing its job. The doc comment above the enum claimed Joker had been cut for duplicating
+  Grape's lime-and-purple, which is no longer a reason for anything — reworded, not deleted, because
+  the pairing is free again and someone will wonder.
+- **Order is the owner's**: Default, Mono, Spidey, Miami, Trance, Laser, Vesper, Tron. Declaration
+  order *is* picker order on both platforms, so the enum is the single place it lives. It also moves
+  every swatch's frozen frame, since the seed is `ordinal * 3 + i` — no matter, they only have to
+  differ from each other.
+- **Minimal moved onto the THEME title line.** It is orthogonal to the palette (Minimal + Vesper is a
+  black timer with Vesper on the edge), so it belongs to the card rather than hanging under the row
+  of swatches as if it were one more theme. `SettingsCard` grew a `trailing` slot; on iOS that needs
+  a second `init` for the empty case, because a generic parameter can't be defaulted in place.
+- **Word mode lost its second sentence.** "Languages with their own numerals keep them" explained a
+  rule you can see the moment you flip it — the Chinese tile keeps 九 either way — and it was the
+  longest string on the screen to say it.
+
+**Not verified on device:** the phone disconnected between building and installing, so §50 and the
+iOS half of §49 are compiled and tested but unseen. The Android crossfade in §49 was checked on the
+phone before that.
+
 ---
 
 ## Settled — was a design question

@@ -4,7 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -14,14 +13,12 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,7 +40,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -57,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -374,8 +369,8 @@ fun EditorScreen(
     }
 
     fun moveGroup(from: Int, to: Int): Boolean {
-        // The drag tracks list indices of its own; a group deleted by a second finger mid-drag would
-        // otherwise take them out of range.
+        // The drag and the accessibility actions both land here with indices of their own, so the
+        // range is checked once, where the list is actually rewritten.
         if (from !in blocks.indices || to !in blocks.indices) return false
         val candidate = current().toMutableList().apply { add(to, removeAt(from)) }
         if (!allow(candidate)) return false
@@ -469,7 +464,9 @@ fun EditorScreen(
                     onChange = { change(i, it) },
                     onAddItem = { addInterval(i) },
                     onRemoveItem = { j -> removeInterval(i, j) },
-                    onDeleteGroup = { if (i in blocks.indices) blocks.removeAt(i) },
+                    // Same rule as the home: nothing is deleted while a card is in the air, so a
+                    // gesture can never have its own handle pulled out from under it.
+                    onDeleteGroup = { if (!dragDrop.isDragging && i in blocks.indices) blocks.removeAt(i) },
                     modifier = Modifier
                         .zIndex(if (floating) 1f else 0f)
                         .graphicsLayer {
@@ -485,14 +482,20 @@ fun EditorScreen(
 
             item(key = "footer") {
                 Column(Modifier.animateItem()) {
-                    Spacer(Modifier.height(12.dp))
-                    GlassPill("+  Add group", { addGroup() }, Modifier.fillMaxWidth())
+                    // Rounds directly under the cards, then the add button — the home's order. It is
+                    // sitting under the whole stack that makes it read as governing the whole stack,
+                    // so nothing may come between them.
                     if (blocks.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
-                        RepeatAllCard(
+                        RoundsRow(
                             repeatAll = repeatAll,
                             onChange = { next -> if (allow(current(), next)) repeatAll = next },
                         )
+                        Spacer(Modifier.height(16.dp))
+                    } else {
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    GlassPill("+  Add group", { addGroup() }, Modifier.fillMaxWidth())
+                    if (blocks.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         TotalsLine(current(), repeatAll)
                     }
@@ -553,56 +556,51 @@ private fun TotalsLine(blocks: List<Block>, repeatAll: Int) {
 /**
  * The outer ×N: the whole sequence, top to bottom, that many times.
  *
- * Shared with the home screen rather than copied, so building a sequence there and building one in
- * the editor put the same control in the same words in front of you.
+ * Presented as the home's Rounds control, because it is the same number — and the home says what
+ * that number governs by *where it sits*, directly under the stack of cards, rather than in a
+ * sentence. So the sentence is gone: "Repeat everything" over "Plays through once", in a glass card
+ * of its own, was the screen explaining in words what the layout can say by itself.
  */
 @Composable
-fun RepeatAllCard(repeatAll: Int, onChange: (Int) -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
+fun RoundsRow(repeatAll: Int, onChange: (Int) -> Unit) {
+    // Hoisted only so the number can offer the same two edits as accessibility actions without a
+    // second copy of them to keep in step. `_` rather than `m` on purpose: alone among the steppers
+    // this one has never doubled on hold, and an accessibility pass is the wrong batch to start.
+    val less: (Int) -> Unit = { _ -> onChange((repeatAll - 1).coerceAtLeast(1)) }
+    val more: (Int) -> Unit = { _ -> onChange(repeatAll + 1) }
+    // The home's resting numbers — 18sp label, 12dp gap, 50dp circles, a 30sp count in a 78dp box —
+    // copied rather than shared. Its version is a hand-written Layout that walks the row from
+    // left-aligned to centred as the group box forms, and none of that clock exists here; only where
+    // it ends up matters. If those sizes move on the home, they move here.
     Row(
-        Modifier
-            .fillMaxWidth()
-            .background(GlassFill, shape)
-            .border(1.dp, glassBorder(), shape)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 40/44 rather than 44/52: on a 360dp-wide phone the wider stepper left the label too little
-        // to sit on one line, and "Repeat everything" folded in half above a two-line subtitle.
-        Column(Modifier.weight(1f)) {
-            Text("Repeat everything", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Text(
-                // Short enough to stay on one line beside the stepper at 360dp.
-                if (repeatAll == 1) "Plays through once" else "$repeatAll times through",
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = 12.sp,
-            )
-        }
-        // Hoisted only so the number can offer the same two edits as accessibility actions without
-        // a second copy of them to keep in step. `_` rather than `m` on purpose: alone among the
-        // steppers this one has never doubled on hold, and an accessibility pass is the wrong batch
-        // to start.
-        val less: (Int) -> Unit = { _ -> onChange((repeatAll - 1).coerceAtLeast(1)) }
-        val more: (Int) -> Unit = { _ -> onChange(repeatAll + 1) }
-        GlassCircle("−", less, size = 40.dp)
+        Text("Rounds", color = Color.White, fontSize = 18.sp)
+        Spacer(Modifier.width(12.dp))
+        GlassCircle("−", less, size = 50.dp)
         Text(
-            "× $repeatAll",
+            "$repeatAll",
             color = Color.White,
-            fontSize = 18.sp,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .width(44.dp)
-                .stepperSemantics("Repeat everything", "$repeatAll times", less, more),
+                .width(78.dp)
+                .stepperSemantics("Rounds", "$repeatAll times", less, more),
         )
-        GlassCircle("+", more, size = 40.dp)
+        GlassCircle("+", more, size = 50.dp)
     }
 }
 
 /**
- * One repeat-group. The intervals sit inside a bracket so they visibly belong together, and the
- * repeat count is stated in words under it. The grip and delete live in the header, far from the
- * ×N stepper — sitting side by side, a reorder control reads as if it drove the repeat count.
+ * One repeat-group — the same card a home section draws, control for control.
+ *
+ * The ×N used to live at the bottom behind "Repeat this group", kept away from the grip in case a
+ * reorder control sitting beside a counter read as driving it. The home has put those two side by
+ * side since it grew sections, and nobody has ever read it that way, so the sentence has gone and
+ * the count has moved into the header where it belongs — inside the group it repeats.
  */
 @Composable
 private fun BlockEditorCard(
@@ -619,75 +617,49 @@ private fun BlockEditorCard(
     onDeleteGroup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(16.dp)
-    // Lifting brightens the glass and casts a shadow: on a dark background that reads as height far
-    // better than a drop shadow alone, which all but disappears.
+    // 28dp, the home section's radius. This card and a home section are the same object seen on two
+    // screens, so they are shaped the same; 16 made the editor read as a different kind of surface.
+    val shape = RoundedCornerShape(28.dp)
+    // Lifting brightens the glass and lights its edge — no elevation shadow. These cards are glass,
+    // and a platform shadow skips the part of itself an opaque caster would hide, which through
+    // glass shows up as a hard-edged rectangle inside the card (PUNCHLIST §44). On a dark background
+    // the brightening was doing all the work anyway.
     val fill by animateColorAsState(if (lifted) Color.White.copy(alpha = 0.20f) else GlassFill, label = "fill")
     val edge by animateFloatAsState(if (lifted) 0.5f else 0f, label = "edge")
-    val elevation by animateDpAsState(if (lifted) 16.dp else 0.dp, label = "elevation")
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
-            .shadow(elevation, shape, clip = false)
             .background(fill, shape)
             .border(1.dp, Color.White.copy(alpha = edge), shape)
-            .padding(start = 4.dp, top = 8.dp, end = 14.dp, bottom = 14.dp),
+            // Even, like the home section's — the old lopsided 4/14 was making room for the bracket
+            // rail that used to run down the left of the rows.
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                handle()
-                Text(
-                    if (groupCount > 1) "Group ${index + 1}" else "Group",
-                    color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            TextButton(onClick = onDeleteGroup) { Text("Delete", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp) }
-        }
-
-        // The bracket: a rail down the left edge tying every interval in the group together.
-        Row(Modifier.fillMaxWidth().padding(start = 10.dp).height(IntrinsicSize.Min)) {
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .background(Color.White.copy(alpha = 0.28f), RoundedCornerShape(2.dp)),
-            )
-            Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                IntervalRows(
-                    items = block.items,
-                    canRest = canRest,
-                    onSet = { j, v -> onChange(block.copy(items = block.items.toMutableList().also { it[j] = v })) },
-                    onRemove = onRemoveItem,
-                    onMove = { from, to ->
-                        onChange(block.copy(items = block.items.toMutableList().also { it.add(to, it.removeAt(from)) }))
-                    },
-                )
-                TextButton(onClick = onAddItem) {
-                    Text("+ interval", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-                }
-            }
-        }
-
-        // Stated in words so there's no guessing what the number applies to.
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp, start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Repeat this group", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
-            Spacer(Modifier.width(12.dp))
+        // The home section's header, control for control: grip, the ×N, how long this group runs,
+        // and the ✕. No "Group 3" — the grip beside it already says "Reorder group 3" to a screen
+        // reader, and the number was only ever there to be counted off against a heading nobody
+        // needed. No "Delete" either; the ✕ is the same button in one glyph.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            handle()
+            Spacer(Modifier.width(2.dp))
             // (Int) -> Unit spelled out: onChange answers with whether it took the edit, which the
             // stepper has never had a use for, and an inferred (Int) -> Boolean is not what
             // GlassCircle takes.
             val less: (Int) -> Unit = { m -> onChange(block.copy(repeat = (block.repeat - m).coerceAtLeast(1))) }
             val more: (Int) -> Unit = { m -> onChange(block.copy(repeat = block.repeat + m)) }
-            GlassCircle("−", less, size = 44.dp)
+            GlassCircle("−", less, size = 36.dp)
             Text(
                 "× ${block.repeat}",
                 color = Color.White,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                // The sentence the row below used to spell out, kept where it still has to be said:
+                // out loud. On screen the ×N sits inside the group it repeats, which is the whole
+                // argument for moving it here.
                 modifier = Modifier
-                    .padding(horizontal = 10.dp)
+                    .width(52.dp)
                     .stepperSemantics(
                         if (groupCount > 1) "Group ${index + 1} repeats" else "Repeat this group",
                         "${block.repeat} times",
@@ -695,7 +667,31 @@ private fun BlockEditorCard(
                         more,
                     ),
             )
-            GlassCircle("+", more, size = 44.dp)
+            GlassCircle("+", more, size = 36.dp)
+            Spacer(Modifier.weight(1f))
+            // How long this group runs, the ×N included — the same readout the home puts here.
+            Text(
+                clock(block.items.sumOf { it.durationSec } * block.repeat),
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.width(6.dp))
+            CloseX { onDeleteGroup() }
+        }
+
+        // No bracket rail down the left. The card already says these belong together, and a rail is
+        // one more line the home screen doesn't draw around the same intervals.
+        IntervalRows(
+            items = block.items,
+            canRest = canRest,
+            onSet = { j, v -> onChange(block.copy(items = block.items.toMutableList().also { it[j] = v })) },
+            onRemove = onRemoveItem,
+            onMove = { from, to ->
+                onChange(block.copy(items = block.items.toMutableList().also { it.add(to, it.removeAt(from)) }))
+            },
+        )
+        TextButton(onClick = onAddItem, modifier = Modifier.padding(start = 4.dp)) {
+            Text("+ interval", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
         }
     }
 }
@@ -739,10 +735,8 @@ private fun IntervalRows(
     val liveItems by rememberUpdatedState(items)
     val liveMove by rememberUpdatedState(onMove)
 
-    // No target for a dead gesture: a second finger deleting a row shrinks the list under a drag
-    // in progress, and the gesture's coroutine is cancelled with it rather than ending. The
-    // handle's dispose clears `from` a frame later; until then it can sit past the new end, or —
-    // when the group shrank to one interval, which composes no handle — on the lone survivor.
+    // The range guards are what keep the coerce below honest on a list that has changed under a
+    // grab; a group of one has nothing to reorder and so has no target at all.
     fun target(): Int =
         if (from < 0 || from > liveItems.lastIndex || liveItems.lastIndex < 1 || pitch <= 0f) -1
         else (from + (dragged / pitch).roundToInt()).coerceIn(0, liveItems.lastIndex)
@@ -763,8 +757,7 @@ private fun IntervalRows(
         // The move lands now, on release — never from indices captured before an animation, which by
         // the time it finished could point at a row that had since been deleted. What's left to
         // animate is the handful of pixels between the finger and the slot it dropped into, and a
-        // move the rule turns down simply rides back to where it came from. The bounds check covers
-        // the one index that can still go stale: a second finger deleting a row mid-drag.
+        // move the rule turns down simply rides back to where it came from.
         val moved = end >= 0 && end != start && start in liveItems.indices && liveMove(start, end)
         val landedAt = if (moved) end else start
         settleOffset = dragged - (landedAt - start) * pitch
@@ -822,24 +815,13 @@ private fun IntervalRows(
                     }
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
-                    .background(tint, RoundedCornerShape(12.dp))
+                    // A pill, like the home's rows — 12dp corners were the other half of what made
+                    // this screen read as squarer than the one it mirrors.
+                    .background(tint, RoundedCornerShape(50))
                     .padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (items.size > 1) {
-                    // detectDragGestures fires neither callback when its node is torn down
-                    // mid-gesture — this slot deleted by a second finger, or the group shrunk to
-                    // one interval and the handle gone with it — so the state is cleared here, or
-                    // the stale `dragged` would re-lift this row the next time it has a target.
-                    // Same hazard DragHandle guards, same fix.
-                    DisposableEffect(Unit) {
-                        onDispose {
-                            if (from == j) {
-                                from = -1
-                                dragged = 0f
-                            }
-                        }
-                    }
                     Box(
                         Modifier
                             .size(30.dp)
@@ -869,16 +851,26 @@ private fun IntervalRows(
                     Spacer(Modifier.width(30.dp))
                 }
 
-                // Its own control with its own hit box. The row used to swap phase on any tap,
-                // which meant a near-miss on a stepper flipped work to rest instead of nudging
-                // the clock.
-                PhaseChip(
-                    phase = iv.phase,
-                    // Greyed, but still tappable: the tap is what surfaces the reason.
-                    dimmed = isWork && !canRest(j),
-                    onClick = { onSet(j, iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) },
+                // The word itself, on the tint, exactly as a home section says it — not a chip. The
+                // row is already a coloured pill that means "work" or "rest", so a second coloured
+                // pill inside it saying the same word was a bubble in a bubble.
+                //
+                // Still its own hit box, though: it is the only part of the row that flips the
+                // phase. The row used to swap on any tap, and a near-miss on a stepper flipped work
+                // to rest instead of nudging the clock. Greyed when the rule won't allow a rest
+                // here, but still tappable — the tap is what surfaces the reason.
+                val refused = isWork && !canRest(j)
+                Text(
+                    if (isWork) "Work" else "Rest",
+                    color = Color.White.copy(alpha = if (refused) 0.45f else 0.95f),
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onSet(j, iv.copy(phase = if (isWork) Phase.REST else Phase.WORK)) }
+                        .width(52.dp)
+                        .padding(vertical = 6.dp),
                 )
-                Spacer(Modifier.width(4.dp))
                 val less: (Int) -> Unit =
                     { m -> onSet(j, iv.copy(durationSec = (iv.durationSec - 5 * m).coerceAtLeast(5))) }
                 val more: (Int) -> Unit = { m -> onSet(j, iv.copy(durationSec = iv.durationSec + 5 * m)) }
@@ -905,35 +897,11 @@ private fun IntervalRows(
                         ),
                 )
                 GlassCircle("+", more, size = 44.dp)
-                CloseX { onRemove(j) }
+                // Inert while a row is being dragged — deleting one out from under a live gesture
+                // is the one thing that can take its grip away mid-drag.
+                CloseX { if (from < 0) onRemove(j) }
             }
         }
     }
 }
 
-/** Work / rest switch for one interval. [dimmed] means the rule won't allow a rest here. */
-@Composable
-private fun PhaseChip(phase: Phase, dimmed: Boolean, onClick: () -> Unit) {
-    val work = phase == Phase.WORK
-    val accent = if (work) WorkColor else RestColor
-    val shape = RoundedCornerShape(50)
-    Box(
-        Modifier
-            .width(48.dp)
-            .clip(shape)
-            .background(accent.copy(alpha = if (dimmed) 0.14f else 0.30f))
-            .border(1.dp, accent.copy(alpha = if (dimmed) 0.22f else 0.55f), shape)
-            .clickable { onClick() }
-            .padding(vertical = 7.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            if (work) "WORK" else "REST",
-            color = Color.White.copy(alpha = if (dimmed) 0.45f else 0.95f),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            softWrap = false,
-        )
-    }
-}

@@ -1,6 +1,7 @@
 import Foundation
 
-/// The 11 display languages, plus Cistercian.
+/// The 11 display languages, plus Cistercian. Chinese and Japanese share a tile, so the
+/// picker shows 11 of the 12.
 ///
 /// `digits` maps 0-9 to native glyphs (nil = Western 0-9); `colon` is the clock separator;
 /// `work`/`rest`/`ready` are translated phase labels. Values are the research-verified
@@ -9,11 +10,16 @@ import Foundation
 /// Declaration order is the order of the picker, and `ordinal` seeds each tile's aura, so it is
 /// load-bearing rather than cosmetic.
 public enum Language: String, CaseIterable, Sendable {
-    case en, zh, ja, ko, ru, hi, ar, es, fr, bn, th
+    // Hand-set, not alphabetical and not by speaker count: it is the owner's running order. Chinese
+    // and Japanese sit together at the front because they share one tile (see `han`) — the pair takes
+    // a single slot wherever it lands.
+    case en, ja, zh, es, ko
     // Not a language — a 13th-century monastic cipher with no words of its own, so it borrows
     // English labels. Its glyphs are drawn, not typed (see Cistercian.swift), which is why digits
-    // is nil and every render site branches on `cistercian` before reaching for a font.
+    // is nil and every render site branches on `cistercian` before reaching for a font. Fifth by
+    // request, rather than parked at the end where a curiosity goes to be missed.
     case ci
+    case ru, hi, ar, fr, bn, th
 
     public struct Spec: Sendable {
         public let english: String

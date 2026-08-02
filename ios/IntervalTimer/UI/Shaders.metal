@@ -33,11 +33,15 @@ static float falloff(float edge, float x) {
 // predicted for the double-encoded path — which is the whole of the "everything looks darker".
 // Timer: near-black canvas with soft, drifting, phase-coloured glow blooms + animated film grain.
 // Deep blacks (pow), wide/blurry blooms, movement. The colour IS light, not a fill.
+// iZoom is how much of the frame the box shows: 1 is the whole composition, blooms and the black
+// between them, which is what the timer wants. Below 1 it crops to the middle, where the light is.
 [[ stitchable ]] half4 aura(float2 fragCoord, half4 _unused,
-                            float2 iResolution, float iTime, float iProgress, half4 glow) {
+                            float2 iResolution, float iTime, float iProgress, float iZoom,
+                            half4 glow) {
     float2 uv = fragCoord / iResolution;
     float2 p = uv - 0.5;
     p.x *= iResolution.x / iResolution.y;
+    p *= iZoom;
     float t = iTime * 0.6;
     float prog = 0.62 + 0.38 * iProgress;   // starts bright; the glow still builds toward the boundary
 

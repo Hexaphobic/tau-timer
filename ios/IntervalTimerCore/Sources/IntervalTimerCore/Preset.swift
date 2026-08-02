@@ -228,8 +228,12 @@ public func backToBackRests(_ blocks: [Block], _ repeatAll: Int) -> Int {
 }
 
 /// Recover ×N grouping from a flat list, greedily from the left: at each position try pattern
-/// lengths 1...4 and take whichever repeated pattern covers the most intervals. Non-repeating
-/// stretches fall out as single-interval ×1 blocks.
+/// lengths 1...4 and take whichever repeated pattern covers the most intervals.
+///
+/// Where nothing repeats, a work interval keeps the rest that follows it. A block of one interval is
+/// not what a group means to anyone reading it: Ladder climbs 20/30/40/50/60 and never repeats
+/// anything, so it used to reopen as nine groups with "work 20" and "rest 20" in separate boxes. A
+/// work and its recovery are one thing you do — the same shape the home's sections are built from.
 public func groupIntervals(_ flat: [SeqInterval]) -> [Block] {
     var blocks: [Block] = []
     var i = 0
@@ -248,6 +252,15 @@ public func groupIntervals(_ flat: [SeqInterval]) -> [Block] {
                 best = Block(pattern, reps)
                 covered = reps * len
             }
+        }
+        // covered == 1 means nothing repeated here. Absorbing only rests is what keeps this from
+        // eating the start of a pattern: a repeat always begins at the interval after the last rest,
+        // so the scan at the next position still sees it whole.
+        if covered == 1 {
+            var end = i + 1
+            while end < flat.count, flat[end].phase == .rest { end += 1 }
+            best = Block(Array(flat[i..<end]), 1)
+            covered = end - i
         }
         blocks.append(best)
         i += covered

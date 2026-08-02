@@ -18,10 +18,29 @@ class GroupingTest {
         assertEquals(listOf(Block(listOf(w(60)), 10)), groupIntervals((1..10).map { w(60) }))
     }
 
-    @Test fun nonRepeatingLadderStaysFlat() {
+    /** Nothing repeats, so every group is ×1 — but a work still keeps the rest that follows it. */
+    @Test fun nonRepeatingLadderPairsEachWorkWithItsRest() {
         val flat = listOf(w(20), r(20), w(30), r(20), w(40))
+        val blocks = groupIntervals(flat)
+        assertEquals(
+            listOf(
+                Block(listOf(w(20), r(20)), 1),
+                Block(listOf(w(30), r(20)), 1),
+                Block(listOf(w(40)), 1),
+            ),
+            blocks,
+        )
+        assertEquals(flat, flatten(blocks))
+    }
+
+    /** The pairing must not swallow the first interval of a pattern that starts right after it. */
+    @Test fun pairingLeavesALaterRepeatIntact() {
+        val flat = listOf(w(20), r(20)) + (1..3).flatMap { listOf(w(30), r(10)) }
+        assertEquals(
+            listOf(Block(listOf(w(20), r(20)), 1), Block(listOf(w(30), r(10)), 3)),
+            groupIntervals(flat),
+        )
         assertEquals(flat, flatten(groupIntervals(flat)))
-        assertEquals(5, groupIntervals(flat).size)
     }
 
     @Test fun mixedSequenceGroupsGreedily() {

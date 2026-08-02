@@ -31,14 +31,30 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsCard(title: "Theme") {
-                        VStack(alignment: .leading, spacing: 18) {
-                            PalettePicker()
-                            // Orthogonal to the palette on purpose: Minimal + Vesper is a black timer
-                            // with Vesper on the edge. Pick Mono as well and you get the plain
-                            // black-and-white one.
-                            ToggleRow(label: "Minimal", isOn: settings.minimalBg) { settings.updateMinimalBg($0) }
+                    // Minimal rides the title line rather than sitting under the grid. Orthogonal
+                    // to the palette on purpose — Minimal + Vesper is a black timer with Vesper on
+                    // the edge, and Mono as well gives the plain black-and-white one — so it belongs
+                    // to the whole card, not to the row of swatches it used to hang below.
+                    SettingsCard(title: "Theme", trailing: {
+                        HStack(spacing: 8) {
+                            Text("Minimal")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.75))
+                            Toggle("", isOn: .constant(settings.minimalBg))
+                                .labelsHidden()
+                                .tint(.white.opacity(0.35))
+                                .allowsHitTesting(false)
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture { settings.updateMinimalBg(!settings.minimalBg) }
+                        // The switch above is inert for the same reason ToggleRow's is — a live
+                        // Toggle inside this ScrollView answers a drag but not a tap.
+                        .accessibilityRepresentation {
+                            Toggle(isOn: Binding(get: { settings.minimalBg },
+                                                 set: { settings.updateMinimalBg($0) })) { Text("Minimal") }
+                        }
+                    }) {
+                        PalettePicker()
                     }
 
                     // Its own panel rather than a dropdown inside Theme: the grid is the biggest thing
@@ -51,7 +67,13 @@ struct SettingsView: View {
                                 .foregroundStyle(.white.opacity(0.75))
                             ToggleRow(
                                 label: "Word mode",
-                                sub: "Thirty-two, not 32 (under 60s only). Languages with their own numerals keep them.",
+                                // One line, and short enough to stay one. The second sentence
+                                // explained a rule you can see the moment you flip it — the Chinese
+                                // tile keeps 九 either way — and it was the longest string on the
+                                // screen to say it. "≤60s" rather than "under 60s only": the symbol
+                                // says it in two characters, and what it buys is vertical space
+                                // between this row and the grid, not brevity for its own sake.
+                                sub: "Thirty-two, not 32  ( ≤60s )",
                                 isOn: settings.wordMode
                             ) { settings.updateWordMode($0) }
                             LanguageGrid().padding(.top, 8)
@@ -92,22 +114,35 @@ struct SettingsView: View {
 
 // MARK: - Card
 
-private struct SettingsCard<Content: View>: View {
+/// `trailing` is a control that belongs to the whole card, parked on its title line.
+private struct SettingsCard<Content: View, Trailing: View>: View {
     let title: String
+    @ViewBuilder let trailing: Trailing
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title.uppercased())
-                .font(.system(size: 13, weight: .bold))
-                .kerning(2)
-                .foregroundStyle(.white.opacity(0.45))
+            HStack(spacing: 0) {
+                Text(title.uppercased())
+                    .font(.system(size: 13, weight: .bold))
+                    .kerning(2)
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer(minLength: 8)
+                trailing
+            }
             content
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(glassFill, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(glassBorder(), lineWidth: 1))
+    }
+}
+
+/// Most cards have nothing on the title line but the title.
+private extension SettingsCard where Trailing == EmptyView {
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.init(title: title, trailing: { EmptyView() }, content: content)
     }
 }
 
@@ -205,21 +240,26 @@ private struct VolumeSlider: View {
 /// prepare, work, rest — so you choose by looking at the actual thing rather than by reading a name
 /// you've never heard of.
 ///
-/// Three across, growing downward. Plain rows over a chunked list rather than a `LazyVGrid`: this
-/// sits inside the settings screen's scroll view, and with a fixed couple of dozen swatches there is
-/// nothing to be lazy about anyway.
+/// Two across, growing downward. Plain rows over a chunked list rather than a `LazyVGrid`: this sits
+/// inside the settings screen's scroll view, and with a fixed handful of swatches there is nothing to
+/// be lazy about anyway.
+///
+/// Two, not the three the language grid uses. Width is the only dimension a swatch can grow in
+/// without looking stretched — the stripes are the aura seen through a slot, and a tall thin slot
+/// shows less of it than a wide one, not more. The cost is five rows instead of three, on a page that
+/// already scrolls.
 private struct PalettePicker: View {
     @ObservedObject private var settings = Settings.shared
 
     var body: some View {
-        let rows = rowsOfThree(Palette.allCases)
+        let swatchRows = rows(Palette.allCases, across: 2)
         // No heading of its own: the card it sits in is called Theme, and two of those in a row read
         // as a section inside a section.
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(rows.indices, id: \.self) { r in
+            ForEach(swatchRows.indices, id: \.self) { r in
                 HStack(spacing: 12) {
-                    ForEach(0..<3, id: \.self) { c in
-                        if let p = rows[r][c] {
+                    ForEach(0..<2, id: \.self) { c in
+                        if let p = swatchRows[r][c] {
                             PaletteSwatch(palette: p)
                         } else {
                             emptyCell
@@ -254,7 +294,12 @@ private struct PaletteSwatch: View {
                 }
             }
             .padding(4)
-            .frame(height: 44)
+            // 48: the 44 it always was, plus 10%. Height alone was the wrong lever — at three across
+            // it gave tall thin slivers, and stretching a swatch the long way reads as a distortion
+            // rather than as more of anything. With the width fixed first (two across, then 10% back
+            // off it) the extra height costs no vignette: the shader's `p.x *= w/h` means a taller
+            // box reaches *less* far into the falloff.
+            .frame(height: 48)
             // Ring only on the selected one. A frame around every swatch was a grid of boxes
             // competing with the colours they were framing; now the ring means something. Padding
             // stays either way, so nothing shifts as the selection moves.
@@ -271,6 +316,11 @@ private struct PaletteSwatch: View {
                 .foregroundStyle(.white.opacity(selected ? 1 : 0.5))
                 .lineLimit(1)
         }
+        // 6 off each side, which takes ~10% off every stripe. The shader corrects for aspect
+        // (`p.x *= iResolution.x / iResolution.y`), so a box wider than it is tall reaches further
+        // out into the falloff horizontally and the corners go black. Square enough, and the stripe
+        // sits inside the bloom instead of showing you the vignette around it.
+        .padding(.horizontal, 6)
     }
 }
 
@@ -282,9 +332,18 @@ private struct PaletteSwatch: View {
 ///
 /// One clock for the whole grid — every tile ticking off the same second stays in step, and it's one
 /// update a second rather than one per tile.
+/// The width of one tile in a full row, so a short row can match it instead of stretching.
+private struct CellWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct LanguageGrid: View {
     @ObservedObject private var settings = Settings.shared
     @State private var start = Date()
+    @State private var cellWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -312,17 +371,36 @@ private struct LanguageGrid: View {
     private func grid(_ rows: [[Language?]], second: Int) -> some View {
         VStack(spacing: 8) {
             ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 8) {
-                    ForEach(0..<3, id: \.self) { c in
-                        if let lang = rows[r][c] {
+                let tiles = rows[r].compactMap { $0 }
+                if tiles.count == 3 {
+                    HStack(spacing: 8) {
+                        ForEach(tiles, id: \.self) { lang in
                             LanguageTile(lang: lang, second: second)
-                        } else {
-                            emptyCell
+                                // One measurement feeds every short row below. Taken from a full row,
+                                // so it is the real cell width rather than a guess at it.
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: CellWidthKey.self, value: g.size.width)
+                                })
                         }
+                    }
+                } else {
+                    // A short last row is centred rather than left-aligned against one big gap. The
+                    // tiles are pinned to the measured cell width, so they stay the size of every
+                    // other row's instead of stretching to fill it — which is the whole reason this
+                    // needs a measurement at all: SwiftUI has no fractional flex to hand half a cell
+                    // to a spacer, the way the Kotlin's `weight(holes / 2f)` does.
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        ForEach(tiles, id: \.self) { lang in
+                            LanguageTile(lang: lang, second: second)
+                                .frame(width: cellWidth > 0 ? cellWidth : nil)
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
             }
         }
+        .onPreferenceChange(CellWidthKey.self) { cellWidth = $0 }
     }
 }
 
@@ -342,6 +420,8 @@ private struct LanguageTile: View {
             GeometryReader { geo in
                 // A bubble, not a box: a percentage radius stays organic at any tile size, matching
                 // the gradients drifting inside them rather than framing them in hard corners.
+                // Halved from 0.38 — that much rounding was eating the corners of a tile whose whole
+                // job is to hold a numeral.
                 let w = geo.size.width - 8
                 let h = geo.size.height - 8
                 ZStack {
@@ -349,9 +429,12 @@ private struct LanguageTile: View {
                     // instant and the grid read as one image stamped out once per tile. Both halves
                     // of the shared tile take Chinese's seed, so cycling relabels the tile instead of
                     // restamping its aura — otherwise a tap reads as a different tile.
+                    // Full frame, unlike the theme stripes. A tile this size has room for the
+                    // falloff to read as depth behind the numeral rather than as darkness.
                     AuraSwatch(glow: selected ? prepColor : workColor,
-                               seed: Float(lang.han ? Language.zh.ordinal : lang.ordinal) * 3.7)
-                        .clipShape(RoundedRectangle(cornerRadius: min(w, h) * 0.38))
+                               seed: Float(lang.han ? Language.zh.ordinal : lang.ordinal) * 3.7,
+                               zoom: 1)
+                        .clipShape(RoundedRectangle(cornerRadius: min(w, h) * 0.19))
 
                     // The phase word rides up top like the timer's own label, small and out of the
                     // way, rather than sharing the middle with the numeral.
@@ -363,7 +446,10 @@ private struct LanguageTile: View {
                         .foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
-                        .padding(.top, 9)
+                        // 3, down from 9. Measured on the Android twin: the glyphs are 6.7pt tall and sat 8pt
+                        // below the tile's coloured edge, so this lifts them by about their own
+                        // height and leaves 2pt of air.
+                        .padding(.top, 3)
                         .frame(maxHeight: .infinity, alignment: .top)
 
                     numeral(w: w, h: h)
@@ -371,7 +457,7 @@ private struct LanguageTile: View {
                 .padding(4)
                 .overlay {
                     if selected {
-                        RoundedRectangle(cornerRadius: geo.size.width * 0.38)
+                        RoundedRectangle(cornerRadius: geo.size.width * 0.19)
                             .strokeBorder(.white, lineWidth: 2)
                     }
                 }
@@ -448,9 +534,13 @@ private struct LanguageTile: View {
 
 /// Rows of three, short last row padded with nils — which keeps its cells at the same width instead
 /// of stretching them across the panel.
-private func rowsOfThree<T>(_ items: [T]) -> [[T?]] {
-    stride(from: 0, to: items.count, by: 3).map { i in
-        (i..<i + 3).map { $0 < items.count ? items[$0] : nil }
+private func rowsOfThree<T>(_ items: [T]) -> [[T?]] { rows(items, across: 3) }
+
+/// Chunked into fixed-width rows, the short last one padded with nils so every cell keeps its share
+/// of the width instead of the survivors stretching across it.
+private func rows<T>(_ items: [T], across: Int) -> [[T?]] {
+    stride(from: 0, to: items.count, by: across).map { i in
+        (i..<i + across).map { $0 < items.count ? items[$0] : nil }
     }
 }
 

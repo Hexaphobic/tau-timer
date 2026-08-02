@@ -204,11 +204,15 @@ struct EditorView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassPill(text: "+  Add group", action: addGroup, wide: true)
-                .padding(.top, 12)
+            // Rounds directly under the cards, then the add button — the home's order. It is sitting
+            // under the whole stack that makes it read as governing the whole stack, so nothing may
+            // come between them.
             if !blocks.isEmpty {
-                RepeatAllCard(repeatAll: repeatAll, onChange: setRepeatAll)
-                    .padding(.top, 16)
+                RoundsRow(repeatAll: repeatAll, onChange: setRepeatAll)
+            }
+            GlassPill(text: "+  Add group", action: addGroup, wide: true)
+                .padding(.top, blocks.isEmpty ? 12 : 16)
+            if !blocks.isEmpty {
                 totalsLine
                     .padding(.top, 12)
             }
@@ -408,19 +412,29 @@ private struct BlockEditorCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             cardHeader
-            bracket
-            repeatRow
+            rows
+            PlainTextButton(text: "+ interval", action: onAddItem, size: 13)
+                .padding(.leading, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(EdgeInsets(top: 8, leading: 4, bottom: 14, trailing: 14))
-        .liftedCard(groupDrag.isLifted(index), shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // Even padding, and 28 to match a home section: this card and a section are the same object
+        // seen on two screens. The lopsided inset was making room for the bracket rail that used to
+        // run down the left of the rows, and 16 made the editor read as a different kind of surface.
+        .padding(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
+        .liftedCard(groupDrag.isLifted(index), shape: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.vertical, 6)
         // The page owns the scroll, so it has to hear about a row drag happening down here.
         .onChange(of: rowDrag.isDragging) { _, dragging in rowDragging = dragging }
     }
 
+    /// The home section's header, control for control: grip, the ×N, how long this group runs, and
+    /// the ✕. No "Group 3" — the grip beside it already says "Reorder group 3" to VoiceOver, and the
+    /// number was only ever there to be counted off against a heading nobody needed. No "Delete"
+    /// either; the ✕ is the same button in one glyph.
     private var cardHeader: some View {
-        HStack(spacing: 0) {
+        let down: (Int) -> Void = { m in _ = onChange(Block(block.items, max(block.repeatCount - m, 1))) }
+        let up: (Int) -> Void = { m in _ = onChange(Block(block.items, block.repeatCount + m)) }
+        return HStack(spacing: 0) {
             DragHandle(
                 index: index, label: "group \(index + 1)", state: groupDrag, commit: moveGroup,
                 // Dragging is a gesture VoiceOver can't perform, so the ends of the list lose the
@@ -428,26 +442,30 @@ private struct BlockEditorCard: View {
                 onMoveUp: index > 0 ? { _ = moveGroup(index, index - 1) } : nil,
                 onMoveDown: index < groupCount - 1 ? { _ = moveGroup(index, index + 1) } : nil
             )
-            Text(groupCount > 1 ? "Group \(index + 1)" : "Group")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.45))
+            Spacer().frame(width: 2)
+            GlassCircle(glyph: "−", onStep: down, size: 36)
+            // The sentence the row below used to spell out, kept where it still has to be said: out
+            // loud. Named by group where there is more than one, since every card carries one of
+            // these — and the value is spoken in words, because after that index a bare "3" is a
+            // second numeral with nothing to say which of them is the count. On screen the ×N sits
+            // inside the group it repeats, which is the whole argument for moving it here.
+            Text("× \(block.repeatCount)")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 52)
+                .accessibilityElement(children: .ignore)
+                .stepperSemantics(groupCount > 1 ? "Repeat group \(index + 1)" : "Repeat this group",
+                                  block.repeatCount == 1 ? "once" : "\(block.repeatCount) times",
+                                  down: down, up: up)
+            GlassCircle(glyph: "+", onStep: up, size: 36)
             Spacer(minLength: 0)
-            PlainTextButton(text: "Delete", action: onDeleteGroup, size: 12)
+            // How long this group runs, the ×N included — the same readout the home puts here.
+            Text(clock(block.items.reduce(0) { $0 + $1.durationSec } * block.repeatCount))
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.55))
+            Spacer().frame(width: 6)
+            CloseX(action: onDeleteGroup)
         }
-    }
-
-    /// The bracket: a rail down the left edge tying every interval in the group together.
-    private var bracket: some View {
-        HStack(alignment: .top, spacing: 8) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(.white.opacity(0.28))
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 0) {
-                rows
-                PlainTextButton(text: "+ interval", action: onAddItem, size: 13)
-            }
-        }
-        .padding(.leading, 10)
     }
 
     /// The intervals of one group, reorderable among themselves.
@@ -491,15 +509,24 @@ private struct BlockEditorCard: View {
                 // row sideways.
                 Spacer().frame(width: 44)
             }
-            // Its own control with its own hit box. The row used to swap phase on any tap, which
-            // meant a near-miss on a stepper flipped work to rest instead of nudging the clock.
-            PhaseChip(
-                phase: iv.phase,
-                // Greyed, but still tappable: the tap is what surfaces the reason.
-                dimmed: isWork && !canRest(j),
-                action: { set(j, iv.with(phase: isWork ? .rest : .work)) }
-            )
-            Spacer().frame(width: 4)
+            // The word itself, on the tint, exactly as a home section says it — not a chip. The row
+            // is already a coloured pill meaning "work" or "rest", so a second coloured pill inside
+            // it saying the same word was a bubble in a bubble.
+            //
+            // Still its own hit box, though: it is the only part of the row that flips the phase.
+            // The row used to swap on any tap, and a near-miss on a stepper flipped work to rest
+            // instead of nudging the clock. Greyed when the rule won't allow a rest here, but still
+            // tappable — the tap is what surfaces the reason.
+            Button { set(j, iv.with(phase: isWork ? .rest : .work)) } label: {
+                Text(isWork ? "Work" : "Rest")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(isWork && !canRest(j) ? 0.45 : 0.95))
+                    .lineLimit(1)
+                    .frame(width: 52)
+                    .padding(.vertical, 6)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
             GlassCircle(glyph: "−", onStep: down, size: 44)
             Text(secLabel(iv.durationSec))
                 .font(.system(size: 17, weight: .medium))
@@ -515,36 +542,10 @@ private struct BlockEditorCard: View {
             CloseX { onRemoveItem(j) }
         }
         .padding(6)
-        .background(tint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // A pill, like the home's rows — 12pt corners were the other half of what made this screen
+        // read as squarer than the one it mirrors.
+        .background(tint, in: Capsule())
         .padding(.vertical, 4)
-    }
-
-    /// Stated in words so there's no guessing what the number applies to.
-    private var repeatRow: some View {
-        let down: (Int) -> Void = { m in _ = onChange(Block(block.items, max(block.repeatCount - m, 1))) }
-        let up: (Int) -> Void = { m in _ = onChange(Block(block.items, block.repeatCount + m)) }
-        return HStack(spacing: 0) {
-            Text("Repeat this group")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.7))
-            Spacer(minLength: 12)
-            GlassCircle(glyph: "−", onStep: down, size: 44)
-            Text("× \(block.repeatCount)")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 52)
-            GlassCircle(glyph: "+", onStep: up, size: 44)
-        }
-        .padding(.top, 10)
-        .padding(.leading, 10)
-        // The stepper is the only control in the row, so the row is the control. Named by group
-        // where there is more than one, since every card carries one of these — and the value is
-        // spoken in words, because after that index a bare "3" is a second numeral with nothing to
-        // say which of them is the count.
-        .accessibilityElement(children: .ignore)
-        .stepperSemantics(groupCount > 1 ? "Repeat group \(index + 1)" : "Repeat this group",
-                          block.repeatCount == 1 ? "once" : "\(block.repeatCount) times",
-                          down: down, up: up)
     }
 
     private func set(_ j: Int, _ iv: SeqInterval) {
@@ -564,29 +565,3 @@ private struct BlockEditorCard: View {
     }
 }
 
-// MARK: - Phase chip
-
-/// Work / rest switch for one interval. `dimmed` means the rule won't allow a rest here.
-private struct PhaseChip: View {
-    let phase: Phase
-    let dimmed: Bool
-    let action: () -> Void
-
-    private var accent: Color { phase == .work ? workColor : restColor }
-
-    var body: some View {
-        Button(action: action) {
-            Text(phase == .work ? "WORK" : "REST")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(dimmed ? 0.45 : 0.95))
-                .lineLimit(1)
-                .fixedSize()
-                .frame(width: 48)
-                .padding(.vertical, 7)
-                .background(accent.opacity(dimmed ? 0.14 : 0.30), in: Capsule())
-                .overlay(Capsule().strokeBorder(accent.opacity(dimmed ? 0.22 : 0.55), lineWidth: 1))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
