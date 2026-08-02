@@ -425,6 +425,13 @@ private fun NameField(
     }
 }
 
+/** The group box's lazy key: it looks itself up in the layout to know where it was placed. */
+private const val GROUP_BOX = "groupbox"
+
+// stickyHeader — the one thing that keeps the group frame composed while the stack it frames
+// scrolls past it, and inside the layer the stretch overscroll is applied to. Experimental in
+// Compose 1.7; stable since.
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SetupScreen(
     rows: SnapshotStateList<HomeRow>,
@@ -513,12 +520,13 @@ private fun SetupScreen(
     }
 
     val listState = rememberLazyListState()
-    // The drag works in *list* indices, so every item above the cards displaces them: the header row
-    // and the summary always, plus the save control once the cards are showing. Two of those three
-    // arrived after this count was first written and it was never updated — a stale range here
-    // clamps a lifted card to the top of the page and lets nothing swap (PUNCHLIST §42). The group's
-    // ×N sits below the cards and doesn't count.
-    val firstCard = if (solo) 2 else 3
+    // The drag works in *list* indices, so every item above the cards displaces them: the header row,
+    // the summary and the group-box spacer always, plus the save control once the cards are showing.
+    // Three of those four arrived after this count was first written and it was never updated — a
+    // stale range here clamps a lifted card to the top of the page and lets nothing swap (PUNCHLIST
+    // §42). The group's ×N sits below the cards and doesn't count. Everything that reads a card
+    // index reads it from *here*, so there is one number to keep honest rather than three.
+    val firstCard = if (solo) 3 else 4
     val dragDrop = rememberDragDropState(
         listState = listState,
         draggable = firstCard until firstCard + rows.size,
@@ -541,11 +549,6 @@ private fun SetupScreen(
         // content padding, so what's at rest — the header row included, since that is the list's
         // own first item — still starts clear of the camera.
         Box(Modifier.fillMaxSize()) {
-            // The group box: one rounded frame drawn around the ×N header and every section under
-            // it, so "repeat all of this" is a thing you can see rather than a sentence you have to
-            // read. Painted from the list's own layout rather than composed around the items,
-            // because the sections are separate lazy items — that's what makes drag-reorder work,
-            // and a card carried out of the stack must not take a slice of the frame with it.
             val groupFill = GlassFill.copy(alpha = GlassFill.alpha * 0.45f)
             // A page that fits has nothing to scroll, so it should not answer a drag at all — the
             // plain home bounced on the stretch overscroll and read as a page with more below it.
@@ -558,40 +561,7 @@ private fun SetupScreen(
             LazyColumn(
                 state = listState,
                 userScrollEnabled = scrollable,
-                modifier = Modifier.fillMaxSize().drawBehind {
-                    if (!grouped) return@drawBehind
-                    val info = listState.layoutInfo
-                    // Δτ = 0, save = 1, the summary = 2, then one per section, then the Rounds
-                    // control. Only drawn when grouped, and grouped means more than one section,
-                    // which means not solo — so all three of those are always there to count past.
-                    val range = 3..rows.size + 3
-                    val members = info.visibleItemsInfo.filter { it.index in range }
-                    if (members.isEmpty()) return@drawBehind
-                    val start = info.viewportStartOffset
-                    val pad = 8.dp.toPx()
-                    // Scrolled past an end, that end simply runs off screen: clamping to the last
-                    // visible item would draw a rounded corner in the middle of the stack.
-                    val top = if (members.any { it.index == range.first }) {
-                        members.minOf { it.offset } - start - pad
-                    } else -pad * 40
-                    val bottom = if (members.any { it.index == range.last }) {
-                        members.maxOf { it.offset + it.size } - start + pad
-                    } else size.height + pad * 40
-                    // The list gutter itself, NOT the gutter minus `pad`. The cards are already
-                    // inset `pad` inside the gutter by their own margin, so subtracting it here
-                    // again made the side gap 2 × pad against pad at the top — the frame sat a
-                    // whole margin wider than it should. At the gutter, the box lines up with the
-                    // full-width pills above and below it and the inset is `pad` on all four sides.
-                    val x = 20.dp.toPx()
-                    val rect = Offset(x, top.toFloat())
-                    val box = Size(size.width - 2 * x, (bottom - top).toFloat())
-                    val radius = CornerRadius(36.dp.toPx(), 36.dp.toPx())
-                    drawRoundRect(groupFill, rect, box, radius)
-                    drawRoundRect(
-                        Color.White.copy(alpha = 0.14f), rect, box, radius,
-                        style = Stroke(1.dp.toPx()),
-                    )
-                },
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 20.dp,
                     end = 20.dp,
@@ -678,7 +648,79 @@ private fun SetupScreen(
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).padding(bottom = 14.dp),
+                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                    )
+                }
+                // The group box: one rounded frame drawn around the ×N header and every section
+                // under it, so "repeat all of this" is a thing you can see rather than a sentence
+                // you have to read. Painted from the list's own layout rather than composed around
+                // the items, because the sections are separate lazy items — that's what makes
+                // drag-reorder work, and a card carried out of the stack must not take a slice of
+                // the frame with it.
+                //
+                // It is drawn by an item *in* the list, and specifically by a sticky one, for a
+                // reason that is entirely about the Android 12 stretch. LazyColumn hands the
+                // caller's modifier out at the very top and only then wraps its own
+                // clipScrollableContainer → overscroll → scrollable around the content, so the
+                // stretch RenderEffect lands on a layer this frame used to sit *outside* of: the
+                // cards stretched at the end of a scroll and the box behind them stood still. Drawn
+                // from inside the list it is under that layer with everything else, and stretches
+                // for free — no second overscroll, no effect to keep in sync.
+                //
+                // Sticky, because a lazy item is only composed while its own slot is on screen and
+                // this one has to keep drawing while the stack it frames scrolls past: a sticky
+                // header stays composed and placed for as long as anything below it is showing.
+                // Its 14.dp is the gap that used to be the summary's bottom padding — the same
+                // empty space, now with a job — so nothing moved to make room for it.
+                stickyHeader(key = GROUP_BOX) {
+                    Spacer(
+                        Modifier
+                            // A sticky header is deliberately placed *last* of all the items,
+                            // because a real one has to overlay the rows sliding under it. This one
+                            // is the opposite of a real one: it is the surface everything else sits
+                            // on, and placed last its fill tinted every card it was drawn over. The
+                            // -1 puts it under the whole stack — same lever the lifted card uses to
+                            // ride over its neighbours, pushed the other way.
+                            .zIndex(-1f)
+                            .fillMaxWidth()
+                            .height(14.dp)
+                            .drawBehind {
+                                if (!grouped) return@drawBehind
+                                val info = listState.layoutInfo
+                                // Everything the frame is measured from is a list offset; this
+                                // item's own offset is what turns those into the draw origin here.
+                                // Read from layoutInfo like all the rest of it — sticky means
+                                // "pinned to the top of the viewport", not "where the layout says",
+                                // and only layoutInfo knows which of the two this frame is.
+                                val me = info.visibleItemsInfo.firstOrNull { it.key == GROUP_BOX }
+                                    ?: return@drawBehind
+                                val range = firstCard..firstCard + rows.size
+                                val members = info.visibleItemsInfo.filter { it.index in range }
+                                if (members.isEmpty()) return@drawBehind
+                                val pad = 8.dp.toPx()
+                                // Scrolled past an end, that end simply runs off screen: clamping
+                                // to the last visible item would draw a rounded corner in the
+                                // middle of the stack.
+                                val top = if (members.any { it.index == range.first }) {
+                                    members.minOf { it.offset } - me.offset - pad
+                                } else info.viewportStartOffset - me.offset - pad * 40
+                                val bottom = if (members.any { it.index == range.last }) {
+                                    members.maxOf { it.offset + it.size } - me.offset + pad
+                                } else info.viewportEndOffset - me.offset + pad * 40
+                                // No gutter arithmetic left: this item is laid out inside the
+                                // list's content padding, so its own width already *is* the gutter.
+                                // The cards are inset `pad` inside it by their own margin, which is
+                                // what keeps the frame `pad` clear of them on all four sides and
+                                // lined up with the full-width pills above and below.
+                                val rect = Offset(0f, top)
+                                val box = Size(size.width, bottom - top)
+                                val radius = CornerRadius(36.dp.toPx(), 36.dp.toPx())
+                                drawRoundRect(groupFill, rect, box, radius)
+                                drawRoundRect(
+                                    Color.White.copy(alpha = 0.14f), rect, box, radius,
+                                    style = Stroke(1.dp.toPx()),
+                                )
+                            },
                     )
                 }
                 itemsIndexed(rows, key = { _, r -> r.id }) { i, row ->

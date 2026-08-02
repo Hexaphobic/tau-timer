@@ -1312,6 +1312,58 @@ not worth it.
 Text sized proportionally and centred by its layout box. Not fixed, not measured, and the user has
 not reported it. Worth a look if the Compose home ever animates a circle's diameter.
 
+### 52. The group frame stood still while the cards bent around it
+
+> "everything reacts to that except for the background layer behind the part that contains all of
+> the blocks. That stays stationary and needs to stretch with the rest of everything."
+
+Android 12's stretch overscroll is a `RenderEffect` applied by a draw node that `LazyColumn` keeps
+**inside itself**: `LazyList` builds `modifier.then(…).scrollingContainer(…)`, and
+`scrollingContainer` is `clipScrollableContainer → overscroll → scrollable`. The caller's modifier
+is the outermost thing in that chain. The group frame was painted by a `drawBehind` on exactly that
+caller modifier, so it sat outside the layer being stretched — the cards bent at the end of a scroll
+and the frame behind them didn't move. Verified against the real 1.7.0 sources, not assumed.
+
+**Three approaches were built and compiled before choosing**, because the obvious one is not the
+best one:
+
+1. *Hoist the effect.* Make an effect with `ScrollableDefaults.overscrollEffect()`, apply
+   `Modifier.overscroll()` ahead of the `drawBehind` so both land in one stretched node, and feed it
+   from a `nestedScroll` connection — starving the list's internal effect by claiming the leftover
+   delta rather than nulling `LocalOverscrollConfiguration` (which would have forced a ~250-line
+   re-indent for a two-line change). Correct, and it compiles. Rejected for two reasons: it depends
+   on foundation internals staying put — `LocalOverscrollConfiguration` is already deprecated in 1.8
+   for `LocalOverscrollFactory` — and it carries a permanent subtle regression, because
+   `ScrollingLogic.shouldScrollImmediately()` reads the *internal* effect's `isInProgress`, which is
+   now always false, so touching the screen during spring-back waits for touch slop instead of
+   catching the list.
+2. *Mirror the stretch.* A second `EdgeEffect` fed from reconstructed pointer deltas. Rejected: it
+   under-stretches for any non-pointer scroll (wheel, rotary, keyboard), and a frame that stretches
+   by a visibly different amount than the cards is a worse bug than one that doesn't stretch at all.
+3. **Chosen: draw the frame from inside the list.** A `stickyHeader` spacer draws it. Sticky because
+   a lazy item is only composed while its own slot is on screen, and this one has to keep drawing
+   while the stack it frames scrolls past it. Being an item, it is inside the layer the stretch is
+   already applied to, so frame and cards are recorded into the *same* render node and transformed
+   by the *same* shader. Not "two effects kept in sync" — one effect, one image. Desync isn't
+   unlikely, it's unavailable. And it touches no overscroll API at all, so the 1.8 churn can't reach
+   it.
+
+The spacer's 14.dp is the summary's old `padding(bottom = 14.dp)` — the same empty space with a job,
+so nothing moved to make room for it. `zIndex(-1f)` is the one load-bearing line: sticky headers are
+placed *last* on purpose, because a real one overlays the rows sliding under it, and this one is the
+opposite — the surface everything sits on. Placed last, its fill tinted every card.
+
+**`firstCard` moved 2/3 → 3/4.** That is the count §42 broke on, so it now has exactly one home and
+the frame's own range derives from it rather than a second hard-coded 3.
+
+**Not verified on a screen.** No Android device was connected and this machine has no emulator and
+no system image, so this is compiled, unit-tested and reasoned from decompiled 1.7.0 bytecode —
+nobody has watched it. Every way it can fail is loud and visible at rest, which is why this approach
+was preferred over the subtler one: the frame tinting the cards (zIndex lost), the frame not drawing
+at all (a 14.dp item paints hundreds of dp outside its own bounds — lazy items place with
+`clip = false`, so it should, but that is the untested assumption), or drag-reorder mis-indexed.
+Check in that order.
+
 ---
 
 ## Settled — was a design question
