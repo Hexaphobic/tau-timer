@@ -146,6 +146,10 @@ private let REPEAT_EVERY: TimeInterval = 0.090
 /// How long you hold before each repeat counts double — 5s steps become 10s, i.e. 2x.
 private let DOUBLE_AFTER: TimeInterval = 1.0
 
+/// The point size every glyph's *layout metrics* are taken at, whatever the circle's diameter —
+/// see the note in `body`. The largest circle in the app, so every call site scales down, never up.
+private let BASE_GLYPH: CGFloat = 54
+
 /// The +/- button. Every one of these in the app is a stepper, so hold-to-repeat lives here rather
 /// than in each caller: tap and it steps once on lift, keep holding and it repeats.
 ///
@@ -178,8 +182,30 @@ struct GlassCircle: View {
         // Re-point the sink at the freshest closure every render; begin()/step() only call the sink.
         sink.step = onStep
         return Text(glyph)
-            .font(.system(size: size * 0.44, weight: .medium))
+            // Pin the font size and carry the diameter on the scale instead. `.frame` below centres
+            // the Text's LINE box, but the ink of − and + sits below that box's centre, and SF Pro's
+            // optical-size axis moves it by a different fraction at every point size — measured at
+            // 3x, 2.97% / 3.41% / 2.57% of the diameter at 54 / 50 / 40, not even monotonic. So a
+            // size that animates dragged the glyph around a small arc inside its own circle, and
+            // through a transition that *moves* the row as well it fell as far as the bottom rim
+            // (measured: 15.3pt). Pinning makes the error one fixed fraction, which one nudge below
+            // cancels at every size. It costs no sharpness: only the metrics are pinned here, the
+            // outline is still resolved at the effective size (measured — the 50%-ink width runs
+            // wider than a uniform scale of the 54pt glyph at 40 and 36, which a scaled raster
+            // could not do). Same trade as the Rounds number at HomeView.swift:196.
+            .font(.system(size: BASE_GLYPH * 0.44, weight: .medium))
             .foregroundStyle(.white)
+            // Lifts the ink to the circle's centre: measured 4.803px low at size 54 on a 3x screen.
+            // Inside the scale, so it shrinks with the glyph and holds at 36…54.
+            //
+            // Quantised, so don't bother re-tuning it: SwiftUI rounds a Text's offset to a whole
+            // device pixel, and everything from about −1.500 to −1.833 delivers the same −5px. That
+            // leaves 0.2px of over-correction, which is the floor for this approach. There is no x
+            // term for the same reason — the 0.473px horizontal error rounds to nothing, and − and
+            // + want different corrections anyway, so no one constant nulls both. Sub-pixel would
+            // mean nudging the Circle instead, which isn't snapped. See PUNCHLIST §51.
+            .offset(y: -1.601)
+            .scaleEffect(size / BASE_GLYPH)
             .frame(width: size, height: size)
             .background(glassFill, in: Circle())
             .overlay(Circle().strokeBorder(glassBorder(), lineWidth: 1))

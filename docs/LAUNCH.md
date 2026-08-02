@@ -61,6 +61,44 @@ Written the night before (2026-07-30). Everything below assumes the tree as it s
 
 ---
 
+### Status, 2026-08-01 evening — resume here
+
+Done, needs nothing from you:
+
+- Signed AABs built and verified against the upload key (phone 3.1MB, wear 2.3MB).
+- Privacy policy live: **https://midamm-legal.netlify.app/interval-timer/privacy-policy/**
+  (Netlify project `midamm-legal`, source in `docs/site/`, redeploy with
+  `npx netlify-cli deploy --dir docs/site --prod`). Contact address is
+  privacy@midamultimedia.com — **make sure that mailbox exists**, Play publishes it.
+- Listing assets in `docs/play-assets/`: icon-512, feature-1024x500, 6 phone
+  screenshots, 4 watch screenshots, and `listing.md` (short + full description).
+- Play Console: app record **created** — Interval Timer, com.chrispoole.intervaltimer,
+  App, Free, both declarations accepted. Account confirmed to be an *organization*
+  account, so §Play-submission's "production directly, no closed-testing gate" holds.
+- Verified against the merged release manifests: no `INTERNET` permission on either
+  module (the wearable dependency injects none), FGS type `specialUse` with subtype
+  `interval_timer`. Data Safety "No to collection" and the privacy page are both
+  accurate for the artifacts that will actually be uploaded.
+
+Left to do in the Console — all of it needs you, because the Play Console needs a
+visible display and file uploads:
+
+1. Store listing: paste short + full description from `docs/play-assets/listing.md`,
+   upload icon / feature graphic / phone screenshots.
+2. Production release: upload `app/build/outputs/bundle/release/app-release.aab` and
+   `wear/build/outputs/bundle/release/wear-release.aab` (same release — one listing).
+   The Wear screenshots slot only appears once the wear bundle is in.
+3. App content: privacy policy URL (above), data safety, content rating (IARC),
+   target audience, ads = No, foreground service declaration — §1 and §2 of
+   `PLAY_SUBMISSION.md` are copy-paste for these.
+4. Review and submit.
+
+Nothing was submitted. The listing copy has still not been read by you — do that
+before it goes public; one claim in it was wrong until it was checked against the
+source (word mode is 12 languages, not 3).
+
+---
+
 ## Phase B — App Store (start tomorrow; ships when device testing passes)
 
 8. **You: plug the iPhone in once.** The sim cannot answer the three things that gate submission:

@@ -1253,6 +1253,65 @@ mix needs only a start stamp and the clock it is handed anyway.
 iOS half of §49 are compiled and tested but unseen. The Android crossfade in §49 was checked on the
 phone before that.
 
+### 51. The stepper glyphs were never centred, and the animation only made it visible
+
+> "the minus button and the plus button do not stay perfectly centered in the circles as it moves."
+
+**Two wrong theories died to measurement before the right one turned up**, and both were mine.
+
+The first was that `.font(.system(size:))` isn't animatable while `.frame` is, so the glyph's size
+snaps on frame 1 while the circle interpolates. Refuted: on iOS 26.5 SwiftUI re-resolves the font
+every frame. The minus bar's ink width tracks the interpolated diameter continuously — 28.0px at
+40pt, 30.0 at 44, 31.6 at 47, 33.0 at 50, 35.1 at 54 — where a frame-1 snap would pin it at 28 for
+the whole shrink. Shrinking and growing agree to within 0.05px at every size. No pop, no lag.
+
+The second was a missing `.geometryGroup()`, the standard remedy for children not moving in lockstep
+with an animating parent. Refuted harder: a rig translating a constant-size circle 240pt using
+HomeView's own mechanism (animated flexible spacers) drifted 0.016px vertically and 0.021px
+horizontally. Noise. Pixel-grid snapping during motion died the same way.
+
+**The actual cause is static and has shipped since the control was written.** `.frame(width:height:)`
+centres the Text's *line box*; the ink of − and + sits below that box's centre, so the glyph has
+always sat ~4.8px (1.6pt) low at size 54 — animating or not, in every circle in the app. What made
+it *look* like a motion bug is that SF Pro's optical-size axis moves the ink by a different fraction
+at each point size: 2.965% / 3.409% / 2.572% of the diameter at 54 / 50 / 40, vertically, which is
+not even monotonic. Animating `size` therefore walks the glyph along that curve — a small arc, which
+reads as wandering rather than resizing.
+
+And in the real app it is far worse than the isolated rig showed. The rig (circles pinned on flat
+black, only the diameter animating) put the peak relative motion at 1.80px. In the actual
+home → grouped transition, where the row *travels* as well as resizes, the glyph lags the row and
+falls **45.9px — 15.3pt — to the bottom rim of its own circle** at the midpoint. That is the thing
+that was actually visible.
+
+**The fix** (`Glass.swift`): pin the font at `BASE_GLYPH * 0.44` and carry the diameter on
+`.scaleEffect` instead, with the ink correction as an `.offset` inside the scale. Pinning is the
+load-bearing part — it makes the miscentring one fixed fraction of the box, so a single constant
+cancels it everywhere, instead of a curve no constant can follow.
+
+Result, measured at every reachable size (36, 40, 44, 50, 54): vertical offset from +3.06…+4.82px
+down to −0.35…0.00px, which is the measurement's own noise floor. In flight, the 54↔40 interval rows
+hold within a 0.45px span against 45.9px before.
+
+**It costs no sharpness**, which was the obvious thing to fear. Only the *metrics* are pinned; the
+outline is still resolved at the effective size. Proof: the 50%-ink width at 40 and 36 runs wider
+than a uniform scale of the 54pt glyph predicts (27.37 vs 26.43, 24.64 vs 23.79), which a scaled
+raster could not do.
+
+**Two limits, both from the same mechanism — a Text's `.offset` is rounded to a whole device pixel.**
+The −1.601pt nudge is delivered as −5px rather than −4.803px, leaving 0.2px of over-correction;
+every value from about −1.500 to −1.833 delivers the same −5px, so re-tuning it does nothing. And
+the horizontal term was **inert** — 0.473px rounds to zero, so a first version of this fix carried an
+x constant that did literally nothing while a comment described it as measured and exact. It was
+caught by an A/B against a rebuilt pre-fix control and removed. − and + want different horizontal
+corrections anyway (+0.46 vs +0.23px), so no single constant nulls both. Going sub-pixel would mean
+moving the correction off the Text onto the Circle, which isn't snapped. 0.2px is 1/15th of a point;
+not worth it.
+
+**Android has the same latent miscentring** — `Glass.kt:199-203` is the identical construction, a
+Text sized proportionally and centred by its layout box. Not fixed, not measured, and the user has
+not reported it. Worth a look if the Compose home ever animates a circle's diameter.
+
 ---
 
 ## Settled — was a design question

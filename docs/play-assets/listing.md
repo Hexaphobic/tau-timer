@@ -35,9 +35,10 @@ Currently ~1,450 chars.
 >
 > The countdown fills the screen and the whole screen changes colour on the
 > work/rest boundary, so you can read your state from across the room. Word mode
-> spells the count out — "twenty-six" instead of 26 — in English, Chinese or
-> Spanish. Eight colour themes, plus a Minimal mode that strips it back to
-> nothing but the number.
+> spells the count out — "twenty-six" instead of 26 — in twelve languages:
+> English, Chinese, Japanese, Spanish, Korean, Russian, Hindi, Arabic, French,
+> Bengali, Thai, and Cistercian monastic numerals. Eight colour themes, plus a
+> Minimal mode that strips it back to nothing but the number.
 >
 > **On your wrist**
 >
@@ -60,6 +61,9 @@ Currently ~1,450 chars.
 - "Tabata" is a registered trademark in some jurisdictions (Tabata Official /
   Scientific Training). Widely used generically by timer apps on Play; if you'd
   rather not carry the risk, "20/10 intervals" reads fine in both places.
-- Verify before publishing: eight themes (Default, Mono, Spidey, Miami, Trance,
-  Laser, Vesper, Tron — that's 8) and three word-mode languages. Both matched
-  the device at capture time.
+- Verified against the source, not the screenshots: 8 themes (`Palette` in
+  ui/Glass.kt) and 12 word-mode languages (`Language` in model/Language.kt —
+  11 picker tiles, Chinese and Japanese share one). An earlier draft said three
+  languages, which is what the settings screen shows above the fold.
+- Cistercian is worth a screenshot of its own if you ever want one — no other
+  timer on Play has it, and it photographs well.
