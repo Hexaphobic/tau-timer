@@ -4,7 +4,7 @@ import os
 
 /// Diagnostic tap for the drag state machine. Debug builds only; stream it with
 /// `xcrun simctl spawn booted log stream --level debug --predicate 'category == "reorder"'`.
-private let dragLog = Logger(subsystem: "com.chrispoole.intervaltimer", category: "reorder")
+private let dragLog = Logger(subsystem: "com.midamultimedia.intervaltimer", category: "reorder")
 
 /// Drag-to-reorder for a hand-laid-out vertical stack.
 ///

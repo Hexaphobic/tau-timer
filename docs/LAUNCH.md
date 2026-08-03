@@ -65,6 +65,16 @@ Written the night before (2026-07-30). Everything below assumes the tree as it s
 
 Everything below was done overnight while you slept. **Three items remain, and they are a chain.**
 
+**UPDATE, 08-03 morning: steps 1–3 below are DONE.** Content rating, target audience (16-17 + 18
+and over) and data safety are all saved, and the Health apps declaration is answered. The release
+review page reads **0 errors, 1 warning** — the warning is "App Bundle contains native code, and
+you've not uploaded debug symbols", which is cosmetic and only affects crash-stack readability.
+Publishing overview now offers **Submit 11 changes for review**. Only step 4 is left.
+
+The phone bundle (versionCode 1) IS attached to the draft — release summary confirms "Version
+codes: 1", 177 countries, 17,577 supported devices. The prepare page's App bundles table renders
+lazily and reads empty if you look too early; don't re-upload on the strength of that.
+
 ## What you do in the morning (~15 min, then publish)
 
 **1. Content rating (~3 min).** App content -> Content ratings -> Start questionnaire.
@@ -108,16 +118,27 @@ Everything below was done overnight while you slept. **Three items remain, and t
 | Sign in details | No restricted parts | no auth surface anywhere in the source |
 | Government apps | No | — |
 | Financial features | None | no billing library, no purchases |
-| Health apps | **No health features** | JUDGEMENT CALL — see below |
+| Health apps | **Activity and fitness** | reversed 08-03 morning — see below |
 | Data safety | No collection, no sharing | no INTERNET permission, so nothing can leave the device |
 
-**The one judgement call: Health apps.** I answered "no health features". The app measures nothing,
-records nothing, reads no sensors, stores no workout history and does not touch Health Connect — it
-plays tones on a schedule. Play's health declaration is about health *data and functionality*, not
-about the context you use the app in, so a workout timer is no more a health app than a kitchen
-timer. The Health & Fitness store *category* is a separate question and is unaffected. If you'd
-rather claim "Activity and fitness", it is one checkbox — but it pulls the Health apps policy
-requirements in with it.
+**The one judgement call: Health apps. REVERSED on the morning of 08-03 — now "Activity and
+fitness".** The overnight answer was "no health features", on the reasoning that the app measures
+nothing, records nothing, reads no sensors, stores no workout history and does not touch Health
+Connect. That reasoning still holds on the literal question. But the "no health features" option
+had *disappeared* from the form by morning, on both the release-scoped and plain App content
+versions, and the overnight selection had not persisted. Best explanation (inferred from timing,
+not proven): setting the store category to Health & Fitness ~20 minutes earlier removed it — Play
+appears to treat the category as an assertion and won't let an app sit in Health & Fitness while
+declaring zero health features.
+
+So the choice was: tick "Activity and fitness" and keep the category, or move the category to
+Tools/Productivity to get the "none" option back. Chris chose to keep Health & Fitness, because
+the app is marketed on TikTok and Instagram to a fitness audience — the category is doing brand
+work for arriving link traffic, not organic-discovery work, and is worth more than the technical
+precision of that checkbox. Over-claiming here is the safe direction: it invites more scrutiny,
+and there is no health data to scrutinise. The Health apps policy obligations are about health
+*data* — collection, storage, sharing — and this app has none and no INTERNET permission, so it
+satisfies them by construction. Nothing about the app changed.
 
 **Verified permissions** (both packaged release manifests, so this is what actually ships):
 app = FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK.

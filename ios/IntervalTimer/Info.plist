@@ -30,6 +30,11 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- No encryption of any kind: the app has no networking, no auth, and stores nothing
+	     it protects. Declaring it here answers App Store Connect's export-compliance
+	     question at build time instead of prompting on every single upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
