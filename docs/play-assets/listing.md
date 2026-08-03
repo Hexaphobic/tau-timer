@@ -52,7 +52,7 @@ Make it yours: eight colour themes, a Minimal mode, and language options for the
 Companion Wear OS app for your watch.
 
 - Runs in the background with the screen off
-- Calls every interval out loud
+- Audio cues at every interval
 - Get-ready countdown
 - Hold to pause, tap to resume
 - Ducks under your music
@@ -87,3 +87,16 @@ it into the full description's sequences line, which is the sheltered place for 
 
 The earlier "red field at 58/80" was a stale form, not the copy: the identical string typed into
 a fresh load of the same page validates clean. The listing had never been saved at that point.
+
+## Correction, 2026-08-03
+
+"Calls every interval out loud" was FALSE and is now "Audio cues at every interval", fixed in the
+Console and here. There is no TextToSpeech anywhere in either module: `Beeper.kt` loads three WAVs
+(go, tick, warn5) into a SoundPool. The app beeps, it does not speak. The line was inherited from
+the first draft and survived the rewrite unchecked, and it was live in the saved listing for a
+while. Verified by grepping the source and both shipped DEX files.
+
+Other claims in the description were checked against source at the same time and hold: 8 themes
+(Palette has exactly 8 entries), ducks under music (AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+Beeper.kt:42), works offline, background with screen off, get-ready countdown, hold to pause, and
+the four built-in presets.
