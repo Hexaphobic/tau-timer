@@ -1,69 +1,89 @@
-# Store listing copy — draft for your edit
+# Store listing copy
+
+Paste-ready. Play does NOT render markdown in these fields — no asterisks, no `#`.
 
 ## App name (max 30)
 
-Interval Timer
+Interval Timer: Not Ugly
+
+Owner's call: category first, brand second (I had argued brand-first). The marketing plan is TikTok/Instagram links, not Play browse — a
+new app with no reviews will not rank for "interval timer" against apps with millions of installs,
+so ASO is not what the title is for. What it IS for is the recall search: someone sees the video
+Tuesday and searches "not ugly interval timer" on Friday. Both halves of that query live here, and
+it costs 24 of the 30 characters to own it outright.
+
+Avoid "Best"/"Top"/"#1" here: Play's Store Listing and Promotion policy bars unattributed
+performance and ranking claims in the title, and a metadata rejection stacks on top of the slow
+specialUse FGS review.
+
+Not "minimalist", considered and rejected: the app is opinionated AND customizable (8 themes,
+12 languages, a sequence editor). The word would draw people wanting fewer knobs and disappoint
+them, and it collides with Minimal mode, which is an actual feature.
 
 ## Short description (max 80)
 
-Currently 62 chars.
+55 chars.
 
-> A clean interval timer for HIIT, Tabata and EMOM. No account, no ads.
+The interval timer that isn't ugly. HIIT, Tabata, EMOM.
+
+Play's Console checker rejected "The best-looking interval timer for all your workout needs." with
+"Your app may not be promoted on Google Play because your short description ... Should not use
+keywords that indicate store performance or ranking". Not a publish blocker — it only drops the app
+from Play's promotional surfaces (editorial features, recommendations), which barely matters given
+the TikTok/Instagram link strategy. Changed anyway: the superlative bought nothing Play would
+honour, and the replacement puts HIIT back, which had vanished from the whole listing and is the
+highest-volume search term in the category. The "best-looking" claim still lives in the full
+description, which is not policed the same way.
 
 ## Full description (max 4000)
 
-Currently ~1,450 chars.
+~740 chars.
 
-> Set your work interval, your rest interval, how many rounds. Tap GO.
->
-> That's the whole app. No sign-in, no account, no ads, no upsell, and nothing
-> is sent anywhere — it works with the network off.
->
-> **Built for the moment you're not holding your phone**
->
-> The timer keeps running with the screen off or while you're in another app,
-> and calls each interval boundary out loud so you never have to look. Put the
-> phone down and work.
->
-> **Sequences, not just rounds**
->
-> Beyond simple work/rest, build a sequence interval by interval — ladders,
-> pyramids, EMOMs, warm-up and cool-down blocks. Drag to reorder, hold to edit.
-> Ladder, Pyramid, Tabata and EMOM 10 come built in.
->
-> **Readable at arm's length**
->
-> The countdown fills the screen and the whole screen changes colour on the
-> work/rest boundary, so you can read your state from across the room. Word mode
-> spells the count out — "twenty-six" instead of 26 — in twelve languages:
-> English, Chinese, Japanese, Spanish, Korean, Russian, Hindi, Arabic, French,
-> Bengali, Thai, and Cistercian monastic numerals. Eight colour themes, plus a
-> Minimal mode that strips it back to nothing but the number.
->
-> **On your wrist**
->
-> Companion Wear OS app. Presets you build on the phone appear on the watch, and
-> the watch runs workouts on its own with haptics on every boundary.
->
-> **The details**
->
-> - Get-ready countdown before the first interval
-> - Progress pips for the whole workout at a glance
-> - Hold to pause, tap to resume
-> - Volume and mute controls, ducks under your music
-> - No back-to-back rests option
-> - Works entirely offline. No permissions beyond notifications.
+Set your work interval, your rest interval, how many rounds. Tap GO.
 
-## Notes for you
+Most interval timers are ugly. This one isn't.
 
-- No "AI", no "smart", no fitness-claims language — nothing here needs a health
-  disclaimer or invites a rating bump.
-- "Tabata" is a registered trademark in some jurisdictions (Tabata Official /
-  Scientific Training). Widely used generically by timer apps on Play; if you'd
-  rather not carry the risk, "20/10 intervals" reads fine in both places.
-- Verified against the source, not the screenshots: 8 themes (`Palette` in
-  ui/Glass.kt) and 12 word-mode languages (`Language` in model/Language.kt —
-  11 picker tiles, Chinese and Japanese share one). An earlier draft said three
-  languages, which is what the settings screen shows above the fold.
-- Cistercian is worth a screenshot of its own if you ever want one — no other
-  timer on Play has it, and it photographs well.
+The colour changes on every work/rest boundary, so you can read your state from across the room.
+
+Build your own sequences interval by interval - ladders, pyramids, EMOMs, warm-ups. Drag to reorder, tap to edit, save them as presets. Ladder, Pyramid, Tabata and EMOM 10 come built in.
+
+Make it yours: eight colour themes, a Minimal mode, and language options for the count.
+
+Companion Wear OS app for your watch.
+
+- Runs in the background with the screen off
+- Calls every interval out loud
+- Get-ready countdown
+- Hold to pause, tap to resume
+- Ducks under your music
+- Works offline
+
+## Notes
+
+- Cut from the first draft on the owner's direction: it was over the top. Gone are the
+  "built for the moment you're not holding your phone" framing, the background-running
+  paragraph, the twelve-language word-mode list, no-ads, no-account, progress pips,
+  back-to-back rests and the permissions line. Background running survives as one bullet.
+- "Tabata" is a registered trademark in some jurisdictions, used generically by most timer
+  apps on Play. Kept deliberately; "20/10 intervals" is the swap if the risk is ever unwanted.
+- "best-looking" is a subjective aesthetic claim, not a ranking claim, and sits in the
+  description rather than the title — the far lower-risk place for it. If Play ever objects,
+  "Most interval timers are ugly. This one isn't." carries the same idea without the superlative.
+- Verified against source: 8 themes (Palette in ui/Glass.kt), 12 word-mode languages
+  (Language in model/Language.kt). The description no longer states either count except themes.
+
+## Live state, 2026-08-02
+
+Typed into the Play Console default store listing but NOT saved — the owner reviews and saves.
+App name 24/30, short 59/80, full 702/4000, no validation errors on any field.
+
+The em dash in the sequences line was typed as a plain hyphen: keyboard emulation does not
+reliably produce an em dash and a mangled glyph in a public listing is worse than a hyphen.
+
+KEYWORD NOTE: "HIIT" now appears nowhere in the listing. It lived only in the old short
+description; the full description names Tabata and EMOM but not HIIT. Play indexes both fields
+and HIIT is the highest-volume term in the category. Flagged to the owner — the fix is to fold
+it into the full description's sequences line, which is the sheltered place for keywords anyway.
+
+The earlier "red field at 58/80" was a stale form, not the copy: the identical string typed into
+a fresh load of the same page validates clean. The listing had never been saved at that point.

@@ -31,3 +31,7 @@ keystore.properties
 
 # Local Netlify folder
 .netlify
+
+# Workflow worktrees and Python caches from tools/
+.claude/
+tools/__pycache__/
