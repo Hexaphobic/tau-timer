@@ -61,7 +61,81 @@ Written the night before (2026-07-30). Everything below assumes the tree as it s
 
 ---
 
-### Status, 2026-08-02 afternoon — resume here
+### Status, 2026-08-03 early hours — MORNING: START HERE
+
+Everything below was done overnight while you slept. **Three items remain, and they are a chain.**
+
+## What you do in the morning (~15 min, then publish)
+
+**1. Content rating (~3 min).** App content -> Content ratings -> Start questionnaire.
+   I deliberately did NOT do this one: the questionnaire says *"By completing this questionnaire you
+   agree to IARC's Terms of Service"*, and agreeing to a third party's legal terms in your name is
+   not something to do while you are asleep. It is also the gate on the other two.
+   Email: your own. Category: Utility / Productivity / Communication (NOT a game).
+   Every content question is No for this app: no violence, no sexuality, no language, no controlled
+   substances, no gambling, no horror. Critically: **no user-generated content, no user-to-user
+   interaction or sharing, no location sharing, no personal-info sharing, no digital purchases.**
+   Preset names are typed by the user but never leave the device and no one else can ever see them,
+   so they are not UGC. Expected result: **Everyone**.
+
+   NOTE: while this was still incomplete, the Target audience form said *"You can't select age
+   groups below 13 because your app's ESRB rating is set as 'teen' or higher."* That looks like a
+   placeholder from the unfinished questionnaire. Once you complete it honestly it should come out
+   Everyone and that restriction should lift. If it does NOT, stop and look at which answer produced
+   a Teen rating before accepting it — a timer should not rate Teen.
+
+**2. Target audience (~2 min).** App content -> Target audience and content.
+   Recommended: tick **18 and over** only. The app is an adult fitness tool; ticking any band under
+   13 pulls you into Play's Families policy (extra design, ads and data obligations) for no benefit.
+   13-15 / 16-17 are defensible too and cost little given the app has no ads and collects nothing —
+   your call. Then the follow-ups: the app does not appeal to children (no characters, no game
+   mechanics, monochrome), and there is no store-presence claim to make.
+
+**3. Data safety (~1 min).** Already filled in and **saved as draft** — answers are sitting there.
+   It could not be submitted because it is gated on target audience. Once step 2 is saved, open it
+   and hit Save. It should read "No data collection declared" / "No data shared with third parties".
+
+**4. Publish.** Test and release -> Production -> the `1 (1.0.0)` release -> review -> send for
+   review. Both bundles are already attached to that draft.
+
+## Done overnight — audit these if you want, all are one click to change
+
+| Declaration | Answer | Basis |
+|---|---|---|
+| Privacy policy | `https://legal.midamultimedia.com/interval-timer/privacy-policy/` | verified live, HTTP 200, wildcard cert |
+| Ads | No | no ads SDK; no INTERNET permission in either merged manifest |
+| Advertising ID | No | `AD_ID` appears 0 times in both packaged manifests |
+| Sign in details | No restricted parts | no auth surface anywhere in the source |
+| Government apps | No | — |
+| Financial features | None | no billing library, no purchases |
+| Health apps | **No health features** | JUDGEMENT CALL — see below |
+| Data safety | No collection, no sharing | no INTERNET permission, so nothing can leave the device |
+
+**The one judgement call: Health apps.** I answered "no health features". The app measures nothing,
+records nothing, reads no sensors, stores no workout history and does not touch Health Connect — it
+plays tones on a schedule. Play's health declaration is about health *data and functionality*, not
+about the context you use the app in, so a workout timer is no more a health app than a kitchen
+timer. The Health & Fitness store *category* is a separate question and is unaffected. If you'd
+rather claim "Activity and fitness", it is one checkbox — but it pulls the Health apps policy
+requirements in with it.
+
+**Verified permissions** (both packaged release manifests, so this is what actually ships):
+app = FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK.
+wear = the same plus VIBRATE. No INTERNET. No AD_ID. That is the evidence base for Data safety.
+
+**Foreground service declaration**: not seen in App content. It most likely appears during the
+release review flow because the bundle declares `specialUse`. The justification to paste is §2 of
+PLAY_SUBMISSION.md — paste it verbatim, it is written to answer the question reviewers actually ask
+("why does no standard type fit?") rather than the circular one.
+
+**Also done overnight**: `legal.midamultimedia.com` created on the Netlify `midamm-legal` project
+(DNS record auto-created, wildcard cert already covered it), store assets committed, and the release
+bundles rebuilt after a workflow agent's Gradle run wiped the output directory. Play already holds
+the uploaded copies, so the draft release was unaffected.
+
+---
+
+### Status, 2026-08-02 afternoon
 
 **The AABs were rebuilt on 2026-08-02 at 16:09** and supersede the 08-01 pair. The earlier bundles
 predate the overscroll fix (`ba12464`, PUNCHLIST §52) — do not upload them. Re-verified after the
