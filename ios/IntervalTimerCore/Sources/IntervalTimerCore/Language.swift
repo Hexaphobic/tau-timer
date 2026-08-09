@@ -1,7 +1,7 @@
 import Foundation
 
-/// The 11 display languages, plus Cistercian. Chinese and Japanese share a tile, so the
-/// picker shows 11 of the 12.
+/// The 9 display languages, plus Cistercian. Chinese and Japanese share a tile, so the
+/// picker shows 9 of the 10.
 ///
 /// `digits` maps 0-9 to native glyphs (nil = Western 0-9); `colon` is the clock separator;
 /// `work`/`rest`/`ready` are translated phase labels. Values are the research-verified
@@ -19,7 +19,7 @@ public enum Language: String, CaseIterable, Sendable {
     // is nil and every render site branches on `cistercian` before reaching for a font. Fifth by
     // request, rather than parked at the end where a curiosity goes to be missed.
     case ci
-    case ru, hi, ar, fr, bn, th
+    case ru, hi, ar, fr
 
     public struct Spec: Sendable {
         public let english: String
@@ -55,12 +55,6 @@ public enum Language: String, CaseIterable, Sendable {
                               work: "Trabajo", rest: "Descanso", ready: "Prepárate")
         case .fr: return Spec(english: "Français · French", digits: nil, colon: ":",
                               work: "Effort", rest: "Repos", ready: "Prêt")
-        case .bn: return Spec(english: "বাংলা · Bengali",
-                              digits: ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"],
-                              colon: ":", work: "কাজ", rest: "বিশ্রাম", ready: "প্রস্তুত")
-        case .th: return Spec(english: "ไทย · Thai",
-                              digits: ["๐", "๑", "๒", "๓", "๔", "๕", "๖", "๗", "๘", "๙"],
-                              colon: ":", work: "ทำงาน", rest: "พัก", ready: "เตรียม")
         case .ci: return Spec(english: "Cistercian", digits: nil, colon: ":",
                               work: "Work", rest: "Rest", ready: "Get ready")
         }

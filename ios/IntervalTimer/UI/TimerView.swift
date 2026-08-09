@@ -223,13 +223,30 @@ private struct TimerContent: View {
                 // takes that spot.
                 number.frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Just the phase label up top; the count and its progress live at the bottom, so the
-                // big number owns the whole middle of the screen.
-                Text(label)
-                    .font(.system(size: labelSize, weight: glyphWeight(lang)))
-                    .foregroundStyle(.white)
-                    .padding(.top, 24)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // The top band: the phase word, and under it the section it belongs to.
+                let named = !ui.label.isEmpty
+                VStack(spacing: 0) {
+                    // The phase word always leads. It is the thing you read at a glance from across
+                    // the room and it never moves or changes size, so a glance costs nothing — the
+                    // name goes underneath it as subtext, which is the one place it can be as long
+                    // as you like without pushing anything else around. Work wears its own section's
+                    // name; rest wears the one it is handing over to, which is what you need while
+                    // you catch your breath.
+                    Text(label)
+                        .font(.system(size: labelSize, weight: glyphWeight(lang)))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                    if named && ui.phase != .prepare {
+                        Text(ui.phase == .rest ? "Next · \(ui.label)" : ui.label)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                }
+                .padding(.top, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 // How far through the workout, down at the bottom: the count, then a pip per
                 // repetition. Sits above the hold-to-pause hint, which keeps its own room.
@@ -273,8 +290,8 @@ private struct TimerContent: View {
             : " "
     }
 
-    /// Words only stand in for languages with no numerals of their own — native-glyph scripts (Thai,
-    /// Hindi, Chinese…) already look distinct, so they just show their glyphs. Under a minute only.
+    /// Words only stand in for languages with no numerals of their own — native-glyph scripts (Hindi,
+    /// Arabic, Chinese…) already look distinct, so they just show their glyphs. Under a minute only.
     private var showWords: Bool {
         wordMode && !ui.done && lang.digits == nil && !lang.cistercian && !lang.stacks
             && ui.remainingMs < 60_000

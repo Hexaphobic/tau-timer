@@ -173,7 +173,8 @@ final class TimerEngine: ObservableObject {
             round: p.round,
             totalRounds: totalRounds,
             roundsPerPass: roundsPerPass,
-            done: p.done
+            done: p.done,
+            label: p.label
         )
         // No stale-snapshot guard here, unlike the Android service. There, pause()/stop() ran on the
         // main thread while the tick ran on a background dispatcher, so a tick already in flight

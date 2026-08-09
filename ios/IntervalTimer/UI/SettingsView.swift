@@ -24,9 +24,6 @@ struct SettingsView: View {
                             ToggleRow(label: "Run in background", isOn: settings.runInBackground) {
                                 settings.updateRunInBackground($0)
                             }
-                            ToggleRow(label: "No back-to-back rests", isOn: settings.noDoubleRest) {
-                                settings.updateNoDoubleRest($0)
-                            }
                             prepareRow
                         }
                     }

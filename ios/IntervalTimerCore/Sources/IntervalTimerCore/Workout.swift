@@ -19,11 +19,15 @@ public struct Interval: Equatable, Sendable {
     public let phase: Phase
     public let durationMs: Int
     public let round: Int
+    /// The section name riding this interval — "" when the section has none. See `Preset.toWorkout`
+    /// for which interval wears whose name.
+    public let label: String
 
-    public init(_ phase: Phase, _ durationMs: Int, round: Int = 0) {
+    public init(_ phase: Phase, _ durationMs: Int, round: Int = 0, label: String = "") {
         self.phase = phase
         self.durationMs = durationMs
         self.round = round
+        self.label = label
     }
 }
 
@@ -34,6 +38,8 @@ public struct TimerProgress: Equatable, Sendable {
     public let remainingMs: Int
     public let intervalDurationMs: Int
     public let done: Bool
+    /// The section name riding this interval — "" when the section has none. See `Preset.toWorkout`.
+    public let label: String
 
     /// 0 at interval start, 1 at interval end — drives the aura + perimeter stroke.
     public var fraction: Double {
@@ -41,12 +47,14 @@ public struct TimerProgress: Equatable, Sendable {
         return 1 - Double(remainingMs) / Double(intervalDurationMs)
     }
 
-    public init(phase: Phase, round: Int, remainingMs: Int, intervalDurationMs: Int, done: Bool) {
+    public init(phase: Phase, round: Int, remainingMs: Int, intervalDurationMs: Int, done: Bool,
+                label: String = "") {
         self.phase = phase
         self.round = round
         self.remainingMs = remainingMs
         self.intervalDurationMs = intervalDurationMs
         self.done = done
+        self.label = label
     }
 }
 
@@ -98,7 +106,8 @@ public struct Workout: Sendable {
                     round: iv.round,
                     remainingMs: end - t,
                     intervalDurationMs: iv.durationMs,
-                    done: false
+                    done: false,
+                    label: iv.label
                 )
             }
             acc = end

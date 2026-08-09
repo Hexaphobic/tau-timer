@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -69,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.chrispoole.intervaltimer.PresetStore
+import com.chrispoole.intervaltimer.SectionNameRow
+import com.chrispoole.intervaltimer.SectionTag
 import com.chrispoole.intervaltimer.Settings
 import com.chrispoole.intervaltimer.model.BUILTIN_PRESETS
 import com.chrispoole.intervaltimer.model.Block
@@ -81,7 +84,6 @@ import com.chrispoole.intervaltimer.model.Preset
 import com.chrispoole.intervaltimer.model.SeqInterval
 import com.chrispoole.intervaltimer.model.secLabel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -154,16 +156,42 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
             .noRippleClickable { expanded = !expanded; armed = false }
             .padding(16.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
+        // No expand indicator. The ▸ that used to sit here was a play triangle in all but name, and
+        // beside a real one it read as two different actions drawn as the same shape — but a chevron
+        // in its place was still a second, quieter control competing with the one that matters.
+        // Tap-to-open is implied by the card, the way the home's sections imply it.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(preset.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                Text(preset.summary(), color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp)
+                Text(preset.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                Text(preset.summary(), color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp)
             }
-            Text(if (expanded) "▾" else "▸", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp)
+            Spacer(Modifier.width(12.dp))
+            // One-tap start, straight off the collapsed row.
+            //
+            // Its own hit box, deliberately larger than it looks like it needs to be: everything
+            // around it expands the row, so the two actions must not share an edge. A near-miss
+            // should land on the harmless one, which is why the row — the big target — is the one
+            // that merely opens, and this — the small deliberate target — is the one that commits.
+            //
+            // No confirmation behind it. The prepare countdown is the confirmation: it names the
+            // workout it is about to run while you still have five seconds, and backing out of a
+            // wrong one is pause → End, which lands right back on this list with nothing changed.
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(GlassFill)
+                    .border(1.dp, glassBorder(), CircleShape)
+                    .clickable(onClick = onStart),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Start ${preset.name}",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
         }
         if (expanded) {
             Spacer(Modifier.height(12.dp))
@@ -172,26 +200,72 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
             // which made the two read as different kinds of row rather than the same row in two
             // colours.
             //
-            // The sequence as written, not as expanded — the ×N line below says how often it runs.
-            preset.intervals.forEach { iv ->
-                val isWork = iv.phase == Phase.WORK
-                val c = if (isWork) WorkColor else RestColor
-                Row(
+            // Grouped through groupIntervals, which is exactly what tapping Edit does to the same
+            // list: a home saved as a preset arrives already multiplied out, so a section of eight
+            // rounds used to read as sixteen identical bands with nothing to say they were one
+            // thing. Grouping folds them back to the pair plus a × N — and gives the section's name
+            // somewhere to sit.
+            //
+            // The sequence as written, not as expanded — the ×N line below says how often the whole
+            // thing runs.
+            groupIntervals(preset.intervals).forEach { g ->
+                val named = g.name.isNotEmpty()
+                // Every group in a bubble of its own, the editor's card in miniature. The ×N used to
+                // float in the gap between two groups, where it belonged to neither one — enclosing
+                // the rows it multiplies is what answers "is that three of the pair above me or the
+                // pair below me" without a word of explanation. Drawn even at ×1, so the boxes stay
+                // the boundary between groups rather than becoming a second signal of their own.
+                //
+                // The count heads the group, above the rows it multiplies. Nothing at all at ×1 —
+                // no reserved slot, no placeholder: a group that doesn't repeat must not have its
+                // rows moved aside to make room for a number that isn't there.
+                val bubble = RoundedCornerShape(18.dp)
+                Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 3.dp)
-                        .background(c.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(vertical = 4.dp)
+                        .background(Color.White.copy(alpha = 0.06f), bubble)
+                        .border(1.dp, Color.White.copy(alpha = 0.10f), bubble)
+                        .padding(8.dp),
                 ) {
-                    Text(
-                        if (isWork) "Work" else "Rest",
-                        color = c,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(secLabel(iv.durationSec), color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp)
+                    if (g.repeat > 1) {
+                        Text(
+                            "× ${g.repeat}",
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+                        )
+                    }
+                    g.items.forEach { iv ->
+                        val isWork = iv.phase == Phase.WORK
+                        val c = if (isWork) WorkColor else RestColor
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                                .background(c.copy(alpha = 0.20f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                // The name takes Work's place, the same swap the timer makes while
+                                // the section plays: doing the named thing is what work means here.
+                                // Rest keeps its own word — it belongs to no one section, and a rest
+                                // reading "Pistol squats" would say you were doing them.
+                                if (isWork) (if (named) g.name else "Work") else "Rest",
+                                color = c,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                // Weighted so a long name wraps inside the band instead of shoving
+                                // the duration off the end of it.
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            )
+                            Text(secLabel(iv.durationSec), color = Color.White.copy(alpha = 0.85f), fontSize = 14.sp)
+                        }
+                    }
                 }
             }
             if (preset.repeatAll > 1) {
@@ -204,17 +278,18 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
                 )
             }
             Spacer(Modifier.height(14.dp))
+            // No Start down here any more. It was the reason this row had to be opened and scrolled
+            // past its own contents to be run; the play button in the header does that job from the
+            // collapsed row, and is still in view once opened. Two Starts in one card is one too many.
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (onEdit != null) {
                         TextButton(onClick = onEdit) { Text("Edit", color = Color.White.copy(alpha = 0.8f)) }
                     }
-                    // Tap the bin to arm, tap the red "Delete?" pill to commit. Both are kept narrow:
-                    // a wide confirm label squeezed the Start pill into wrapping onto a second line.
+                    // Tap the bin to arm, tap the red "Delete?" pill to commit.
                     if (armed) {
                         val pill = RoundedCornerShape(50)
                         Box(
@@ -239,7 +314,6 @@ private fun PresetRow(preset: Preset, onStart: () -> Unit, onEdit: (() -> Unit)?
                         }
                     }
                 }
-                GlassPill("Start  ▶", onStart)
             }
         }
     }
@@ -277,66 +351,16 @@ fun EditorScreen(
     }
     var repeatAll by remember { mutableIntStateOf(initial?.repeatAll ?: 1) }
 
-    // Why an edit was refused. Sequenced so re-flashing the same message restarts its timer.
-    var notice by remember { mutableStateOf<String?>(null) }
-    var noticeSeq by remember { mutableIntStateOf(0) }
-    fun flash(message: String) {
-        // A refused drag asks again on every frame it's held there. Re-arming the timer each time
-        // would pin the pill open and recompose the whole editor at 60fps, so a message already on
-        // screen is left to run out its own clock.
-        if (notice == message) return
-        notice = message
-        noticeSeq++
-    }
-    LaunchedEffect(noticeSeq) {
-        if (notice != null) {
-            delay(2600)
-            notice = null
-        }
-    }
-
     fun current(): List<Block> = blocks.map { it.block }
 
     /**
-     * The no-back-to-back-rests rule, asked of the sequence as it will actually play.
-     *
-     * Compared against what's already there rather than against zero: a sequence that already has
-     * a double rest (built with the rule off, or turned on afterwards) must still be editable, so
-     * only an edit that *adds* one is refused.
-     *
-     * [baseline] is that "what's already there" count. Event handlers take the default and get it
-     * live; composition passes `restBaseline` instead. `canRest` below is asked once per work row on
-     * every pointer frame of an interval drag, and computing this half there rebuilt a flattened
-     * copy of the whole sequence — plus a Pair per interval — on each of those calls, for an answer
-     * that cannot change until an edit lands.
-     */
-    fun violates(
-        candidate: List<Block>,
-        repeat: Int,
-        baseline: Int = backToBackRests(current(), repeatAll),
-    ): Boolean = Settings.noDoubleRest && backToBackRests(candidate, repeat) > baseline
-
-    fun allow(candidate: List<Block>, repeat: Int = repeatAll): Boolean {
-        if (!violates(candidate, repeat)) return true
-        flash("Two rests would land in a row — allow it in Settings")
-        return false
-    }
-
-    fun replace(i: Int, b: Block): List<Block> = current().mapIndexed { k, x -> if (k == i) b else x }
-
-    // Fixed for the whole composition: blocks and repeatAll only move through an edit, and every
-    // edit recomposes this. Read once here so the drag path doesn't ask for it per row per frame.
-    val restBaseline = backToBackRests(current(), repeatAll)
-
-    /**
-     * Every rule-checked edit to a group goes through here; deletes deliberately don't. Returns
-     * whether it landed, so a refused drag knows to put the row back where it came from.
+     * Every edit to a group goes through here; deletes deliberately don't. Returns whether it
+     * landed, so a drag that couldn't knows to put the row back where it came from.
      */
     fun change(i: Int, next: Block): Boolean {
         // Card callbacks capture their index; a second tap landing before recomposition indexes a
         // list that already shrank. Same guard moveGroup carries, for the same reason.
         if (i !in blocks.indices) return false
-        if (!allow(replace(i, next))) return false
         blocks[i] = UiBlock(blocks[i].id, next)
         return true
     }
@@ -344,10 +368,10 @@ fun EditorScreen(
     fun addInterval(i: Int) {
         if (i !in blocks.indices) return
         val b = blocks[i].block
-        val rest = b.copy(items = b.items + SeqInterval(Phase.REST, 15))
-        // Alternate by default; where a rest would double up, work is the sane fallback.
-        val next = if (b.items.lastOrNull()?.phase == Phase.WORK && !violates(replace(i, rest), repeatAll)) {
-            rest
+        // Alternate: a rest after work, work after anything else. Not a rule, just the next row you
+        // almost always want — every stepper and the phase word are still yours to change.
+        val next = if (b.items.lastOrNull()?.phase == Phase.WORK) {
+            b.copy(items = b.items + SeqInterval(Phase.REST, 15))
         } else {
             b.copy(items = b.items + SeqInterval(Phase.WORK, 30))
         }
@@ -363,17 +387,13 @@ fun EditorScreen(
     }
 
     fun addGroup() {
-        val pair = Block(listOf(SeqInterval(Phase.WORK, 30), SeqInterval(Phase.REST, 15)), 1)
-        val next = if (violates(current() + pair, repeatAll)) Block(listOf(SeqInterval(Phase.WORK, 30)), 1) else pair
-        if (allow(current() + next)) blocks.add(UiBlock(ids.next(), next))
+        blocks.add(UiBlock(ids.next(), Block(listOf(SeqInterval(Phase.WORK, 30), SeqInterval(Phase.REST, 15)), 1)))
     }
 
     fun moveGroup(from: Int, to: Int): Boolean {
         // The drag and the accessibility actions both land here with indices of their own, so the
         // range is checked once, where the list is actually rewritten.
         if (from !in blocks.indices || to !in blocks.indices) return false
-        val candidate = current().toMutableList().apply { add(to, removeAt(from)) }
-        if (!allow(candidate)) return false
         blocks.add(to, blocks.removeAt(from))
         return true
     }
@@ -446,12 +466,6 @@ fun EditorScreen(
                     index = i,
                     groupCount = blocks.size,
                     lifted = lifted,
-                    // Switching a work interval to rest is the only edit the rule can refuse, so
-                    // it's the only one the card needs to grey out.
-                    canRest = { j ->
-                        val b = ub.block
-                        !violates(replace(i, b.copy(items = b.items.toMutableList().also { it[j] = it[j].copy(phase = Phase.REST) })), repeatAll, restBaseline)
-                    },
                     handle = {
                         DragHandle(
                             key = ub.id,
@@ -488,7 +502,7 @@ fun EditorScreen(
                     if (blocks.isNotEmpty()) {
                         RoundsRow(
                             repeatAll = repeatAll,
-                            onChange = { next -> if (allow(current(), next)) repeatAll = next },
+                            onChange = { next -> repeatAll = next },
                         )
                         Spacer(Modifier.height(16.dp))
                     } else {
@@ -503,13 +517,6 @@ fun EditorScreen(
                 }
             }
         }
-        }
-
-        notice?.let {
-            NoticePill(
-                it,
-                Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 28.dp, start = 20.dp, end = 20.dp),
-            )
         }
     }
 }
@@ -608,7 +615,6 @@ private fun BlockEditorCard(
     index: Int,
     groupCount: Int,
     lifted: Boolean,
-    canRest: (Int) -> Boolean,
     handle: @Composable () -> Unit,
     /** Returns whether the edit was accepted — a reorder that isn't has to spring back. */
     onChange: (Block) -> Boolean,
@@ -626,6 +632,11 @@ private fun BlockEditorCard(
     // the brightening was doing all the work anyway.
     val fill by animateColorAsState(if (lifted) Color.White.copy(alpha = 0.20f) else GlassFill, label = "fill")
     val edge by animateFloatAsState(if (lifted) 0.5f else 0f, label = "edge")
+    // Whether this card's name row is open for typing. Local, exactly as a home section holds it:
+    // only one card is ever being named. The tick re-arms the focus request so a second tag press
+    // can re-summon the keyboard after it was dismissed without Done.
+    var naming by remember { mutableStateOf(false) }
+    var focusTick by remember { mutableIntStateOf(0) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -636,6 +647,16 @@ private fun BlockEditorCard(
             // rail that used to run down the left of the rows.
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
+        // The name, above everything else in the card — the same field the home's sections use, in
+        // the same place. Naming a group here is what makes the name reachable at all on a sequence
+        // built from scratch: the editor is the only way into one.
+        SectionNameRow(
+            b = block,
+            naming = naming,
+            focusTick = focusTick,
+            onChange = { onChange(it) },
+            onDone = { naming = false },
+        )
         // The home section's header, control for control: grip, the ×N, how long this group runs,
         // and the ✕. No "Group 3" — the grip beside it already says "Reorder group 3" to a screen
         // reader, and the number was only ever there to be counted off against a heading nobody
@@ -668,7 +689,13 @@ private fun BlockEditorCard(
                     ),
             )
             GlassCircle("+", more, size = 36.dp)
-            Spacer(Modifier.weight(1f))
+            // The tag, in the header's dead middle — the home's placement exactly. It carries the
+            // flexible slot that used to be a bare Spacer here, and gives it straight back when
+            // section names are switched off.
+            SectionTag {
+                // A toggle: open-and-focus, or fold the keyboard away again.
+                if (naming) naming = false else { naming = true; focusTick++ }
+            }
             // How long this group runs, the ×N included — the same readout the home puts here.
             Text(
                 clock(block.items.sumOf { it.durationSec } * block.repeat),
@@ -683,7 +710,6 @@ private fun BlockEditorCard(
         // one more line the home screen doesn't draw around the same intervals.
         IntervalRows(
             items = block.items,
-            canRest = canRest,
             onSet = { j, v -> onChange(block.copy(items = block.items.toMutableList().also { it[j] = v })) },
             onRemove = onRemoveItem,
             onMove = { from, to ->
@@ -706,7 +732,6 @@ private fun BlockEditorCard(
 @Composable
 private fun IntervalRows(
     items: List<SeqInterval>,
-    canRest: (Int) -> Boolean,
     onSet: (Int, SeqInterval) -> Unit,
     onRemove: (Int) -> Unit,
     onMove: (Int, Int) -> Boolean,
@@ -857,12 +882,10 @@ private fun IntervalRows(
                 //
                 // Still its own hit box, though: it is the only part of the row that flips the
                 // phase. The row used to swap on any tap, and a near-miss on a stepper flipped work
-                // to rest instead of nudging the clock. Greyed when the rule won't allow a rest
-                // here, but still tappable — the tap is what surfaces the reason.
-                val refused = isWork && !canRest(j)
+                // to rest instead of nudging the clock.
                 Text(
                     if (isWork) "Work" else "Rest",
-                    color = Color.White.copy(alpha = if (refused) 0.45f else 0.95f),
+                    color = Color.White.copy(alpha = 0.95f),
                     fontSize = 15.sp,
                     maxLines = 1,
                     modifier = Modifier

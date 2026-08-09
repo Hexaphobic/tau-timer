@@ -10,7 +10,7 @@ enum class Phase { PREPARE, WORK, REST, DONE }
  * PREPARE (or a rest before any work) is 0. Rest is recovery from a set, not a set of its own, so
  * counting it would say a four-set workout has eight of something.
  */
-data class Interval(val phase: Phase, val durationMs: Long, val round: Int = 0)
+data class Interval(val phase: Phase, val durationMs: Long, val round: Int = 0, val label: String = "")
 
 /** Snapshot of where the clock is at a given moment. */
 data class TimerProgress(
@@ -19,6 +19,8 @@ data class TimerProgress(
     val remainingMs: Long,
     val intervalDurationMs: Long,
     val done: Boolean,
+    /** The section name riding this interval — "" when the section has none. See [Preset.toWorkout]. */
+    val label: String = "",
 ) {
     /** 0f at interval start, 1f at interval end — drives the aura + perimeter stroke. */
     val fraction: Float
@@ -73,6 +75,7 @@ class Workout(
                     remainingMs = end - t,
                     intervalDurationMs = iv.durationMs,
                     done = false,
+                    label = iv.label,
                 )
             }
             acc = end

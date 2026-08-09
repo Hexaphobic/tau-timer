@@ -94,6 +94,38 @@ struct PresetsView: View {
     }
 }
 
+/// One-tap start, straight off the collapsed row.
+///
+/// Its own hit box, deliberately larger than it looks like it needs to be: everything around it
+/// expands the row, so the two actions must not share an edge. A near-miss should land on the
+/// harmless one, which is why the row — the big target — is the one that merely opens, and this —
+/// the small deliberate target — is the one that commits.
+///
+/// No confirmation behind it. The prepare countdown is the confirmation: it names the workout it is
+/// about to run while you still have five seconds, and backing out of a wrong one is pause → End,
+/// which lands right back on this list with nothing changed.
+private struct PlayCircle: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(.white)
+                // A triangle's visual mass sits left of its bounding box, so dead centre reads as
+                // nudged left. Every play button ever drawn carries this offset.
+                .offset(x: 2)
+                .frame(width: 52, height: 52)
+                .background(glassFill, in: Circle())
+                .overlay(Circle().strokeBorder(glassBorder(), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 private struct PresetRow: View {
     let preset: Preset
     let onStart: () -> Void
@@ -105,19 +137,21 @@ private struct PresetRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            // No expand indicator. The ▸ that used to sit here was a play triangle in all but name,
+            // and beside a real one it read as two different actions drawn as the same shape — but a
+            // chevron in its place was still a second, quieter control competing with the one that
+            // matters. Tap-to-open is implied by the card, the way the home's sections imply it.
+            HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(preset.name)
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.white)
                     Text(summary)
-                        .font(.system(size: 13))
+                        .font(.system(size: 14))
                         .foregroundStyle(.white.opacity(0.55))
                 }
-                Spacer()
-                Text(expanded ? "▾" : "▸")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white.opacity(0.5))
+                Spacer(minLength: 12)
+                PlayCircle(label: "Start \(preset.name)", action: onStart)
             }
 
             if expanded { details }
@@ -155,27 +189,65 @@ private struct PresetRow: View {
         // One tinted band per interval, full width — the same treatment as the editor, so a preset
         // looks like the thing you'd edit.
         //
-        // The sequence as written, not as expanded — the ×N line below says how often it runs.
+        // Grouped through `groupIntervals`, which is exactly what tapping Edit does to the same list:
+        // a home saved as a preset arrives already multiplied out, so a section of eight rounds used
+        // to read as sixteen identical bands with nothing to say they were one thing. Grouping folds
+        // them back to the pair plus a × N — and gives the section's name somewhere to sit.
+        //
+        // The sequence as written, not as expanded — the ×N line below says how often the whole runs.
         VStack(spacing: 0) {
-            ForEach(preset.intervals.indices, id: \.self) { i in
-                let interval = preset.intervals[i]
-                let colour = interval.phase == .work ? workColor : restColor
-                HStack {
-                    Text(interval.phase == .work ? "Work" : "Rest")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(colour)
-                    Spacer()
-                    Text(secLabel(interval.durationSec))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.85))
+            ForEach(Array(groupIntervals(preset.intervals).enumerated()), id: \.offset) { pair in
+                let group = pair.element
+                let named = !group.name.isEmpty
+                // Every group in a bubble of its own, the editor's card in miniature. The ×N used to
+                // float in the gap between two groups, where it belonged to neither one — enclosing
+                // the rows it multiplies is what answers "is that three of the pair above me or the
+                // pair below me" without a word of explanation. Drawn even at ×1, so the boxes stay
+                // the boundary between groups rather than becoming a second signal of their own.
+                //
+                // The count heads the group, above the rows it multiplies. Nothing at all at ×1 —
+                // no reserved slot, no placeholder: a group that doesn't repeat must not have its
+                // rows moved aside to make room for a number that isn't there.
+                VStack(alignment: .leading, spacing: 0) {
+                    if group.repeatCount > 1 {
+                        Text("× \(group.repeatCount)")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .padding(.leading, 4)
+                            .padding(.bottom, 4)
+                    }
+                    ForEach(group.items.indices, id: \.self) { i in
+                        let interval = group.items[i]
+                        let colour = interval.phase == .work ? workColor : restColor
+                        HStack {
+                            // The name takes Work's place, the same swap the timer makes while the
+                            // section plays: doing the named thing is what work means here. Rest
+                            // keeps its own word — it belongs to no one section, and a rest reading
+                            // "Pistol squats" would say you were doing them.
+                            Text(interval.phase == .work ? (named ? group.name : "Work") : "Rest")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(colour)
+                                .lineLimit(2)
+                            Spacer(minLength: 8)
+                            Text(secLabel(interval.durationSec))
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(colour.opacity(0.20), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.vertical, 3)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(colour.opacity(0.20), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.vertical, 3)
+                .padding(8)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1))
+                .padding(.vertical, 4)
             }
         }
-        .padding(.top, 12)
+        .padding(.top, 10)
 
         if preset.repeatAll > 1 {
             Text("All of it × \(preset.repeatAll)")
@@ -184,13 +256,15 @@ private struct PresetRow: View {
                 .padding(.top, 8)
         }
 
+        // No Start down here any more. It was the reason this row had to be opened and scrolled
+        // past its own contents to be run; the play button in the header does that job from the
+        // collapsed row, and is still in view once opened. Two Starts in one card is one too many.
         HStack(spacing: 0) {
             if let onEdit {
                 PlainTextButton(text: "Edit", action: onEdit)
             }
             deleteControl
             Spacer()
-            GlassPill(text: "Start  ▶", action: onStart)
         }
         .padding(.top, 14)
     }

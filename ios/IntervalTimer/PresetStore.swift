@@ -35,7 +35,10 @@ final class PresetStore: ObservableObject {
     private func persist() {
         let dto = saved.map { p in
             PresetDTO(name: p.name,
-                      intervals: p.intervals.map { IntervalDTO(phase: $0.phase, sec: $0.durationSec) },
+                      intervals: p.intervals.map {
+                          IntervalDTO(phase: $0.phase, sec: $0.durationSec,
+                                      label: $0.label.isEmpty ? nil : $0.label)
+                      },
                       repeatAll: p.repeatAll > 1 ? p.repeatAll : nil)
         }
         guard let data = try? JSONEncoder().encode(dto) else { return }
@@ -50,7 +53,7 @@ final class PresetStore: ObservableObject {
               let dto = try? JSONDecoder().decode([Lenient].self, from: data) else { return [] }
         return dto.compactMap(\.value).map { p in
             Preset(p.name,
-                   p.intervals.map { SeqInterval($0.phase, $0.sec) },
+                   p.intervals.map { SeqInterval($0.phase, $0.sec, $0.label ?? "") },
                    repeatAll: max(p.repeatAll ?? 1, 1))
         }
     }
@@ -84,4 +87,7 @@ private struct PresetDTO: Codable {
 private struct IntervalDTO: Codable {
     let phase: Phase
     let sec: Int
+    /// The section name, written per interval — optional so an unnamed preset's bytes are unchanged,
+    /// and so every presets.json written before names still decodes.
+    let label: String?
 }

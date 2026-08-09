@@ -13,6 +13,8 @@ public struct TimerUiState: Equatable, Sendable {
     /// Work sets in one pass, 0 when the workout runs once — the pips' row width. See `Workout`.
     public var roundsPerPass: Int
     public var done: Bool
+    /// Current section's name, "" when unnamed — rides under the phase label.
+    public var label: String
 
     public init(
         running: Bool = false,
@@ -24,7 +26,8 @@ public struct TimerUiState: Equatable, Sendable {
         round: Int = 0,
         totalRounds: Int = 0,
         roundsPerPass: Int = 0,
-        done: Bool = false
+        done: Bool = false,
+        label: String = ""
     ) {
         self.running = running
         self.paused = paused
@@ -36,6 +39,7 @@ public struct TimerUiState: Equatable, Sendable {
         self.totalRounds = totalRounds
         self.roundsPerPass = roundsPerPass
         self.done = done
+        self.label = label
     }
 
     public static let idle = TimerUiState()

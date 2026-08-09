@@ -1,5 +1,10 @@
 # Launch day — the exact steps, in order
 
+> **STALE BELOW, 2026-08-07:** the Play release **was submitted** on 2026-08-07. Every "nothing was
+> submitted" line further down predates that and is wrong. Because the app record was created as
+> **Free**, Play's one-way rule (free can never become paid) has permanently settled monetization
+> as free + a one-time unlock. See `docs/GROWTH.md`.
+
 Written the night before (2026-07-30). Everything below assumes the tree as it stands tonight.
 "You" = things only you can do (passwords, accounts, taste). "Claude" = I run it, you watch.
 

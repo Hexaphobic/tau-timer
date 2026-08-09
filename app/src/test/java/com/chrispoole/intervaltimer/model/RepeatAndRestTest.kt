@@ -210,8 +210,8 @@ class RepeatAndRestTest {
 
     /**
      * The longest pattern the scan reaches for. Aperiodic at len 2 — the two works differ — so no
-     * shorter length can match it, and no two rests fall together, so it is a shape `noDoubleRest`
-     * would actually let a user build.
+     * shorter length can match it, and no two rests fall together, so it is the ordinary shape of a
+     * sequence somebody actually builds.
      */
     @Test fun aFourLongPatternGroupsAsOneBlock() {
         val flat = (1..2).flatMap { listOf(w(30), r(10), w(20), r(10)) }

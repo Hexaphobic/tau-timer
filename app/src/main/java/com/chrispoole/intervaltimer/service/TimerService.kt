@@ -195,6 +195,7 @@ class TimerService : Service() {
             totalRounds = totalRounds,
             roundsPerPass = roundsPerPass,
             done = p.done,
+            label = p.label,
         )
         // tickJob?.cancel() is cooperative, so a tick that read `paused` as false before pause()
         // flipped it can still land here afterwards. Dropping that stale snapshot is what stops it

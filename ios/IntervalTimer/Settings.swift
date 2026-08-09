@@ -34,10 +34,6 @@ final class Settings: ObservableObject {
     /// Orthogonal to the palette: kills the aura and leaves a black screen, whichever colours are on.
     @Published private(set) var minimalBg: Bool
 
-    /// Two rests in a row is one longer rest with extra steps. On (the default), the editor won't
-    /// build one; off, you're free to (a stretch-then-breathe cooldown, say).
-    @Published private(set) var noDoubleRest: Bool
-
     /// The main screen as you left it. Sections and the intervals inside them, not just one work/rest
     /// pair: a section can hold a sequence of its own, so storing three numbers would quietly throw
     /// away most of what you built the moment you closed the app.
@@ -67,7 +63,6 @@ final class Settings: ObservableObject {
         // Stored by name, so a palette dropped in a later version degrades to Default instead of
         // failing on launch.
         palette = Palette(rawValue: d.string(forKey: "palette") ?? "") ?? .standard
-        noDoubleRest = d.object(forKey: "noDoubleRest") as? Bool ?? true
         // Falls back to the three loose values an older build wrote, so an existing install comes
         // back to the home it left rather than to the stock one.
         home = Settings.decodeHome(d.data(forKey: "home"))
@@ -96,7 +91,6 @@ final class Settings: ObservableObject {
     func updateRunInBackground(_ b: Bool) { runInBackground = b; defaults.set(b, forKey: "runInBackground") }
     func updatePalette(_ p: Palette) { palette = p; defaults.set(p.rawValue, forKey: "palette") }
     func updateMinimalBg(_ b: Bool) { minimalBg = b; defaults.set(b, forKey: "minimalBg") }
-    func updateNoDoubleRest(_ b: Bool) { noDoubleRest = b; defaults.set(b, forKey: "noDoubleRest") }
     func updateHome(_ blocks: [Block]) {
         guard !blocks.isEmpty else { return }
         home = blocks
@@ -127,6 +121,10 @@ final class Settings: ObservableObject {
 private struct HomeBlockDTO: Codable {
     let items: [ItemDTO]
     let `repeat`: Int
+    /// Optional, and nil rather than "" when there is no name: a synthesised `encode(to:)` skips a
+    /// nil entirely, so an unnamed home writes the exact bytes it always did — which is also what
+    /// keeps a build that predates names reading it.
+    let name: String?
 
     struct ItemDTO: Codable {
         let phase: String
@@ -136,9 +134,11 @@ private struct HomeBlockDTO: Codable {
     init(_ b: Block) {
         items = b.items.map { ItemDTO(phase: $0.phase.rawValue, sec: $0.durationSec) }
         self.repeat = b.repeatCount
+        name = b.name.isEmpty ? nil : b.name
     }
 
     var block: Block {
-        Block(items.map { SeqInterval(Phase(rawValue: $0.phase) ?? .work, $0.sec) }, max(self.repeat, 1))
+        Block(items.map { SeqInterval(Phase(rawValue: $0.phase) ?? .work, $0.sec) },
+              max(self.repeat, 1), name ?? "")
     }
 }

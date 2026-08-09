@@ -1,7 +1,7 @@
 package com.chrispoole.intervaltimer.model
 
 /**
- * The 12 display languages (Chinese and Japanese share a tile, so the picker shows 11). [digits] maps 0-9 to native glyphs (null = Western 0-9); [colon] is the
+ * The 10 display languages (Chinese and Japanese share a tile, so the picker shows 9). [digits] maps 0-9 to native glyphs (null = Western 0-9); [colon] is the
  * clock separator. [work]/[rest]/[ready] are translated phase labels. Values are the
  * research-verified glyphs/labels; system fonts (Noto) cover every script here.
  */
@@ -32,9 +32,7 @@ enum class Language(
     RU("ru", "Русский · Russian", null, ":", "Работа", "Отдых", "Приготовься"),
     HI("hi", "हिन्दी · Hindi", listOf("०", "१", "२", "३", "४", "५", "६", "७", "८", "९"), ":", "काम", "आराम", "तैयार"),
     AR("ar", "العربية · Arabic", listOf("٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"), ":", "تمرين", "راحة", "استعد"),
-    FR("fr", "Français · French", null, ":", "Effort", "Repos", "Prêt"),
-    BN("bn", "বাংলা · Bengali", listOf("০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"), ":", "কাজ", "বিশ্রাম", "প্রস্তুত"),
-    TH("th", "ไทย · Thai", listOf("๐", "๑", "๒", "๓", "๔", "๕", "๖", "๗", "๘", "๙"), ":", "ทำงาน", "พัก", "เตรียม");
+    FR("fr", "Français · French", null, ":", "Effort", "Repos", "Prêt");
 
     /** Chinese/Japanese compose numbers with 十 (十, 二十五…) rather than digit-by-digit (一〇). */
     val han: Boolean get() = this == ZH || this == JA

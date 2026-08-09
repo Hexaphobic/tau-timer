@@ -34,7 +34,12 @@ object PresetStore {
         val arr = JSONArray()
         for (p in saved) {
             val ivs = JSONArray()
-            for (s in p.intervals) ivs.put(JSONObject().put("phase", s.phase.name).put("sec", s.durationSec))
+            for (s in p.intervals) {
+                val io = JSONObject().put("phase", s.phase.name).put("sec", s.durationSec)
+                // Like repeatAll below: written only when set, so old readers see the old shape.
+                if (s.label.isNotEmpty()) io.put("label", s.label)
+                ivs.put(io)
+            }
             // repeatAll is only written when it's doing something: an older build (or an older
             // watch) reading this file just sees the sequence it always saw.
             val o = JSONObject().put("name", p.name).put("intervals", ivs)
@@ -86,7 +91,7 @@ object PresetStore {
                     val ivs = o.getJSONArray("intervals")
                     val list = (0 until ivs.length()).map { j ->
                         val s = ivs.getJSONObject(j)
-                        SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"))
+                        SeqInterval(Phase.valueOf(s.getString("phase")), s.getInt("sec"), s.optString("label"))
                     }
                     Preset(o.getString("name"), list, o.optInt("repeatAll", 1).coerceAtLeast(1))
                 }.getOrNull()

@@ -19,25 +19,32 @@ public struct SeqInterval: Equatable, Codable, Sendable {
     /// the hold-to-repeat timer on the very first step.
     public private(set) var phase: Phase
     public private(set) var durationSec: Int
+    /// The section name stamped on by `flatten`. Data, not identity — so unlike `id` it belongs in
+    /// `==`: two identically-shaped runs under different names are different sections, and
+    /// `groupIntervals` must not merge them. Out of `CodingKeys` alongside `id` for the reason above
+    /// — every wire format is written field by field — and its default is what lets it stay out.
+    public private(set) var label: String = ""
     public let id = UUID()
 
     private enum CodingKeys: String, CodingKey { case phase, durationSec }
 
-    public init(_ phase: Phase, _ durationSec: Int) {
+    public init(_ phase: Phase, _ durationSec: Int, _ label: String = "") {
         self.phase = phase
         self.durationSec = durationSec
+        self.label = label
     }
 
     /// The same row with a value changed, rather than a different row holding the new value.
-    public func with(phase: Phase? = nil, durationSec: Int? = nil) -> SeqInterval {
+    public func with(phase: Phase? = nil, durationSec: Int? = nil, label: String? = nil) -> SeqInterval {
         var copy = self
         if let phase { copy.phase = phase }
         if let durationSec { copy.durationSec = durationSec }
+        if let label { copy.label = label }
         return copy
     }
 
     public static func == (a: SeqInterval, b: SeqInterval) -> Bool {
-        a.phase == b.phase && a.durationSec == b.durationSec
+        a.phase == b.phase && a.durationSec == b.durationSec && a.label == b.label
     }
 }
 
@@ -82,7 +89,19 @@ public struct Preset: Equatable, Sendable {
         var round = 0
         for s in seq {
             if s.phase == .work { round += 1 }
-            list.append(Interval(s.phase, s.durationSec * 1000, round: round))
+            list.append(Interval(s.phase, s.durationSec * 1000, round: round, label: s.label))
+        }
+        // Work wears its own section's name. Everything else — rest, and the lead-in — wears the
+        // name of the work AHEAD of it, because that is the only direction the label is useful in:
+        // the timer prints those as "Next · <name>", so you know what to set up for while you catch
+        // your breath. One backwards pass; anything with no work left ahead of it keeps "".
+        var ahead = ""
+        for i in stride(from: list.count - 1, through: 0, by: -1) {
+            if list[i].phase == .work {
+                ahead = list[i].label
+            } else {
+                list[i] = Interval(list[i].phase, list[i].durationMs, round: list[i].round, label: ahead)
+            }
         }
         // Only when it runs more than once is there a shape to draw: every pass holds the same work,
         // since expanding repeats the written sequence verbatim and playable() only ever drops a rest.
@@ -117,7 +136,7 @@ public func playable(_ intervals: [SeqInterval]) -> [SeqInterval] {
 /// same field the editor's "Repeat everything" writes, so a home saved as a preset round-trips.
 public func homePreset(_ blocks: [Block], repeatAll: Int = 1) -> Preset {
     Preset("", flatten(blocks.map { b in
-        Block(b.items.filter { $0.durationSec > 0 }, b.repeatCount)
+        Block(b.items.filter { $0.durationSec > 0 }, b.repeatCount, b.name)
     }), repeatAll: max(repeatAll, 1))
 }
 
@@ -172,14 +191,30 @@ public func basicBlock(workSec: Int, restSec: Int, rounds: Int) -> Block {
 }
 
 /// A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the
-/// source of truth.
+/// source of truth. `name` is what the section is *of* ("Splits", "Pistol squats") — optional,
+/// capped short by the UI, and shown on the timer while the section plays.
 public struct Block: Equatable, Sendable {
     public var items: [SeqInterval]
     public var repeatCount: Int
+    public var name: String
 
-    public init(_ items: [SeqInterval], _ repeatCount: Int) {
+    public init(_ items: [SeqInterval], _ repeatCount: Int, _ name: String = "") {
         self.items = items
         self.repeatCount = repeatCount
+        self.name = name
+    }
+
+    /// The same section with one thing changed — Kotlin's `data class` copy, which the twin leans on
+    /// for every edit. Written out because Swift has no counterpart, and because building a fresh
+    /// `Block(items, repeat)` instead is how a field added later gets silently dropped: `name`
+    /// arrived and every stepper in the home and the editor started clearing it. Reach for this, not
+    /// the initialiser, anywhere an existing section is being edited.
+    public func with(items: [SeqInterval]? = nil, repeatCount: Int? = nil, name: String? = nil) -> Block {
+        var copy = self
+        if let items { copy.items = items }
+        if let repeatCount { copy.repeatCount = repeatCount }
+        if let name { copy.name = name }
+        return copy
     }
 
     /// The classic home shape: one work, optionally one rest, and nothing else.
@@ -197,11 +232,19 @@ public struct Block: Equatable, Sendable {
 /// A group's ×N repeats its items *as they are*, so a repeated interval comes back carrying the same
 /// `id` each time. A list over this output must key on position; `\.id` would be a duplicate key.
 public func flatten(_ blocks: [Block]) -> [SeqInterval] {
-    blocks.flatMap { b in Array(repeating: b.items, count: max(b.repeatCount, 0)).flatMap { $0 } }
+    // The name is authoritative in block form; flat form carries it per interval, which is what
+    // lets a saved preset round-trip it with the wire shape otherwise untouched. Stamped once per
+    // block rather than per pass, so a repeated interval still comes back with the same `id`.
+    blocks.flatMap { b -> [SeqInterval] in
+        let items = b.items.map { $0.with(label: b.name) }
+        return Array(repeating: items, count: max(b.repeatCount, 0)).flatMap { $0 }
+    }
 }
 
-/// Two rests back to back is just one longer pause, so the editor steers around it (see
-/// `Settings.noDoubleRest`).
+/// Two rests back to back is just one longer pause with a cue in the middle of it. Nothing forbids
+/// it — the editor used to refuse the edit outright, which was a heavy answer to a mild thing — but
+/// the totals line says when a sequence has one, because it is the kind of thing you mean to do on
+/// purpose or not at all.
 ///
 /// Always asked of a fully expanded sequence, which is what makes it catch the cases you can't see
 /// by looking at one row: rest ending one group and opening the next, or a group whose own ×N wraps
@@ -235,10 +278,16 @@ public func backToBackRests(_ blocks: [Block], _ repeatAll: Int) -> Int {
 /// anything, so it used to reopen as nine groups with "work 20" and "rest 20" in separate boxes. A
 /// work and its recovery are one thing you do — the same shape the home's sections are built from.
 public func groupIntervals(_ flat: [SeqInterval]) -> [Block] {
+    // The two forms each carry the name in ONE place: flat as per-interval labels, blocks as the
+    // block's own name. Recovering a block therefore lifts the label up and strips it off the items
+    // — otherwise a recovered block and a hand-built one holding the same section compare unequal.
+    func lift(_ items: [SeqInterval]) -> [SeqInterval] { items.map { $0.with(label: "") } }
     var blocks: [Block] = []
     var i = 0
     while i < flat.count {
-        var best = Block([flat[i]], 1)
+        // Labels sit in SeqInterval equality, so a run only matches within one named section —
+        // recovering the block's name from any member is therefore sound.
+        var best = Block(lift([flat[i]]), 1, flat[i].label)
         var covered = 1
         for len in 1...4 {
             if i + 2 * len > flat.count { break }
@@ -249,7 +298,7 @@ public func groupIntervals(_ flat: [SeqInterval]) -> [Block] {
                 reps += 1
             }
             if reps > 1 && reps * len > covered {
-                best = Block(pattern, reps)
+                best = Block(lift(pattern), reps, pattern[0].label)
                 covered = reps * len
             }
         }
@@ -259,7 +308,7 @@ public func groupIntervals(_ flat: [SeqInterval]) -> [Block] {
         if covered == 1 {
             var end = i + 1
             while end < flat.count, flat[end].phase == .rest { end += 1 }
-            best = Block(Array(flat[i..<end]), 1)
+            best = Block(lift(Array(flat[i..<end])), 1, flat[i].label)
             covered = end - i
         }
         blocks.append(best)

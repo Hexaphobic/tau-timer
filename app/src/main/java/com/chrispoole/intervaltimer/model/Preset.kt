@@ -9,8 +9,12 @@ package com.chrispoole.intervaltimer.model
  * transition at all, so there is nothing here for an id to be misattributed to. It would also cost
  * more than it does there — a data class can't take a field without it landing in equals(), which
  * `groupIntervals` compares runs with and which the home's save reads.
+ *
+ * [label] is the section name stamped on by [flatten] — data, not identity, so landing in equals()
+ * is right: two identically-shaped runs under different names are different sections, and
+ * [groupIntervals] must not merge them.
  */
-data class SeqInterval(val phase: Phase, val durationSec: Int)
+data class SeqInterval(val phase: Phase, val durationSec: Int, val label: String = "")
 
 /**
  * A named, ordered sequence of intervals.
@@ -53,13 +57,21 @@ fun Preset.playbackIntervals(): List<SeqInterval> = playable(expanded())
 fun Preset.toWorkout(prepareMs: Long = 5_000): Workout {
     val seq = playbackIntervals()
     var round = 0
-    val list = buildList {
+    val built = buildList {
         if (prepareMs > 0) add(Interval(Phase.PREPARE, prepareMs))
         seq.forEach { s ->
             if (s.phase == Phase.WORK) round++
-            add(Interval(s.phase, s.durationSec * 1000L, round))
+            add(Interval(s.phase, s.durationSec * 1000L, round, s.label))
         }
     }
+    // WORK wears its own section's name. Everything else — rest, and the lead-in — wears the name
+    // of the work AHEAD of it, because that is the only direction the label is useful in: the timer
+    // prints those as "Next · <name>", so you know what to set up for while you catch your breath.
+    // One backwards pass; anything with no work left ahead of it keeps "".
+    var ahead = ""
+    val list = built.asReversed().map { iv ->
+        if (iv.phase == Phase.WORK) { ahead = iv.label; iv } else iv.copy(label = ahead)
+    }.asReversed()
     // Only when it runs more than once is there a shape to draw: every pass holds the same work,
     // since expanding repeats the written sequence verbatim and playable() only ever drops a rest.
     val perPass = intervals.count { it.phase == Phase.WORK }
@@ -151,15 +163,23 @@ val Block.isBasic: Boolean
     get() = items.firstOrNull()?.phase == Phase.WORK &&
         (items.size == 1 || (items.size == 2 && items[1].phase == Phase.REST))
 
-/** A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the source of truth. */
-data class Block(val items: List<SeqInterval>, val repeat: Int)
+/**
+ * A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the source
+ * of truth. [name] is what the section is *of* ("Splits", "Pistol squats") — optional, capped short
+ * by the UI, and shown on the timer while the section plays.
+ */
+data class Block(val items: List<SeqInterval>, val repeat: Int, val name: String = "")
 
 fun flatten(blocks: List<Block>): List<SeqInterval> =
-    blocks.flatMap { b -> List(b.repeat) { b.items }.flatten() }
+    // The name is authoritative in block form; flat form carries it per interval, which is what
+    // lets a saved preset round-trip it with the wire shape otherwise untouched.
+    blocks.flatMap { b -> List(b.repeat) { b.items.map { it.copy(label = b.name) } }.flatten() }
 
 /**
- * Two rests back to back is just one longer pause, so the editor steers around it (see
- * `Settings.noDoubleRest`).
+ * Two rests back to back is just one longer pause with a cue in the middle of it. Nothing forbids
+ * it — the editor used to refuse the edit outright, which was a heavy answer to a mild thing — but
+ * the totals line says when a sequence has one, because it is the kind of thing you mean to do on
+ * purpose or not at all.
  *
  * Always asked of a fully expanded sequence, which is what makes it catch the cases you can't see
  * by looking at one row: rest ending one group and opening the next, or a group whose own ×N wraps
@@ -194,10 +214,16 @@ fun backToBackRests(blocks: List<Block>, repeatAll: Int): Int {
  * work and its recovery are one thing you do — the same shape the home's sections are built from.
  */
 fun groupIntervals(flat: List<SeqInterval>): List<Block> {
+    // The two forms each carry the name in ONE place: flat as per-interval labels, blocks as the
+    // block's own name. Recovering a block therefore lifts the label up and strips it off the items
+    // — otherwise a recovered block and a hand-built one holding the same section compare unequal.
+    fun lift(items: List<SeqInterval>) = items.map { it.copy(label = "") }
     val blocks = mutableListOf<Block>()
     var i = 0
     while (i < flat.size) {
-        var best = Block(listOf(flat[i]), 1)
+        // Labels sit in SeqInterval equality, so a run only matches within one named section —
+        // recovering the block's name from any member is therefore sound.
+        var best = Block(lift(listOf(flat[i])), 1, flat[i].label)
         var covered = 1
         for (len in 1..4) {
             if (i + 2 * len > flat.size) break
@@ -207,7 +233,7 @@ fun groupIntervals(flat: List<SeqInterval>): List<Block> {
                 flat.subList(i + reps * len, i + (reps + 1) * len) == pattern
             ) reps++
             if (reps > 1 && reps * len > covered) {
-                best = Block(pattern.toList(), reps)
+                best = Block(lift(pattern), reps, pattern.first().label)
                 covered = reps * len
             }
         }
@@ -217,7 +243,7 @@ fun groupIntervals(flat: List<SeqInterval>): List<Block> {
         if (covered == 1) {
             var end = i + 1
             while (end < flat.size && flat[end].phase == Phase.REST) end++
-            best = Block(flat.subList(i, end).toList(), 1)
+            best = Block(lift(flat.subList(i, end)), 1, flat[i].label)
             covered = end - i
         }
         blocks.add(best)

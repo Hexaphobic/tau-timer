@@ -18,6 +18,12 @@ struct HomeView: View {
     @State private var naming = false
     @State private var name = ""
     @State private var saved = false
+    /// Which section's name field is open for typing, by row id — nil for none. Hoisted rather than
+    /// kept per card because only one can ever be open: the field takes the caret when it opens, and
+    /// there is one caret. By id, not index, so a drag or a delete can't leave it pointing at the
+    /// wrong card. The tag opens and closes this row outright — closing keeps the name, it just puts
+    /// the field away; only deleting the section takes the name with it.
+    @State private var namingRow: Int?
 
     /// The classic home — three bare steppers, no box — is exactly one section holding work and rest.
     /// Add a second section OR a third interval and every section folds into its own card, because at
@@ -34,6 +40,17 @@ struct HomeView: View {
     /// gets a card but no group, because its own repeat already is the total and a second number
     /// governing one thing is a number you can only get wrong.
     private var grouped: Bool { rows.count > 1 }
+
+    /// The sections as they are saved and run — with the lone-section case's name stripped.
+    ///
+    /// A name only means anything when there is another section to tell it apart from, which is
+    /// exactly why the tag lives in the header and the header only arrives with `grouped`. Delete
+    /// down to one and the name would otherwise survive, ride onto the timer, and have nowhere on
+    /// screen left to edit it from. Normalised here rather than at each delete because it is the one
+    /// place both the save and the workout read, so neither can disagree with the other.
+    private var blocks: [Block] {
+        grouped ? rows.map(\.block) : rows.map { $0.block.with(name: "") }
+    }
 
     private var effectiveRepeatAll: Int { grouped ? repeatAll : 1 }
 
@@ -64,8 +81,8 @@ struct HomeView: View {
         // hold a sequence of its own now, and dropping that on relaunch would be the same bug as
         // never saving it. Mirrored from the live list rather than written on the edit path: drag,
         // the move-up/down actions and delete all change the list without going through change().
-        .onChange(of: rows) { _, live in
-            Settings.shared.updateHome(live.map(\.block))
+        .onChange(of: rows) { _, _ in
+            Settings.shared.updateHome(blocks)
         }
     }
 
@@ -154,6 +171,10 @@ struct HomeView: View {
             .scrollBounceBehavior(.basedOnSize)
             // A card under the finger must not also drag the page along with it.
             .scrollDisabled(reorder.isDragging)
+            // Scroll the keyboard away, which is the gesture iOS users reach for and the only way
+            // off this field other than the tag itself and Return. It resigns first responder, so
+            // the caret goes with it — see SectionName, which closes its row on losing focus.
+            .scrollDismissesKeyboard(.interactively)
             // No scroll indicator, here or on any other screen: a bar that flashes up to say how far
             // down a short list you are answers a question none of these screens leave open. Owner's
             // standing preference — don't add it back.
@@ -220,9 +241,9 @@ struct HomeView: View {
     /// Sets, not "rounds": the control below already owns that word and means the other thing by it
     /// — this is the count the timer will walk you through, the one the pips draw.
     private var summaryLine: some View {
-        let sets = homeSets(rows.map(\.block), repeatAll: effectiveRepeatAll)
+        let sets = homeSets(blocks, repeatAll: effectiveRepeatAll)
         return Text("\(sets) \(sets == 1 ? "set" : "sets")  ·  "
-                    + clockLabel(homeSeconds(rows.map(\.block), repeatAll: effectiveRepeatAll)))
+                    + clockLabel(homeSeconds(blocks, repeatAll: effectiveRepeatAll)))
             .font(.system(size: 14))
             .tracking(1)
             .foregroundStyle(.white.opacity(0.5))
@@ -262,6 +283,19 @@ struct HomeView: View {
         let fewer: (Int) -> Void = { m in change(i) { $0.repeatCount = max($0.repeatCount - m, 1) } }
         let more: (Int) -> Void = { m in change(i) { $0.repeatCount += m } }
         return VStack(spacing: solo ? 16 : 6) {
+            // The name, above everything else in the card — tag pressed, this expands out of the
+            // top on the same move the header lid rides, and the card grows to make room exactly
+            // the way it does for a new interval. Pressed again it folds away with the name intact.
+            // Only on a card: with one section there is nothing to tell apart.
+            if grouped {
+                SectionName(
+                    block: b,
+                    naming: namingRow == row.id,
+                    onChange: { next in change(i) { $0 = next } },
+                    onDone: { withAnimation(.easeInOut(duration: 0.26)) { namingRow = nil } }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             // The header carries the drag grip, the per-section ×N, the section's own running time
             // and the ✕ — every one of which is meaningless when there is only one section. It
             // arrives with the second one.
@@ -284,6 +318,16 @@ struct HomeView: View {
                                           b.repeatCount == 1 ? "once" : "\(b.repeatCount) times",
                                           down: fewer, up: more)
                     GlassCircle(glyph: "+", onStep: more, size: 36)
+                    Spacer(minLength: 6)
+                    // The tag, in the header's dead middle. Just the trigger — the name itself
+                    // lives in the row that expands out of the card's top. Draws nothing at all
+                    // when section names are off, and the two flexible gaps then merge back into
+                    // the one this row always had.
+                    SectionTag {
+                        withAnimation(.easeInOut(duration: 0.26)) {
+                            namingRow = namingRow == row.id ? nil : row.id
+                        }
+                    }
                     Spacer(minLength: 6)
                     // How long this block is — the intervals under it, run the × N to its left. M:SS,
                     // not formatMs: these are block lengths now rather than shares of the whole
@@ -326,7 +370,7 @@ struct HomeView: View {
                     onClose: { naming = false; name = "" },
                     onSave: {
                         PresetStore.shared.add(
-                            homePreset(rows.map(\.block), repeatAll: effectiveRepeatAll)
+                            homePreset(blocks, repeatAll: effectiveRepeatAll)
                                 .renamed(name.trimmingCharacters(in: .whitespacesAndNewlines))
                         )
                         naming = false
@@ -385,6 +429,9 @@ struct HomeView: View {
         // "never remove the last one" is the real invariant. Two ✕ taps landing in one frame both
         // passed the bounds check and took rows to empty, where the footer's + reads rows.last.
         guard rows.count > 1, rows.indices.contains(i) else { return }
+        // Ids are minted as max + 1, so deleting the last row frees its id for the next one added —
+        // and a stale namingRow would then open that fresh section with the keyboard already up.
+        namingRow = nil
         // Going the other way the box is let go: the copy shrinks away and, if that leaves one plain
         // work/rest section, the chrome fades off the one that's left in the same move.
         withAnimation(.easeInOut(duration: 0.28)) {
@@ -411,14 +458,17 @@ struct HomeView: View {
         // read as one move in two beats rather than everything arriving at once.
         withAnimation(.easeOut(duration: 0.24)) {
             let nextId = (rows.map(\.id).max() ?? 0) + 1
+            // The shape copies; the name doesn't — it names the section it's on, not the next one.
+            // Not only taste: a copied name on an identical shape makes the two sections compare
+            // equal, and groupIntervals then folds the pair into one card ×2 on the next launch.
             if rows.count == 1 {
                 setRepeatAll(last.block.repeatCount)
                 var one = last.block
                 one.repeatCount = 1
                 rows[0].block = one
-                rows.append(HomeRow(id: nextId, block: one))
+                rows.append(HomeRow(id: nextId, block: one.with(name: "")))
             } else {
-                rows.append(HomeRow(id: nextId, block: last.block))
+                rows.append(HomeRow(id: nextId, block: last.block.with(name: "")))
             }
         }
     }
@@ -426,7 +476,7 @@ struct HomeView: View {
     private func go() {
         // The same builder the total above it is measured from, so the number and the button can
         // never describe different workouts.
-        onGo(homeWorkout(rows.map(\.block),
+        onGo(homeWorkout(blocks,
                          repeatAll: effectiveRepeatAll,
                          prepareMs: Settings.shared.prepareSec * 1000))
     }
@@ -466,6 +516,181 @@ private struct NameField: View {
         // Opened deliberately, so it takes the caret without a second tap.
         .onAppear { focused = true }
     }
+}
+
+// MARK: - Section name
+
+/// What this section is *of* — "Splits", "Pistol squats". Sits above everything else in the card and
+/// rides onto the timer while the section plays.
+///
+/// Its own view, and it observes Settings itself rather than letting HomeView do it: `Settings.home`
+/// republishes on every edit (the `.onChange(of: rows)` that saves the page), so an @ObservedObject
+/// up there would rebuild the whole home a second time per stepper frame. Same reason `SectionTag`
+/// below is a view rather than an `if` in the header.
+///
+/// Not private: the sequence editor's cards are the same object on another screen and name their
+/// sections with this exact field. One field, so the cap, the caret and the Done key can't drift.
+struct SectionName: View {
+    let block: Block
+    /// Whether the row is open at all. The tag toggles it, and closing is only ever a fold — the
+    /// name is left exactly where it was, for the section to wear on the timer and for the next tag
+    /// press to find. Deleting the section is the one thing that takes a name away.
+    let naming: Bool
+    let onChange: (Block) -> Void
+    let onDone: () -> Void
+
+    @FocusState private var focused: Bool
+    /// What the text view actually holds. The field is bound to THIS, not straight to `block.name`,
+    /// because the 40-character cap has to be applied a beat late. Handing a UIKit text view a value
+    /// different from the one it just reported desyncs the two: measured, typing past the cap emptied
+    /// the field and started collecting again from the next keystroke — "Pistol squats weighted deep
+    /// pause at the bottom" came out as "bottom". Clamping in `.onChange` lets the text view settle
+    /// on its own value first, and the correction lands as an ordinary update.
+    @State private var draft = ""
+
+    var body: some View {
+        if naming {
+            TextField("", text: $draft,
+                      prompt: Text("Name").foregroundStyle(.white.opacity(0.35)),
+                      // Wraps rather than scrolling sideways. 3 rows, not 2, because only CJK ever
+                      // needs the third and clipping it there is exactly what the 40-character cap
+                      // exists to avoid.
+                      axis: .vertical)
+                .lineLimit(1...3)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .foregroundStyle(.white)
+                .tint(.white)
+                .focused($focused)
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The caret is a function of focus, and focus is what this view is handed. Opening
+                // takes it; closing — the tag pressed again, or another section's tag — gives it up,
+                // which is what puts the keyboard away.
+                //
+                // `.task(id:)`, NOT `.onChange` — this is the Kotlin's `LaunchedEffect(focusTick)`
+                // arrived at from the other end. Assigning @FocusState inside onChange lands in the
+                // middle of the update that changed `naming` and the request is dropped: measured on
+                // an already-mounted field, the row opened with no keyboard and no caret. A task
+                // runs after that update settles, where it takes. It also covers first mount, which
+                // is the one case onChange never sees and onAppear was quietly carrying.
+                .task(id: naming) { focused = naming }
+                // And the other direction: the keyboard scrolled away (see
+                // `.scrollDismissesKeyboard`) resigns first responder without anything up here
+                // knowing, which would leave a caret blinking in a field that can no longer be
+                // typed into. Losing focus closes the row.
+                .onChange(of: focused) { _, has in if !has && naming { onDone() } }
+                // The model is the source of truth; the draft mirrors it. Seeding on appear is what
+                // fills an already-named card, and following it afterwards covers a change this
+                // field didn't make — the ✕ on the section above shifting a different block into
+                // this view's identity slot.
+                .onAppear { draft = block.name }
+                .onChange(of: block.name) { _, name in if draft != name { draft = name } }
+                .onChange(of: draft) { _, raw in commit(raw) }
+        }
+    }
+
+    private func commit(_ raw: String) {
+        // 40. Picked to be the largest cap that CANNOT clip in any script, which retires the
+        // character-vs-row mismatch outright rather than just making it rarer. Measured on the
+        // Android twin at the same 15pt in this field, not estimated:
+        //
+        //   Latin  ~26 per row → 40 fills 2 rows
+        //   CJK      15 per row → 40 fills 3 rows exactly (15 + 15 + 10)
+        //
+        // So CJK is the binding constraint and the ceiling is 45; 40 keeps five characters of
+        // headroom. A bigger cap buys only names nobody writes: a section is one exercise, not a
+        // sentence.
+        var name = String(raw.replacingOccurrences(of: "\n", with: " ").prefix(40))
+        // A vertical-axis field has no Done key of its own and never fires `.onSubmit`, so Return
+        // arriving as a newline IS the Done press. The name never carries the break: wrapping is the
+        // layout's call, and a trailing space would shift the centred name on the timer off true.
+        if raw.contains("\n") {
+            while name.hasSuffix(" ") { name.removeLast() }
+            onDone()
+        }
+        if draft != name { draft = name }
+        if block.name != name { onChange(block.with(name: name)) }
+    }
+}
+
+/// The button that opens the name field: a luggage tag, drawn rather than typed — same as `CloseX`
+/// and `GripDots`, and for the same reason, that no font is guaranteed to carry a glyph.
+///
+/// The action is "name this section", not "edit", and a tag says that — unlike every pencil in every
+/// icon set it points right on its own, with no mirroring against convention.
+///
+/// Not private, for the reason given on `SectionName` above.
+struct SectionTag: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            // Five points on Lucide's 24-unit grid: flat top and left edges meeting the squared
+            // corner that holds the punch hole, then the long diagonals out to the point.
+            tag
+                .frame(width: 18, height: 18)
+                .frame(width: 36, height: 36)   // the same circle as the steppers beside it
+                .background(glassFill, in: Circle())
+                .overlay(Circle().strokeBorder(glassBorder(), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Name this section")
+    }
+
+    private var tag: some View {
+        Canvas { ctx, size in
+            let u = min(size.width, size.height) / 24
+            let ink = Color.white.opacity(0.85)
+            let outline = roundedPolygon([
+                CGPoint(x: 12 * u, y: 2 * u),
+                CGPoint(x: 2 * u, y: 2 * u),
+                CGPoint(x: 2 * u, y: 12 * u),
+                CGPoint(x: 13 * u, y: 23 * u),
+                CGPoint(x: 23 * u, y: 13 * u),
+            ], radius: 2.4 * u)
+            ctx.stroke(outline, with: .color(ink),
+                       style: StrokeStyle(lineWidth: 2 * u, lineCap: .round, lineJoin: .round))
+            // The punch hole, filled: an outlined ring this small is two concentric circles a pixel
+            // apart, which just reads as grey.
+            let r = 1.4 * u
+            ctx.fill(Path(ellipseIn: CGRect(x: 7.6 * u - r, y: 7.6 * u - r, width: r * 2, height: r * 2)),
+                     with: .color(ink))
+        }
+    }
+}
+
+/// A closed polygon with every corner rounded — Compose's `PathEffect.cornerPathEffect`, which
+/// SwiftUI has no counterpart for, written out.
+///
+/// Each corner becomes a quadratic curve whose control point is the corner itself and whose ends sit
+/// `radius` back along the two edges meeting there. A round line JOIN is not the same thing and was
+/// tried first on the Android side: it softens by half the stroke width, which came out visibly
+/// sharper than the reference icon.
+private func roundedPolygon(_ pts: [CGPoint], radius: CGFloat) -> Path {
+    var path = Path()
+    let n = pts.count
+    guard n > 2 else { return path }
+    /// `radius` back from `a` towards `b`, capped at half the edge so two close corners can't
+    /// overshoot each other and fold the edge between them inside out.
+    func along(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max((dx * dx + dy * dy).squareRoot(), 0.0001)
+        let t = min(radius, len / 2) / len
+        return CGPoint(x: a.x + dx * t, y: a.y + dy * t)
+    }
+    for i in 0..<n {
+        let corner = pts[i]
+        let start = along(corner, pts[(i + n - 1) % n])
+        let end = along(corner, pts[(i + 1) % n])
+        if i == 0 { path.move(to: start) } else { path.addLine(to: start) }
+        path.addQuadCurve(to: end, control: corner)
+    }
+    path.closeSubpath()
+    return path
 }
 
 // MARK: - Stepper row
@@ -637,7 +862,7 @@ struct IntervalStack: View {
         guard block.items.indices.contains(j) else { return }
         var items = block.items
         items[j] = iv
-        onChange(Block(items, block.repeatCount))
+        onChange(block.with(items: items))
     }
 
     private func remove(_ j: Int) {
@@ -648,8 +873,7 @@ struct IntervalStack: View {
         // intervals". Leaving the mutation bare snapped all of that in one frame, and left
         // "+ interval" fading away the box that the ✕ beside it slammed back.
         withAnimation(.easeInOut(duration: 0.2)) {
-            onChange(Block(block.items.enumerated().filter { $0.offset != j }.map(\.element),
-                           block.repeatCount))
+            onChange(block.with(items: block.items.enumerated().filter { $0.offset != j }.map(\.element)))
         }
     }
 
@@ -661,7 +885,7 @@ struct IntervalStack: View {
             ? SeqInterval(.rest, DEFAULT_REST_SEC)
             : SeqInterval(.work, DEFAULT_WORK_SEC)
         withAnimation(.easeInOut(duration: 0.2)) {
-            onChange(Block(block.items + [next], block.repeatCount))
+            onChange(block.with(items: block.items + [next]))
         }
     }
 }

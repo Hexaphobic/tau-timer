@@ -13,6 +13,8 @@ data class TimerUiState(
     /** Work sets in one pass, 0 when the workout runs once — the pips' row width. See [Workout]. */
     val roundsPerPass: Int = 0,
     val done: Boolean = false,
+    /** Current section's name, "" when unnamed — rides under the phase label. */
+    val label: String = "",
 ) {
 
     companion object {

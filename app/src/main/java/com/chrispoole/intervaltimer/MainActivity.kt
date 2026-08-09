@@ -49,6 +49,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.background
@@ -63,6 +65,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -78,6 +81,11 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -86,6 +94,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -106,6 +120,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
@@ -129,6 +144,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
@@ -470,7 +486,12 @@ private fun SetupScreen(
     // a sequence of its own now, and dropping that on relaunch would be the same bug as never saving
     // it. Mirrored from the live list rather than written on the edit path: drag, the move-up/down
     // actions and delete all change the list without going through change().
-    val layout = rows.map { it.b }
+    // A name only means anything when there is another section to tell it apart from, which is
+    // exactly why the tag lives in the header and the header only arrives with `grouped`. Delete
+    // down to one and the name would otherwise survive, ride onto the timer, and have nowhere on
+    // screen left to edit it from. Stripped here rather than at each delete because this is the one
+    // list both the save and the workout read, so neither can disagree with the other.
+    val layout = if (grouped) rows.map { it.b } else rows.map { it.b.copy(name = "") }
     LaunchedEffect(layout) { if (layout.isNotEmpty()) Settings.updateHome(layout) }
 
     fun setRepeatAll(n: Int) {
@@ -493,9 +514,10 @@ private fun SetupScreen(
         if (rows.size == 1) {
             setRepeatAll(last.repeat)
             rows[0] = HomeRow(rows[0].id, last.copy(repeat = 1))
-            rows += HomeRow(nextId, last.copy(repeat = 1))
+            // The shape copies; the name doesn't — it names the section it's on, not the next one.
+            rows += HomeRow(nextId, last.copy(repeat = 1, name = ""))
         } else {
-            rows += HomeRow(nextId, last)
+            rows += HomeRow(nextId, last.copy(name = ""))
         }
     }
 
@@ -622,7 +644,7 @@ private fun SetupScreen(
                                     onClose = { naming = false; name = "" },
                                     onSave = {
                                         PresetStore.add(
-                                            homePreset(rows.map { it.b }, effectiveRepeatAll)
+                                            homePreset(layout, effectiveRepeatAll)
                                                 .copy(name = name.trim()),
                                         )
                                         naming = false
@@ -642,9 +664,9 @@ private fun SetupScreen(
                 // owns that word and means the other thing by it — this is the count the timer will
                 // walk you through, the one the pips draw.
                 item(key = "summary") {
-                    val sets = homeSets(rows.map { it.b }, effectiveRepeatAll)
+                    val sets = homeSets(layout, effectiveRepeatAll)
                     Text(
-                        "$sets ${if (sets == 1) "set" else "sets"}  ·  ${clock(homeSeconds(rows.map { it.b }, effectiveRepeatAll))}",
+                        "$sets ${if (sets == 1) "set" else "sets"}  ·  ${clock(homeSeconds(layout, effectiveRepeatAll))}",
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         letterSpacing = 1.sp,
@@ -784,6 +806,11 @@ private fun SetupScreen(
                                 key = row.id,
                                 label = "section ${i + 1}",
                                 state = dragDrop,
+                                // Narrower than its stock 44dp: the dots are only 12dp of ink, and
+                                // the dead width on their left pushed the whole header cluster
+                                // right — this hands ~10dp back to the pencil's slot. 36×44 of
+                                // touch target, the same width the glass steppers get.
+                                modifier = Modifier.width(36.dp),
                                 onMoveUp = if (i > 0) ({ rows.add(i - 1, rows.removeAt(i)); Unit }) else null,
                                 onMoveDown = if (i < rows.lastIndex) ({ rows.add(i + 1, rows.removeAt(i)); Unit }) else null,
                             )
@@ -830,7 +857,7 @@ private fun SetupScreen(
                                 // number and the button can never describe different workouts.
                                 onGo(
                                     homeWorkout(
-                                        rows.map { it.b },
+                                        layout,
                                         effectiveRepeatAll,
                                         Settings.prepareSec * 1000L,
                                     ),
@@ -891,6 +918,7 @@ private val CenterUnderHeader = object : Arrangement.Vertical {
  * is the whole point — "Add intervals" should look like a box closing around what is already on
  * screen, and coming back should look like that box being let go.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeSection(
     b: Block,
@@ -903,6 +931,11 @@ private fun HomeSection(
     lifted: Boolean,
 ) {
     val shape = RoundedCornerShape(28.dp)
+    // Whether this section's name row is open for typing. Local: only one section is ever being
+    // named. The tick re-arms the focus request so a second tag press can re-summon the keyboard
+    // after it was dismissed without Done.
+    var naming by remember { mutableStateOf(false) }
+    var focusTick by remember { mutableIntStateOf(0) }
     // 0 on the plain home, 1 as a card. Everything the box is made of rides on this one number, so
     // the chrome arrives and leaves as a single move rather than as four separate ones.
     //
@@ -947,13 +980,20 @@ private fun HomeSection(
             }
             .paddingBy(12.dp, 10.dp) { box.value },
     ) {
+        SectionNameRow(
+            b = b,
+            enabled = showHeader,
+            naming = naming,
+            focusTick = focusTick,
+            onChange = onChange,
+            onDone = { naming = false },
+        )
         // The lid of the box: it arrives with the box and leaves with it. Its *height* is animated,
         // not just its alpha — an `if` around it made the card jump a whole row taller the instant
         // the box started forming, and the wrapper outside then had to chase that jump.
         AnimatedVisibility(showHeader, enter = chromeIn(Alignment.Top), exit = chromeOut(Alignment.Top)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 handle()
-                Spacer(Modifier.width(2.dp))
                 // Hoisted only so the number can offer the same two edits as accessibility actions
                 // without a second copy of them to keep in step.
                 val less: (Int) -> Unit = { m -> onChange(b.copy(repeat = (b.repeat - m).coerceAtLeast(1))) }
@@ -973,7 +1013,12 @@ private fun HomeSection(
                         .stepperSemantics("Section repeats", "${b.repeat} times", less, more),
                 )
                 GlassCircle("+", more, size = 36.dp)
-                Spacer(Modifier.weight(1f))
+                // The tag, in the header's dead middle. Just the trigger — the name itself lives
+                // in the row that expands out of the card's top.
+                SectionTag {
+                    // A toggle: open-and-focus, or fold the keyboard away again.
+                    if (naming) naming = false else { naming = true; focusTick++ }
+                }
                 // How long this block is — the intervals under it, run the × N to its left. M:SS,
                 // not formatMs: these are block lengths now rather than shares of the whole workout,
                 // so most of them are under a minute, and a bare "50" in a column under "1:30" reads
@@ -988,6 +1033,210 @@ private fun HomeSection(
             }
         }
         IntervalStack(b, { appear.value }, onChange, compact = boxed, t = { box.value })
+    }
+}
+
+/**
+ * The row a section's name is typed into — "Splits", "Pistol squats" — sitting above everything else
+ * in the card.
+ *
+ * Shared by the home's sections and the sequence editor's group cards, which are the same object
+ * seen on two screens: one field, so the 40-character cap, the caret behaviour and the Done key
+ * cannot drift apart between them. The caller owns [naming] and [focusTick], because it is the one
+ * that knows which of its cards the tag was pressed on.
+ *
+ * [enabled] is the home's "only once there is a header to hang it under"; the editor passes true.
+ *
+ * Visibility follows [naming] alone. The tag opens and closes this row outright, and closing is only
+ * ever a fold — the name is left exactly where it was, for the section to wear on the timer and for
+ * the next tag press to find. Deleting the section is the one thing that takes a name away.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun SectionNameRow(
+    b: Block,
+    naming: Boolean,
+    focusTick: Int,
+    onChange: (Block) -> Unit,
+    onDone: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val focusManager = LocalFocusManager.current
+    // The caret is a function of FOCUS, and hiding the keyboard does not take focus away — so
+    // dismissing the IME any way other than our own Done left the field focused and the cursor
+    // blinking inside a box that could no longer receive a keystroke. The keyboard is the honest
+    // signal here ("only there when the keyboard's up"), so watch it and drop focus when it goes.
+    //
+    // The `seen` latch is load-bearing: requesting focus is what *summons* the keyboard, so for a
+    // frame or two after the tag is pressed the IME is still down. Reacting to that would clear
+    // the focus that was about to open it — the row would flicker and close on its own. Only a
+    // keyboard that has actually been up can count as one that has gone away.
+    val imeUp = WindowInsets.isImeVisible
+    var seen by remember { mutableStateOf(false) }
+    LaunchedEffect(imeUp) {
+        if (imeUp) {
+            seen = true
+        } else if (seen) {
+            seen = false
+            // Guarded on `naming` so the cards that merely *witnessed* someone else's keyboard —
+            // isImeVisible is a window-wide fact, every card sees it — don't all pile onto the
+            // focus manager when it closes.
+            if (naming) {
+                onDone()
+                focusManager.clearFocus()
+            }
+        }
+    }
+        // The name, above everything else in the card — pencil pressed, this expands out of the
+        // top on the same chrome animation the header lid rides, and the card grows to make room
+        // exactly the way it does for a new interval. Once named it simply stays; clearing the
+        // text and hitting Done folds it away again.
+        AnimatedVisibility(
+            enabled && naming,
+            enter = chromeIn(Alignment.Top),
+            exit = chromeOut(Alignment.Top),
+        ) {
+            val focus = remember { FocusRequester() }
+            // TextFieldValue rather than the plain String overload, for one reason: the caret.
+            // With a String the field owns the selection, and a programmatic focus lands it at
+            // position 0 — tapping the tag on an already-named section put the caret BEFORE
+            // "Splits", so typing prepended. Owning the value lets each tag press park it at
+            // the end, which is where an edit to a name starts.
+            var tf by remember { mutableStateOf(TextFieldValue(b.name, TextRange(b.name.length))) }
+            // The block is the source of truth; the field follows it. Covers this remember's
+            // slot being reused for a different section after a delete above shifts the list.
+            if (tf.text != b.name) tf = TextFieldValue(b.name, TextRange(b.name.length))
+            // Keyed on the tick, not on `naming`: each pencil press re-arms the request, so the
+            // keyboard comes back even when a swipe already dismissed it with naming still true.
+            // On first composition of an already-named card naming is false, so nothing grabs.
+            LaunchedEffect(focusTick) {
+                if (naming) {
+                    tf = tf.copy(selection = TextRange(tf.text.length))
+                    focus.requestFocus()
+                }
+            }
+            BasicTextField(
+                value = tf,
+                // 40. The old 16 was set when this was a strip wedged between the steppers with one
+                // line to spend; on its own full-width row that was needlessly mean. 40 is picked to
+                // be the largest cap that CANNOT clip in any script, which retires the
+                // character-vs-row mismatch outright rather than just making it rarer. Measured on
+                // device at 15sp in this field, not estimated:
+                //
+                //   Latin  ~26 per row → 40 fills 2 rows
+                //   CJK     15 per row → 40 fills 3 rows exactly (15 + 15 + 10)
+                //
+                // So CJK is the binding constraint and the ceiling is 45; 40 keeps five characters
+                // of headroom. Raising this much past 40 puts Chinese text into a fourth row the
+                // field refuses to draw — visibly swallowing input it has actually stored. A bigger
+                // cap buys only names nobody writes: a section is one exercise, not a sentence.
+                //
+                // Newlines are flattened to spaces: wrapping is the layout's call, so a name can't
+                // reach the timer carrying hard breaks.
+                onValueChange = { new ->
+                    val text = new.text.replace("\n", " ").take(40)
+                    // Untouched input passes through whole, composition ranges and all; only a
+                    // clamped one is rebuilt, with the caret held in place rather than thrown
+                    // to the end of a name being edited in the middle.
+                    tf = if (text == new.text) new
+                    else TextFieldValue(text, TextRange(minOf(new.selection.end, text.length)))
+                    onChange(b.copy(name = text))
+                },
+                // Wraps rather than scrolling sideways. 3 rather than 2 because only CJK ever needs
+                // the third row, and clipping it there is exactly the bug this cap exists to avoid.
+                singleLine = false,
+                maxLines = 3,
+                textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
+                cursorBrush = SolidColor(Color.White),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { onDone(); focusManager.clearFocus() }),
+                // animateContentSize so the second and third rows arrive the way everything else in
+                // this card does — grown into, not snapped. Same 260ms the box itself rides.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp)
+                    .animateContentSize(tween(260, easing = FastOutSlowInEasing)),
+                decorationBox = { inner ->
+                    // Top-aligned, not centred: on a two- or three-row name the placeholder is
+                    // long gone, but centring would also drift the first row down as the field
+                    // grows, which reads as the text sliding rather than a row being added.
+                    Box(contentAlignment = Alignment.TopStart) {
+                        if (b.name.isEmpty()) {
+                            Text("Name", color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp, maxLines = 1)
+                        }
+                        inner()
+                    }
+                },
+            )
+        }
+}
+
+/**
+ * The button that opens a section's name row: a luggage tag, in the header's dead middle.
+ *
+ * A RowScope extension so it carries the flexible slot that used to be a bare Spacer in the middle
+ * of the header. Shared by the home and the sequence editor, for the reason on [SectionNameRow].
+ */
+@Composable
+internal fun RowScope.SectionTag(onClick: () -> Unit) {
+    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    // requiredSize, NOT size: the leftover slot here can be narrower
+                    // than the circle, and Modifier.size coerces into what the parent
+                    // leaves — measured on device, this drew 24×30, a visible ellipse.
+                    // requiredSize keeps it square and centers over the slot instead.
+                    // 36dp — the same circle as the steppers beside it.
+                    .requiredSize(36.dp)
+                    .clip(CircleShape)
+                    .background(GlassFill)
+                    .border(1.dp, glassBorder(), CircleShape)
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                // A luggage tag, drawn rather than typed — same as CloseX and GripDots,
+                // and for the same reason: no font is guaranteed to carry a glyph, and
+                // Samsung's ✎ is a 3D-shaded pencil that turns to mush at this size.
+                //
+                // The action is "name this section", not "edit" — a tag says that, and
+                // unlike every pencil in every icon set it points right on its own,
+                // with no mirroring against convention.
+                //
+                // Five points on Lucide's 24-unit grid: flat top and left edges meeting
+                // the squared-off corner that holds the punch hole, then the long
+                // diagonals out to the point. cornerPathEffect rounds all five at once
+                // — a round join alone only softens by half the stroke width, which
+                // came out sharper than the reference.
+                Canvas(Modifier.size(18.dp)) {
+                    val u = size.minDimension / 24f
+                    val c = Color.White.copy(alpha = 0.85f)
+                    val tag = Path().apply {
+                        moveTo(12f * u, 2f * u)
+                        lineTo(2f * u, 2f * u)
+                        lineTo(2f * u, 12f * u)
+                        lineTo(13f * u, 23f * u)
+                        lineTo(23f * u, 13f * u)
+                        close()
+                    }
+                    drawPath(
+                        tag,
+                        c,
+                        style = Stroke(
+                            width = 2f * u,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                            pathEffect = PathEffect.cornerPathEffect(2.4f * u),
+                        ),
+                    )
+                    // The punch hole, filled: an outlined ring this small is two
+                    // concentric circles a pixel apart, which just reads as grey.
+                    drawCircle(c, radius = 1.4f * u, center = Offset(7.6f * u, 7.6f * u))
+                }
+        }
     }
 }
 
@@ -1442,11 +1691,23 @@ private fun Stepper(
             fontSize = if (compact) 15.sp else 20.sp,
             modifier = Modifier
                 .scaledBy(s = scale)
+                // The fixed width is the label COLUMN — it keeps every row's steppers aligned — but
+                // the tap pill must not be that box: clipped to it, the ripple ran the full 90dp
+                // while the word sat flush left, so "Work" looked shoved into the pill's corner.
+                // wrapContent shrinks the pill to the word; the offset pays for the pill's own
+                // horizontal padding, so the glyph itself never moves and Rounds below still lines
+                // up. The ripple now overhangs the column edge by that same 10dp — press-only, and
+                // symmetric around the word, which is the whole point.
+                .width(if (compact) 66.dp else 90.dp)
+                .wrapContentWidth(Alignment.Start)
                 .then(
                     if (onLabelClick == null) Modifier
-                    else Modifier.clip(RoundedCornerShape(50)).clickable { onLabelClick() },
+                    else Modifier
+                        .offset(x = (-10).dp)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onLabelClick() }
+                        .padding(horizontal = 10.dp),
                 )
-                .width(if (compact) 66.dp else 90.dp)
                 .padding(vertical = 6.dp),
         )
         Row(Modifier.scaledBy(s = scale), verticalAlignment = Alignment.CenterVertically) {
@@ -1519,8 +1780,6 @@ private fun SettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(16.dp))
             ToggleRow("Run in background", Settings.runInBackground) { Settings.updateRunInBackground(it) }
             Spacer(Modifier.height(16.dp))
-            ToggleRow("No back-to-back rests", Settings.noDoubleRest) { Settings.updateNoDoubleRest(it) }
-            Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1573,11 +1832,22 @@ private fun SettingsScreen(onBack: () -> Unit) {
         // Its own panel rather than a dropdown inside Theme: the grid is the biggest thing on this
         // screen, and burying it behind a disclosure row made it feel like a footnote.
         SettingsCard("Language") {
-            Text(
-                current.english,
-                color = Color.White.copy(alpha = 0.75f),
-                fontSize = 15.sp,
-            )
+            // Fixed-height box, not a bare Text. This string changes script with the selection, and
+            // every script's font reports its own ascent/descent — Latin, CJK and Arabic all measure
+            // differently at 15sp — so an unconstrained Text made this one line resize the card and
+            // shove the grid below it. lineHeight does not fix that: on a single line the resolved
+            // font's metrics still decide the height. A fixed box takes the measurement out of the
+            // font's hands entirely; wrapContentHeight(unbounded) then lets tall glyphs draw past it
+            // instead of being clipped, so the layout is frozen but nothing is cut off.
+            Box(Modifier.height(22.dp), contentAlignment = Alignment.CenterStart) {
+                Text(
+                    current.english,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    modifier = Modifier.wrapContentHeight(unbounded = true),
+                )
+            }
             Spacer(Modifier.height(16.dp))
             // One line, and short enough to stay one. The second sentence explained a rule you can
             // see for yourself the moment you flip it — the Chinese tile keeps 九 either way — and
@@ -1753,16 +2023,24 @@ private fun LanguageTile(lang: Language, second: Int, modifier: Modifier = Modif
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            // Just the endonym: "中文 · Chinese" clips mid-string in a third-width tile, and the
-            // native name is the more useful half here anyway.
-            lang.english.substringBefore(" ·"),
-            color = Color.White.copy(alpha = if (selected) 1f else 0.5f),
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1,
-            textAlign = TextAlign.Center,
-        )
+        // Fixed height for the same reason as the card's own label above: the endonym is a different
+        // script per tile, and selecting one also swaps it to bold — which for Arabic resolves a
+        // different fallback face entirely. Either change moves the font's reported line height, and
+        // an unconstrained Text would pass that straight into the Column, so one row of tiles would
+        // sit lower than the others and the grid would jump on selection.
+        Box(Modifier.fillMaxWidth().height(16.dp), contentAlignment = Alignment.Center) {
+            Text(
+                // Just the endonym: "中文 · Chinese" clips mid-string in a third-width tile, and the
+                // native name is the more useful half here anyway.
+                lang.english.substringBefore(" ·"),
+                color = Color.White.copy(alpha = if (selected) 1f else 0.5f),
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.wrapContentHeight(unbounded = true),
+            )
+        }
     }
 }
 
@@ -2439,7 +2717,7 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
         else -> ""
     }
     // Words only stand in for languages with no numerals of their own — native-glyph scripts
-    // (Thai, Hindi, Chinese…) already look distinct, so they just show their glyphs. The ceiling
+    // (Hindi, Arabic, Chinese…) already look distinct, so they just show their glyphs. The ceiling
     // is per-language: a minute for the Latin ones, far more for Korean, which composes its own.
     val showWords = Settings.wordMode && !ui.done && lang.digits == null &&
         !lang.cistercian && !lang.stacks && ui.remainingMs < 60_000
@@ -2550,14 +2828,39 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
 
         // Just the phase label up top now; the count and its progress live at the bottom, so the
         // big number owns the whole middle of the screen.
-        Text(
-            label,
-            color = Color.White,
-            fontSize = labelSize,
-            fontWeight = glyphWeight(lang),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = if (compact) 8.dp else 24.dp),
-        )
+        Column(
+            Modifier.align(Alignment.TopCenter)
+                .padding(top = if (compact) 8.dp else 24.dp)
+                // Side inset so a long name wraps well before the perimeter progress stroke rather
+                // than running under it. The phase label is far shorter and never notices.
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // The phase word always leads. It is the thing you read at a glance from across the
+            // room and it never moves or changes size, so a glance costs nothing — the name goes
+            // underneath it as subtext, which is the one place it can be as long as you like
+            // without pushing anything else around. Work wears its own section's name; rest wears
+            // the one it is handing over to, which is what you need while you catch your breath.
+            // Not on the cover screen: its label band is 46dp, so it keeps the plain phase word.
+            val named = !compact && ui.label.isNotEmpty()
+            Text(
+                label,
+                color = Color.White,
+                fontSize = labelSize,
+                fontWeight = glyphWeight(lang),
+                textAlign = TextAlign.Center,
+            )
+            if (named && ui.phase != Phase.PREPARE) {
+                Text(
+                    if (ui.phase == Phase.REST) "Next · ${ui.label}" else ui.label,
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
 
         // How far through the workout, down at the bottom: the count, then a pip per repetition.
         // Sits above the hold-to-pause hint, which keeps its own 44dp.
@@ -2577,7 +2880,7 @@ private fun TimerContent(ui: TimerUiState, lang: Language, wDp: Float, hDp: Floa
                     if (hasRound) "${Numbers.count(ui.round, lang)} / ${Numbers.count(ui.totalRounds, lang)}" else " ",
                     color = Color.White.copy(alpha = if (hasRound) 0.80f else 0f),
                     fontSize = counterSize,
-                    // Monospace has no CJK/Indic/Thai glyphs, so glyph scripts take the default face
+                    // Monospace has no CJK/Indic/Arabic glyphs, so glyph scripts take the default face
                     // — the same swap the big clock makes.
                     fontFamily = if (lang.digits == null) FontFamily.Monospace else FontFamily.Default,
                     letterSpacing = 2.sp,

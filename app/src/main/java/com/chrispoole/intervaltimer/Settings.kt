@@ -51,10 +51,6 @@ object Settings {
     // people who just want the aura gone; this one is the OS having already been told.
     val reducedMotion: Boolean get() = !ValueAnimator.areAnimatorsEnabled()
 
-    // Two rests in a row is one longer rest with extra steps. On (the default), the editor won't
-    // build one; off, you're free to (a stretch-then-breathe cooldown, say).
-    var noDoubleRest by mutableStateOf(true); private set
-
     // The main screen as you left it. Sections and the intervals inside them, not just one work/rest
     // pair: a section can hold a sequence of its own, so storing three numbers would quietly throw
     // away most of what you built the moment you closed the app.
@@ -85,7 +81,6 @@ object Settings {
         // Stored by name, so a palette dropped in a later version degrades to Default instead of
         // throwing on launch.
         palette = runCatching { Palette.valueOf(p.getString("palette", "") ?: "") }.getOrDefault(Palette.DEFAULT)
-        noDoubleRest = p.getBoolean("noDoubleRest", true)
         // Falls back to the three loose values an older build wrote, so an existing install comes
         // back to the home it left rather than to the stock one.
         home = parseHome(p.getString("home", null))
@@ -117,7 +112,6 @@ object Settings {
     fun updateRunInBackground(b: Boolean) { runInBackground = b; prefs?.edit { putBoolean("runInBackground", b) } }
     fun updatePalette(p2: Palette) { palette = p2; prefs?.edit { putString("palette", p2.name) } }
     fun updateMinimalBg(b: Boolean) { minimalBg = b; prefs?.edit { putBoolean("minimalBg", b) } }
-    fun updateNoDoubleRest(b: Boolean) { noDoubleRest = b; prefs?.edit { putBoolean("noDoubleRest", b) } }
     fun updateHome(blocks: List<Block>) {
         if (blocks.isEmpty()) return
         home = blocks
@@ -141,7 +135,10 @@ object Settings {
         for (b in blocks) {
             val items = JSONArray()
             for (s in b.items) items.put(JSONObject().put("phase", s.phase.name).put("sec", s.durationSec))
-            arr.put(JSONObject().put("items", items).put("repeat", b.repeat))
+            val o = JSONObject().put("items", items).put("repeat", b.repeat)
+            // Only when there is one, so an unnamed home writes the exact bytes it always did.
+            if (b.name.isNotEmpty()) o.put("name", b.name)
+            arr.put(o)
         }
         return arr.toString()
     }
@@ -161,7 +158,7 @@ object Settings {
                 val it = items.getJSONObject(j)
                 SeqInterval(Phase.valueOf(it.getString("phase")), it.getInt("sec"))
             }
-            if (list.isEmpty()) null else Block(list, o.optInt("repeat", 1).coerceAtLeast(1))
+            if (list.isEmpty()) null else Block(list, o.optInt("repeat", 1).coerceAtLeast(1), o.optString("name"))
         }
         blocks.ifEmpty { null }
     }.getOrNull()

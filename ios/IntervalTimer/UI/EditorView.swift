@@ -24,8 +24,6 @@ private func clock(_ totalSec: Int) -> String {
     return "\(totalSec / 60):" + (sec < 10 ? "0\(sec)" : "\(sec)")
 }
 
-private let DOUBLE_REST_NOTICE = "Two rests would land in a row — allow it in Settings"
-
 /// The sequence editor: groups of intervals, each with its own ×N, under one outer ×N.
 struct EditorView: View {
     let initial: Preset?
@@ -37,13 +35,14 @@ struct EditorView: View {
     @State private var blocks: [UiBlock]
     @State private var repeatAll: Int
     @State private var nextId: Int
-    /// Why an edit was refused.
-    @State private var notice: String?
     /// A row inside one of the cards is under the finger, so the page must not scroll along with it.
     @State private var rowDragging = false
+    /// Which card has its name row open for typing, by `UiBlock.id`. By identity, not position: a
+    /// delete above shifts every index below it, and a positional one would move the keyboard to a
+    /// different card.
+    @State private var namingCard: Int?
 
     @StateObject private var groupDrag = ReorderState()
-    @ObservedObject private var settings = Settings.shared
 
     init(
         initial: Preset?,
@@ -75,17 +74,8 @@ struct EditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    // The "what's already there" half of the rule (see `violates`) is the same
-                    // number for every row on screen, so it is asked once a pass rather than twice
-                    // per work row: a group drag re-renders every card on every frame, and each of
-                    // those rows was expanding the whole sequence twice to compare against it. The
-                    // ternary is `violates`' own short-circuit kept intact: with the rule off no row
-                    // can be refused, so hoisting an unconditional expansion here would have added a
-                    // flatten per pass where there used to be none. `canRest` returns before it can
-                    // read the 0.
-                    let baseline = settings.noDoubleRest ? backToBackRests(current, repeatAll) : 0
                     ForEach(Array(blocks.enumerated()), id: \.element.id) { pair in
-                        card(pair.offset, pair.element.block, baseline)
+                        card(pair.offset, pair.element)
                             .reportRowHeight(pair.offset)
                             .reorderOffset(groupDrag, pair.offset)
                             .zIndex(groupDrag.isFloating(pair.offset) ? 1 : 0)
@@ -98,21 +88,11 @@ struct EditorView: View {
             }
             // A card under the finger must not also drag the page along with it.
             .scrollDisabled(groupDrag.isDragging || rowDragging)
+            // Scroll the keyboard away, like the home — a name row near the bottom of a long
+            // sequence is otherwise sat on by the IME with no way past it but Done.
+            .scrollDismissesKeyboard(.interactively)
             // No scroll indicator anywhere in the app — see HomeView. Owner's standing preference.
             .scrollIndicators(.never)
-            }
-
-            if let notice {
-                NoticePill(text: notice)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 28)
-                    .allowsHitTesting(false)
-                    // Keyed on the message, which is what lets a repeat of the same one run out the
-                    // clock it already started rather than restarting it (see `flash`).
-                    .task(id: notice) {
-                        try? await Task.sleep(for: .seconds(2.6))
-                        self.notice = nil
-                    }
             }
         }
     }
@@ -184,15 +164,21 @@ struct EditorView: View {
 
     // MARK: - Cards
 
-    private func card(_ i: Int, _ block: Block, _ baseline: Int) -> some View {
+    private func card(_ i: Int, _ ui: UiBlock) -> some View {
         BlockEditorCard(
-            block: block,
+            block: ui.block,
             index: i,
             groupCount: blocks.count,
+            naming: namingCard == ui.id,
             groupDrag: groupDrag,
             rowDragging: $rowDragging,
-            canRest: { j in canRest(i, j, baseline) },
             moveGroup: moveGroup,
+            onName: {
+                withAnimation(.easeInOut(duration: 0.26)) {
+                    namingCard = namingCard == ui.id ? nil : ui.id
+                }
+            },
+            onNameDone: { withAnimation(.easeInOut(duration: 0.26)) { namingCard = nil } },
             onChange: { change(index: i, to: $0) },
             onAddItem: { addInterval(i) },
             onRemoveItem: { j in removeInterval(i, j) },
@@ -249,49 +235,6 @@ struct EditorView: View {
 
     private var current: [Block] { blocks.map(\.block) }
 
-    /// The no-back-to-back-rests rule, asked of the sequence as it will actually play.
-    ///
-    /// Compared against what's already there rather than against zero: a sequence that already has a
-    /// double rest (built with the rule off, or turned on afterwards) must still be editable, so only
-    /// an edit that *adds* one is refused.
-    private func violates(_ candidate: [Block], _ repeats: Int) -> Bool {
-        settings.noDoubleRest && backToBackRests(candidate, repeats) > backToBackRests(current, repeatAll)
-    }
-
-    private func allow(_ candidate: [Block], _ repeats: Int) -> Bool {
-        guard violates(candidate, repeats) else { return true }
-        flash(DOUBLE_REST_NOTICE)
-        return false
-    }
-
-    private func flash(_ message: String) {
-        // A refused drag asks again on every frame it is held there. Re-arming the timer each time
-        // would pin the pill open and rebuild the whole editor at 60fps, so a message already on
-        // screen is left to run out its own clock.
-        guard notice != message else { return }
-        notice = message
-    }
-
-    /// Switching a work interval to rest is the only edit the rule can refuse, so it's the only one
-    /// the cards need to grey out.
-    ///
-    /// `baseline` is `violates`' right-hand side while the rule is on — a placeholder 0 when it is
-    /// off, which the guard below returns before reading — handed down from `body` so it is expanded
-    /// once a pass instead of once a row. Passed in rather than held in state:
-    /// `removeInterval`, `addGroup` and `deleteGroup` all mutate `blocks` without going through
-    /// `change`, so a cached one would go stale and grey rows out against a sequence that no longer
-    /// exists. Recomputed on the same pass that reads it, it can't.
-    private func canRest(_ i: Int, _ j: Int, _ baseline: Int) -> Bool {
-        // The short-circuit `violates` was providing: with the rule off nothing is ever refused, and
-        // the candidate sequence isn't worth building to find that out.
-        guard settings.noDoubleRest, blocks.indices.contains(i) else { return true }
-        let b = blocks[i].block
-        guard b.items.indices.contains(j) else { return true }
-        var items = b.items
-        items[j] = items[j].with(phase: .rest)
-        return backToBackRests(replace(i, Block(items, b.repeatCount)), repeatAll) <= baseline
-    }
-
     // MARK: - Edits
 
     private func replace(_ i: Int, _ b: Block) -> [Block] {
@@ -301,29 +244,27 @@ struct EditorView: View {
         return next
     }
 
-    /// Every rule-checked edit to a group goes through here; deletes deliberately don't. Returns
-    /// whether it landed, so a refused drag knows to put the row back where it came from.
+    /// Every edit to a group goes through here; deletes deliberately don't. Returns whether it
+    /// landed, so a drag that couldn't knows to put the row back where it came from.
     @discardableResult
     private func change(index i: Int, to next: Block) -> Bool {
         // Card callbacks capture their index; a second tap landing before the view rebuilds indexes a
         // list that already shrank. Same guard moveGroup carries, for the same reason.
-        guard blocks.indices.contains(i), allow(replace(i, next), repeatAll) else { return false }
+        guard blocks.indices.contains(i) else { return false }
         blocks[i].block = next
         return true
     }
 
-    private func setRepeatAll(_ next: Int) {
-        if allow(current, next) { repeatAll = next }
-    }
+    private func setRepeatAll(_ next: Int) { repeatAll = next }
 
     private func addInterval(_ i: Int) {
         guard blocks.indices.contains(i) else { return }
         let b = blocks[i].block
-        let rest = Block(b.items + [SeqInterval(.rest, 15)], b.repeatCount)
-        // Alternate by default; where a rest would double up, work is the sane fallback.
-        let next = b.items.last?.phase == .work && !violates(replace(i, rest), repeatAll)
-            ? rest
-            : Block(b.items + [SeqInterval(.work, 30)], b.repeatCount)
+        // Alternate: a rest after work, work after anything else. Not a rule, just the next row you
+        // almost always want — every stepper and the phase word are still yours to change.
+        let next = b.items.last?.phase == .work
+            ? b.with(items: b.items + [SeqInterval(.rest, 15)])
+            : b.with(items: b.items + [SeqInterval(.work, 30)])
         // Wrapped here rather than inside `change`, which is also the phase chip's, the ±5s
         // steppers' and the row reorder's path — easing those would ease every stepper tap and
         // replay a drop Reorder.swift already springs by hand. Bare, this was the one editor
@@ -353,17 +294,17 @@ struct EditorView: View {
     }
 
     private func addGroup() {
-        let pair = Block([SeqInterval(.work, 30), SeqInterval(.rest, 15)], 1)
-        let next = violates(current + [pair], repeatAll) ? Block([SeqInterval(.work, 30)], 1) : pair
-        guard allow(current + [next], repeatAll) else { return }
         withAnimation(.easeInOut(duration: 0.25)) {
-            blocks.append(UiBlock(id: nextId, block: next))
+            blocks.append(UiBlock(id: nextId, block: Block([SeqInterval(.work, 30), SeqInterval(.rest, 15)], 1)))
         }
         nextId += 1
     }
 
     private func deleteGroup(_ i: Int) {
         guard blocks.indices.contains(i) else { return }
+        // Whatever was being named has gone or shifted — a stale id would leave the keyboard up over
+        // a card that no longer exists.
+        namingCard = nil
         withAnimation(.easeInOut(duration: 0.25)) { _ = blocks.remove(at: i) }
     }
 
@@ -373,9 +314,6 @@ struct EditorView: View {
         // The drag tracks list indices of its own; a group deleted by a second finger mid-drag would
         // otherwise take them out of range.
         guard blocks.indices.contains(from), blocks.indices.contains(to), from != to else { return false }
-        var candidate = current
-        candidate.insert(candidate.remove(at: from), at: to)
-        guard allow(candidate, repeatAll) else { return false }
         blocks.insert(blocks.remove(at: from), at: to)
         return true
     }
@@ -395,10 +333,14 @@ private struct BlockEditorCard: View {
     let block: Block
     let index: Int
     let groupCount: Int
+    /// This card's name row is open for typing. A named group keeps its row either way — this is
+    /// only about the keyboard.
+    let naming: Bool
     @ObservedObject var groupDrag: ReorderState
     @Binding var rowDragging: Bool
-    let canRest: (Int) -> Bool
     let moveGroup: (Int, Int) -> Bool
+    let onName: () -> Void
+    let onNameDone: () -> Void
     /// Returns whether the edit was accepted — a reorder that isn't has to spring back.
     let onChange: (Block) -> Bool
     let onAddItem: () -> Void
@@ -411,6 +353,17 @@ private struct BlockEditorCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The name, above everything else in the card — the same field the home's sections use,
+            // in the same place, because this card and a home section are one object seen on two
+            // screens. Naming a group here is what makes the name reachable at all on a sequence
+            // built from scratch: the editor is the only way into one.
+            SectionName(
+                block: block,
+                naming: naming,
+                onChange: { _ = onChange($0) },
+                onDone: onNameDone
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
             cardHeader
             rows
             PlainTextButton(text: "+ interval", action: onAddItem, size: 13)
@@ -432,8 +385,8 @@ private struct BlockEditorCard: View {
     /// number was only ever there to be counted off against a heading nobody needed. No "Delete"
     /// either; the ✕ is the same button in one glyph.
     private var cardHeader: some View {
-        let down: (Int) -> Void = { m in _ = onChange(Block(block.items, max(block.repeatCount - m, 1))) }
-        let up: (Int) -> Void = { m in _ = onChange(Block(block.items, block.repeatCount + m)) }
+        let down: (Int) -> Void = { m in _ = onChange(block.with(repeatCount: max(block.repeatCount - m, 1))) }
+        let up: (Int) -> Void = { m in _ = onChange(block.with(repeatCount: block.repeatCount + m)) }
         return HStack(spacing: 0) {
             DragHandle(
                 index: index, label: "group \(index + 1)", state: groupDrag, commit: moveGroup,
@@ -458,7 +411,13 @@ private struct BlockEditorCard: View {
                                   block.repeatCount == 1 ? "once" : "\(block.repeatCount) times",
                                   down: down, up: up)
             GlassCircle(glyph: "+", onStep: up, size: 36)
-            Spacer(minLength: 0)
+            // The tag, in the header's dead middle — the home's placement exactly. Just the trigger;
+            // the name itself lives in the row that expands out of the card's top. Draws nothing at
+            // all when section names are off, and the two flexible gaps then merge back into the one
+            // this row always had.
+            Spacer(minLength: 6)
+            SectionTag(action: onName)
+            Spacer(minLength: 6)
             // How long this group runs, the ×N included — the same readout the home puts here.
             Text(clock(block.items.reduce(0) { $0 + $1.durationSec } * block.repeatCount))
                 .font(.system(size: 13))
@@ -515,12 +474,11 @@ private struct BlockEditorCard: View {
             //
             // Still its own hit box, though: it is the only part of the row that flips the phase.
             // The row used to swap on any tap, and a near-miss on a stepper flipped work to rest
-            // instead of nudging the clock. Greyed when the rule won't allow a rest here, but still
-            // tappable — the tap is what surfaces the reason.
+            // instead of nudging the clock.
             Button { set(j, iv.with(phase: isWork ? .rest : .work)) } label: {
                 Text(isWork ? "Work" : "Rest")
                     .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(isWork && !canRest(j) ? 0.45 : 0.95))
+                    .foregroundStyle(.white.opacity(0.95))
                     .lineLimit(1)
                     .frame(width: 52)
                     .padding(.vertical, 6)
@@ -552,7 +510,7 @@ private struct BlockEditorCard: View {
         var items = block.items
         guard items.indices.contains(j) else { return }
         items[j] = iv
-        _ = onChange(Block(items, block.repeatCount))
+        _ = onChange(block.with(items: items))
     }
 
     /// The bounds check covers the one index that can still go stale: a second finger deleting a row
@@ -561,7 +519,7 @@ private struct BlockEditorCard: View {
         var items = block.items
         guard items.indices.contains(from), items.indices.contains(to), from != to else { return false }
         items.insert(items.remove(at: from), at: to)
-        return onChange(Block(items, block.repeatCount))
+        return onChange(block.with(items: items))
     }
 }
 
