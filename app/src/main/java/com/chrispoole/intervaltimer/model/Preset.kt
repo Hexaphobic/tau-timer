@@ -151,8 +151,20 @@ val Block.isBasic: Boolean
     get() = items.firstOrNull()?.phase == Phase.WORK &&
         (items.size == 1 || (items.size == 2 && items[1].phase == Phase.REST))
 
-/** A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the source of truth. */
-data class Block(val items: List<SeqInterval>, val repeat: Int)
+/**
+ * A repeated run of intervals — the editor's unit, and now the home's. Flat storage stays the source
+ * of truth.
+ *
+ * [name] is what the home screen calls this block: "Warm-up", "Legs", "Cool down". It belongs to the
+ * block rather than to the screen, so it survives a reorder, a delete of the block above it and a
+ * relaunch — the three ways a name kept on the side would have gone missing.
+ *
+ * Defaulted, and last, so every existing `Block(items, repeat)` call site still reads the same. It
+ * lands in equals() like any data-class field, which is correct here and needs saying: two blocks
+ * with the same intervals but different names are not interchangeable, and `groupIntervals` builds
+ * unnamed blocks either way, so nothing it compares changes meaning.
+ */
+data class Block(val items: List<SeqInterval>, val repeat: Int, val name: String = "")
 
 fun flatten(blocks: List<Block>): List<SeqInterval> =
     blocks.flatMap { b -> List(b.repeat) { b.items }.flatten() }

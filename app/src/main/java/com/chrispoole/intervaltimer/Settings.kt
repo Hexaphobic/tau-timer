@@ -141,7 +141,11 @@ object Settings {
         for (b in blocks) {
             val items = JSONArray()
             for (s in b.items) items.put(JSONObject().put("phase", s.phase.name).put("sec", s.durationSec))
-            arr.put(JSONObject().put("items", items).put("repeat", b.repeat))
+            val o = JSONObject().put("items", items).put("repeat", b.repeat)
+            // Only written when there is one, the same way presets.json only writes repeatAll when
+            // it's doing something: an older build reading this file sees the sections it always saw.
+            if (b.name.isNotEmpty()) o.put("name", b.name)
+            arr.put(o)
         }
         return arr.toString()
     }
@@ -161,7 +165,10 @@ object Settings {
                 val it = items.getJSONObject(j)
                 SeqInterval(Phase.valueOf(it.getString("phase")), it.getInt("sec"))
             }
-            if (list.isEmpty()) null else Block(list, o.optInt("repeat", 1).coerceAtLeast(1))
+            // optString, not getString: every home written before sections could be named has no
+            // "name" key at all, and one missing key must not throw away the section it belongs to.
+            if (list.isEmpty()) null
+            else Block(list, o.optInt("repeat", 1).coerceAtLeast(1), o.optString("name", ""))
         }
         blocks.ifEmpty { null }
     }.getOrNull()

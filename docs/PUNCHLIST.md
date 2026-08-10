@@ -1312,6 +1312,58 @@ not worth it.
 Text sized proportionally and centred by its layout box. Not fixed, not measured, and the user has
 not reported it. Worth a look if the Compose home ever animates a circle's diameter.
 
+### 52. Named blocks, and the overlap while a card opens (Android)
+
+> "I named all three of my blocks and the names all hid and I cant keep them un hidden. It will come
+> back when my keyboard is up but once I close it it goes away." … "the animation of the tag opening
+> the block underneath it overlaps for a second it should not do that"
+
+**The names were never stored, because there was nowhere to store them.** `Block` carried `items` and
+`repeat` and nothing else, on both platforms, and the home screen had no per-section field at all —
+the only name box anywhere near it is the home's *Save as preset* pill, which names the preset it is
+about to write to `presets.json` and then clears itself (`naming = false; name = ""`). That is
+exactly the reported symptom from the outside: the text is there while the keyboard is up, because
+the field is holding it, and it is gone the moment the field closes, because nothing else ever had
+it. Nothing was hiding it and there was no setting that could bring it back.
+
+**The fix is the missing field, not a lookup.** `Block` gains `name: String = ""`, defaulted and
+last so every existing call site reads the same; `Settings.homeJson` writes it only when non-empty
+and `parseHome` reads it with `optString`, so a home written by an older build still loads. The card
+renders it as its top line, and — this is the part that matters — **the field IS the label**. No
+edit mode, no draft held on the side, no commit on Done: every keystroke goes straight into the
+block, the block is what the row draws, and the home's existing `LaunchedEffect(layout)` persists it.
+There is no state left for a dismissed keyboard to take with it. A field that keeps its own copy and
+hands it over on Done is precisely the shape that loses a name when the keyboard closes, which is
+why it isn't built that way.
+
+Names are on the home's blocks only. `flatten` drops them with everything else structural, so saving
+a home as a preset still writes a flat sequence, and `groupIntervals` reads one back as unnamed
+blocks — pinned by a test, since a block that invented a name on reopen would be worse than none.
+
+**The overlap is `animateItem`'s placement tween racing a height that is still moving.** A new card
+takes its full height in one frame; the cards below it are then animated *through* that jump by a
+260ms placement tween, and a section growing into its box animates its own height from the inside
+for another 260ms on top. A placement tween retargeted on every frame never catches its target, and
+a card that has not caught up is a card still drawn where the one above it has already grown to —
+two cards on top of each other for as long as the opening lasts.
+
+Both halves are fixed by making layout lead. An arriving card opens to its height (`heightBy`, read
+in the layout lambda like `paddingBy`, clipped and invisible until it is full-size), so there is no
+jump to chase; and while anything is opening, the placement spec is `null`, so everything below
+follows layout frame for frame instead of chasing it. **Opening only** — a delete really does hand
+the page a single jump to absorb, which is the one thing a placement tween is good at, so the closing
+direction is left exactly as it was.
+
+**Not verified on device.** This branch was written in an environment whose network policy blocks
+`dl.google.com`, so AGP could not be resolved and nothing here has been compiled or run. Reviewed by
+reading only. The `heightBy` clip is applied only while a card is actually growing, for the reason
+that will bite first if it is ever made unconditional: a dragged card is scaled 3% past its own
+bounds and translated well outside them, and neither survives a parent that clips.
+
+**iOS is untouched** and now diverges: `IntervalTimerCore`'s `Block` has no `name`, and `HomeView`
+has no tag. The wire format is compatible in the direction that matters (the key is optional and each
+platform stores its own home), but the feature is Android-only until the port catches up.
+
 ---
 
 ## Settled — was a design question

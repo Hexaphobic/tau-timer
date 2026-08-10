@@ -70,6 +70,27 @@ class HomeBlockTest {
         assertEquals(List(5) { work(DEFAULT_WORK_SEC_FOR_TEST) }, homePreset(listOf(b)).intervals)
     }
 
+    /**
+     * A name is a label on the block, not part of what it plays. Worth pinning: the home writes
+     * itself to prefs off block equality, so the name has to count as a change there — and it must
+     * count for nothing at all by the time the workout is built.
+     */
+    @Test fun namingASectionChangesWhatItIsCalledAndNothingElse() {
+        val plain = Block(listOf(work(30), rest(15)), 3)
+        val named = plain.copy(name = "Warm-up")
+        assertEquals(homePreset(listOf(plain)).intervals, homePreset(listOf(named)).intervals)
+        assertEquals(homeSets(listOf(plain), 1), homeSets(listOf(named), 1))
+        assertEquals(homeSeconds(listOf(plain), 1), homeSeconds(listOf(named), 1))
+        assertTrue(named.isBasic)
+        // Different blocks, so an edit that only renames one still reaches the save path.
+        assertFalse(plain == named)
+    }
+
+    /** Nothing that reads a flat sequence back into blocks can invent a name for one. */
+    @Test fun regroupingAFlatSequenceLeavesTheBlocksUnnamed() {
+        assertTrue(groupIntervals(listOf(work(30), rest(15), work(30), rest(15))).all { it.name.isEmpty() })
+    }
+
     private companion object {
         const val DEFAULT_WORK_SEC_FOR_TEST = 30
     }

@@ -20,6 +20,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -112,6 +119,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.Layout
@@ -453,6 +462,47 @@ private fun SetupScreen(
     var saved by remember { mutableStateOf(false) }
     if (saved) LaunchedEffect(Unit) { delay(2200); saved = false }
 
+    // Which card has just been added, so it can open to its own height instead of claiming all of it
+    // in one frame. Cleared once it has arrived: after that the id is an ordinary card again, and a
+    // scroll that recomposes it must not replay the arrival.
+    var arriving by remember { mutableStateOf<Long?>(null) }
+    // The last shape the page was in, so the effect below can tell an opening from a closing. Read
+    // and written only inside it, one run behind what composition is looking at.
+    var wasSolo by remember { mutableStateOf(solo) }
+    var wasGrouped by remember { mutableStateOf(grouped) }
+
+    /**
+     * Whether something is currently opening into the page: a new card growing to its height, or a
+     * section growing the chrome that turns it into one.
+     *
+     * This is the overlap. Both of those animate a height continuously, so the list re-lays-out on
+     * every frame of them — and an animateItem placement tween laid over that is a second animation
+     * chasing a target that has moved again by the time it gets there. It never catches up, and a
+     * card that hasn't caught up is a card still drawn where the one above it has already grown to.
+     * Half a second of two cards on top of each other, for the whole length of the opening.
+     *
+     * So while something opens, layout leads and everything below it simply follows, frame for
+     * frame. Only the opening direction: closing happens when a card or an interval is deleted, and
+     * there the page really does have a single jump to absorb rather than a moving target to track,
+     * which is exactly what a placement tween is for.
+     */
+    var opening by remember { mutableStateOf(false) }
+    LaunchedEffect(arriving, solo, grouped) {
+        val chrome = (wasSolo && !solo) || (!wasGrouped && grouped)
+        wasSolo = solo
+        wasGrouped = grouped
+        if (arriving == null && !chrome) return@LaunchedEffect
+        opening = true
+        // Past the 260ms the growth and the chrome both take. Clearing `arriving` here is what
+        // retriggers this effect, which then falls straight out of the guard above.
+        delay(340)
+        opening = false
+        arriving = null
+    }
+    val placement = remember(opening) {
+        if (opening) null else tween<IntOffset>(260, easing = FastOutSlowInEasing)
+    }
+
     fun change(i: Int, b: Block) {
         // Guard the captured index: a second tap can land before recomposition.
         if (i !in rows.indices) return
@@ -483,12 +533,18 @@ private fun SetupScreen(
     fun addBlock() {
         val nextId = (rows.maxOfOrNull { it.id } ?: 0L) + 1
         val last = rows.lastOrNull()?.b ?: return
+        // Marked before the row exists, so its first composition already knows to open to its height
+        // rather than take it in one frame.
+        arriving = nextId
+        // The new section copies the shape of the one above it but never its name. Two cards both
+        // called "Warm-up" is not a starting point anyone wants, and an empty tag is the invitation
+        // to say what this one is.
         if (rows.size == 1) {
             setRepeatAll(last.repeat)
             rows[0] = HomeRow(rows[0].id, last.copy(repeat = 1))
-            rows += HomeRow(nextId, last.copy(repeat = 1))
+            rows += HomeRow(nextId, last.copy(repeat = 1, name = ""))
         } else {
-            rows += HomeRow(nextId, last)
+            rows += HomeRow(nextId, last.copy(name = ""))
         }
     }
 
@@ -644,7 +700,7 @@ private fun SetupScreen(
                     item(key = "save") {
                         // animateContentSize turns the swap into the button growing into the
                         // field, rather than one control vanishing and another appearing.
-                        Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).animateContentSize(tween(260))) {
+                        Column(Modifier.animateItem(placementSpec = placement).animateContentSize(tween(260))) {
                             if (naming) {
                                 NameField(
                                     value = name,
@@ -678,11 +734,25 @@ private fun SetupScreen(
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).padding(bottom = 14.dp),
+                        modifier = Modifier.animateItem(placementSpec = placement).padding(bottom = 14.dp),
                     )
                 }
                 itemsIndexed(rows, key = { _, r -> r.id }) { i, row ->
                     val floating = !solo && dragDrop.isFloating(row.id)
+                    // A card added while the screen is up opens to its height rather than taking all
+                    // of it in a single frame — see `opening` above for why that frame is the whole
+                    // problem. Read only inside a layout lambda, so the 260ms costs no recomposition;
+                    // `growing` is a derived boolean, so it recomposes once, when the growth ends,
+                    // and takes the clip off with it. The clip has to go: a card being dragged is
+                    // scaled 3% over its own bounds and translated well outside them, and neither
+                    // survives a parent that clips.
+                    val arrival = remember(row.id) { Animatable(if (row.id == arriving) 0f else 1f) }
+                    LaunchedEffect(row.id) {
+                        if (arrival.value < 1f) {
+                            arrival.animateTo(1f, tween(260, easing = FastOutSlowInEasing))
+                        }
+                    }
+                    val growing by remember(row.id) { derivedStateOf { arrival.value < 1f } }
                     // One wrapper around both shapes. Without it the bare steppers and the card
                     // were separate layouts, so going from one section to two read as the first
                     // one vanishing and two new things flying in. Now the existing section
@@ -703,18 +773,22 @@ private fun SetupScreen(
                             // box formed. The lazy list re-lays out every frame as that height
                             // changes, which is what moves everything below along with it.
                             //
-                            // The fade-in waits for the shuffle. A new item takes its full space the
-                            // instant it is added, and everything around it — the first section
-                            // closing into its card, Rounds and GO sliding down — spends the next
-                            // ~quarter second animating through that space. Drawn immediately, the
-                            // new card sat overlapped with the rows still moving out of its slot.
-                            // So: everything gets out of the way first, then the card fades into the
-                            // gap. The fade is long enough to read as an arrival, not a pop — which
-                            // is what an earlier, shorter delayed fade got wrong.
+                            // The fade-in waits for the shuffle. A new card's slot is opened by
+                            // `heightBy` below over the same 260ms the rest of the page spends
+                            // getting out of its way — the first section closing into its card,
+                            // Rounds and GO sliding down. Only once the gap is fully open does the
+                            // card fade into it. Drawn immediately, it sat overlapped with the rows
+                            // still moving out of its slot. The fade is long enough to read as an
+                            // arrival, not a pop — which is what an earlier, shorter delayed fade
+                            // got wrong.
                             .then(
                                 if (floating) Modifier
-                                else Modifier.animateItem(fadeInSpec = tween(260, delayMillis = 240), placementSpec = tween(260, easing = FastOutSlowInEasing)),
-                            ),
+                                else Modifier.animateItem(fadeInSpec = tween(260, delayMillis = 240), placementSpec = placement),
+                            )
+                            // Inside animateItem, so the height the list works from is the animated
+                            // one. The fade above waits for this to finish, which is what keeps a
+                            // half-grown card from ever being seen sliced.
+                            .then(if (growing) Modifier.heightBy { arrival.value } else Modifier),
                     ) {
                     // ONE composable whether it's the plain home or a card — never two branches of
                     // an `if`. Two branches is what made "Add intervals" a dissolve: Compose threw
@@ -769,11 +843,11 @@ private fun SetupScreen(
                         onMinus = { m -> setHomeRounds(homeRounds - m) },
                         onPlus = { m -> setHomeRounds(homeRounds + m) },
                         onReset = { setHomeRounds(DEFAULT_ROUNDS) },
-                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                        modifier = Modifier.animateItem(placementSpec = placement),
                     )
                 }
                 item(key = "footer") {
-                    Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing))) {
+                    Column(Modifier.animateItem(placementSpec = placement)) {
                         if (!solo) {
                             // Clear of the group frame's bottom edge — the + adds a section *to* the
                             // group, so it sits just outside it rather than inside.
@@ -905,6 +979,13 @@ private fun HomeSection(
             }
             .paddingBy(12.dp, 10.dp) { box.value },
     ) {
+        // The block's own name, above everything else in the card, because it is what the card IS.
+        // Tied to `boxed` rather than to `showHeader`: a single section that has grown a shape of its
+        // own is still a block you can call something, and the plain three-stepper home is the one
+        // arrangement with nothing to name.
+        AnimatedVisibility(boxed, enter = chromeIn(Alignment.Top), exit = chromeOut(Alignment.Top)) {
+            SectionTag(b.name) { onChange(b.copy(name = it)) }
+        }
         // The lid of the box: it arrives with the box and leaves with it. Its *height* is animated,
         // not just its alpha — an `if` around it made the card jump a whole row taller the instant
         // the box started forming, and the wrapper outside then had to chase that jump.
@@ -946,6 +1027,61 @@ private fun HomeSection(
             }
         }
         IntervalStack(b, { appear.value }, onChange, compact = boxed, t = { box.value })
+    }
+}
+
+/**
+ * What this block is called — always on screen, never behind a mode.
+ *
+ * The field IS the label. There is no "tap to edit" state and no draft held on the side, which is
+ * deliberate: every keystroke goes straight into the block, the block is what the row renders, and
+ * the home writes itself to prefs whenever a block changes. So the name you can see is always the
+ * name that is stored, and dismissing the keyboard — which takes focus away without any event this
+ * screen listens for — can't take it with it. A field that keeps its own copy of the text and only
+ * hands it over on Done is exactly the shape that loses a name the moment the keyboard closes.
+ *
+ * Empty is a real state rather than an error: an unnamed block shows the invitation at low alpha and
+ * costs the same height, so naming one card doesn't shuffle the rest of the stack.
+ */
+@Composable
+private fun SectionTag(name: String, onName: (String) -> Unit) {
+    val focus = LocalFocusManager.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (name.isEmpty()) {
+            Text("Name this block", color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp)
+        }
+        BasicTextField(
+            value = name,
+            // Capped rather than scrolled: a name is a tag, and a long one would push the card's own
+            // width around while you typed it. Newlines can't arrive through a singleLine field, so
+            // the only thing left to keep out is length.
+            onValueChange = { onName(it.take(28)) },
+            singleLine = true,
+            textStyle = LocalTextStyle.current.copy(
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            cursorBrush = SolidColor(Color.White),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = ImeAction.Done,
+            ),
+            // Done puts the keyboard away rather than moving to the next field: the next focusable
+            // thing on this screen is the section's own − stepper, and landing a caret there does
+            // nothing but leave the keyboard up over the card you were reading.
+            keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = if (name.isEmpty()) "Block name, not set" else "Block name"
+                },
+        )
     }
 }
 
@@ -1223,6 +1359,25 @@ private fun Modifier.scaledBy(s: () -> Float) =
         val v = s()
         val p = measurable.measure(constraints)
         layout((p.width * v).roundToInt(), (p.height * v).roundToInt()) { p.place(0, 0) }
+    }
+
+/**
+ * Report a fraction of the content's own height and draw only that much of it.
+ *
+ * The lazy list's animateItem gives a *new* item its full height in one frame and then animates its
+ * neighbours through the jump. That is the wrong way round: a placement tween is a second animation
+ * chasing a target that has already moved, so the neighbours arrive late and are drawn on top of what
+ * pushed them. Growing the arriving card instead means there is no jump to chase — the neighbours
+ * move because layout moved them, exactly in step, and nothing overlaps at any point.
+ *
+ * Read inside the layout lambda for the same reason [paddingBy] is: the whole 260ms re-lays-out
+ * without recomposing the card. Applied only while the card is actually growing — the clip it needs
+ * would otherwise cut off a dragged card's 3% lift and its travel outside these bounds.
+ */
+private fun Modifier.heightBy(f: () -> Float) =
+    clipToBounds().layout { measurable, constraints ->
+        val p = measurable.measure(constraints)
+        layout(p.width, (p.height * f().coerceIn(0f, 1f)).roundToInt()) { p.place(0, 0) }
     }
 
 /** A width that interpolates at layout time, for the one case a scale can't express: a box whose
