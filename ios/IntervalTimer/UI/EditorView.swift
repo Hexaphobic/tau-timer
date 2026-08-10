@@ -179,6 +179,7 @@ struct EditorView: View {
                 }
             },
             onNameDone: { withAnimation(.easeInOut(duration: 0.26)) { namingCard = nil } },
+            onNameEdit: { namingCard = ui.id },
             onChange: { change(index: i, to: $0) },
             onAddItem: { addInterval(i) },
             onRemoveItem: { j in removeInterval(i, j) },
@@ -341,6 +342,8 @@ private struct BlockEditorCard: View {
     let moveGroup: (Int, Int) -> Bool
     let onName: () -> Void
     let onNameDone: () -> Void
+    /// Tapping a name that is already on the card is the other way into editing it.
+    let onNameEdit: () -> Void
     /// Returns whether the edit was accepted — a reorder that isn't has to spring back.
     let onChange: (Block) -> Bool
     let onAddItem: () -> Void
@@ -361,7 +364,8 @@ private struct BlockEditorCard: View {
                 block: block,
                 naming: naming,
                 onChange: { _ = onChange($0) },
-                onDone: onNameDone
+                onDone: onNameDone,
+                onEdit: onNameEdit
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
             cardHeader

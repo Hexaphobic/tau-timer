@@ -292,7 +292,8 @@ struct HomeView: View {
                     block: b,
                     naming: namingRow == row.id,
                     onChange: { next in change(i) { $0 = next } },
-                    onDone: { withAnimation(.easeInOut(duration: 0.26)) { namingRow = nil } }
+                    onDone: { withAnimation(.easeInOut(duration: 0.26)) { namingRow = nil } },
+                    onEdit: { namingRow = row.id }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -532,12 +533,16 @@ private struct NameField: View {
 /// sections with this exact field. One field, so the cap, the caret and the Done key can't drift.
 struct SectionName: View {
     let block: Block
-    /// Whether the row is open at all. The tag toggles it, and closing is only ever a fold — the
-    /// name is left exactly where it was, for the section to wear on the timer and for the next tag
-    /// press to find. Deleting the section is the one thing that takes a name away.
+    /// Whether this row is being *typed into*. It is not what decides the row is on screen: a name
+    /// stays in plain sight on the card once it exists, so the tag only ever opens the row and
+    /// closing it stops the typing rather than hiding what you typed. The row goes when the name
+    /// does — clear the text and fold — and deleting the section takes it for good.
     let naming: Bool
     let onChange: (Block) -> Void
     let onDone: () -> Void
+    /// Tapping the name is the other way in, so focus arriving has to tell the list to treat this
+    /// row as the one being edited — that is what arms the focus-loss close below.
+    let onEdit: () -> Void
 
     @FocusState private var focused: Bool
     /// What the text view actually holds. The field is bound to THIS, not straight to `block.name`,
@@ -549,7 +554,7 @@ struct SectionName: View {
     @State private var draft = ""
 
     var body: some View {
-        if naming {
+        if naming || !block.name.isEmpty {
             TextField("", text: $draft,
                       prompt: Text("Name").foregroundStyle(.white.opacity(0.35)),
                       // Wraps rather than scrolling sideways. 3 rows, not 2, because only CJK ever
@@ -581,7 +586,11 @@ struct SectionName: View {
                 // `.scrollDismissesKeyboard`) resigns first responder without anything up here
                 // knowing, which would leave a caret blinking in a field that can no longer be
                 // typed into. Losing focus closes the row.
-                .onChange(of: focused) { _, has in if !has && naming { onDone() } }
+                .onChange(of: focused) { _, has in
+                    if !has && naming { onDone() }
+                    // The row is on screen with the typing over; a tap in it is a request to edit.
+                    if has && !naming { onEdit() }
+                }
                 // The model is the source of truth; the draft mirrors it. Seeding on appear is what
                 // fills an already-named card, and following it afterwards covers a change this
                 // field didn't make — the ✕ on the section above shifting a different block into

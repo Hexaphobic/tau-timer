@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -36,6 +37,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -135,6 +137,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.offset
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
@@ -499,6 +502,33 @@ private fun SetupScreen(
         Settings.updateHomeRepeatAll(repeatAll)
     }
 
+    // Which section is being typed into, and the tick that re-arms its focus request so a second tag
+    // press re-summons a keyboard that was dismissed without Done. One id, so opening a second
+    // section's row ends the first's turn — the same single slot iOS keeps.
+    val focus = LocalFocusManager.current
+    var namingId by remember { mutableStateOf<Long?>(null) }
+    var nameTick by remember { mutableIntStateOf(0) }
+    // The name row's growth is already animated, from inside the card (chromeIn's expandVertically).
+    // A lazy item's placement animation is for *insertions and reorders* — it moves an item from
+    // where it was to where it now is. Pointed at a neighbour that is growing, it retargets every
+    // frame and therefore trails the growth by its own duration: the card below stayed put while the
+    // row opened above it, then slid down late, and for those 260ms it sat over the card that was
+    // still expanding. Placement animation off while a row is opening, open, or closing; layout then
+    // places the card below exactly where the growth puts it, every frame, and the two move as one.
+    val nameGrow by animateFloatAsState(
+        if (namingId != null) 1f else 0f,
+        tween(260, easing = FastOutSlowInEasing),
+        label = "nameGrow",
+    )
+    // ponytail: the same gate covers the collapse, so `nameGrow` is only read for its tail — it has
+    // to finish falling before the tween comes back, or the shrink trails exactly as the growth did.
+    // Known ceiling: a delete or a reorder *while* a row is open snaps instead of sliding, because the
+    // gate is a blunt on/off for the whole list. Nobody deletes a section with the keyboard up; if
+    // that ever stops being true, the gate needs to know which item is growing rather than that one is.
+    val placeSpec: FiniteAnimationSpec<IntOffset>? =
+        if (namingId != null || nameGrow > 0f) null
+        else tween(260, easing = FastOutSlowInEasing)
+
     /**
      * The number on screen has to keep meaning the same thing across the one-to-two boundary.
      *
@@ -636,7 +666,7 @@ private fun SetupScreen(
                     item(key = "save") {
                         // animateContentSize turns the swap into the button growing into the
                         // field, rather than one control vanishing and another appearing.
-                        Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)).animateContentSize(tween(260))) {
+                        Column(Modifier.animateItem(placementSpec = placeSpec).animateContentSize(tween(260))) {
                             if (naming) {
                                 NameField(
                                     value = name,
@@ -670,7 +700,7 @@ private fun SetupScreen(
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                        modifier = Modifier.animateItem(placementSpec = placeSpec),
                     )
                 }
                 // The group box: one rounded frame drawn around the ×N header and every section
@@ -777,7 +807,7 @@ private fun SetupScreen(
                             // is what an earlier, shorter delayed fade got wrong.
                             .then(
                                 if (floating) Modifier
-                                else Modifier.animateItem(fadeInSpec = tween(260, delayMillis = 240), placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                                else Modifier.animateItem(fadeInSpec = tween(260, delayMillis = 240), placementSpec = placeSpec),
                             ),
                     ) {
                     // ONE composable whether it's the plain home or a card — never two branches of
@@ -795,6 +825,21 @@ private fun SetupScreen(
                         // only one section. It arrives with the second one.
                         showHeader = grouped,
                         lifted = lifted,
+                        naming = namingId == row.id,
+                        focusTick = nameTick,
+                        onTag = {
+                            // Folding the typing now has to put the keyboard away by hand. The row
+                            // no longer leaves composition when the typing stops — a name stays on
+                            // the card — so the field is still there holding focus, and nothing
+                            // would take it. Cleared HERE, at the one place that decides a fold, and
+                            // never from inside the card: pressing another section's tag also ends
+                            // this one's turn, and a card clearing focus on its own way out would
+                            // yank it back off the card that had just asked for it.
+                            if (namingId == row.id) { namingId = null; focus.clearFocus() }
+                            else { namingId = row.id; nameTick++ }
+                        },
+                        onDone = { namingId = null },
+                        onEdit = { namingId = row.id },
                         onChange = { change(i, it) },
                         // Not while a card is in the air. Deleting the section under the finger —
                         // or the last one keeping the group grouped — takes the drag handle with it
@@ -838,11 +883,11 @@ private fun SetupScreen(
                         onMinus = { m -> setHomeRounds(homeRounds - m) },
                         onPlus = { m -> setHomeRounds(homeRounds + m) },
                         onReset = { setHomeRounds(DEFAULT_ROUNDS) },
-                        modifier = Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing)),
+                        modifier = Modifier.animateItem(placementSpec = placeSpec),
                     )
                 }
                 item(key = "footer") {
-                    Column(Modifier.animateItem(placementSpec = tween(260, easing = FastOutSlowInEasing))) {
+                    Column(Modifier.animateItem(placementSpec = placeSpec)) {
                         if (!solo) {
                             // Clear of the group frame's bottom edge — the + adds a section *to* the
                             // group, so it sits just outside it rather than inside.
@@ -924,18 +969,22 @@ private fun HomeSection(
     b: Block,
     boxed: Boolean,
     showHeader: Boolean,
+    // Held by the list, not by the card. The row's growth changes this item's height, and the items
+    // below it have to be told to stop animating their own placement while it happens — see
+    // `placeSpec` at the call site. Hoisting it is also what makes "only one section is ever being
+    // named" true rather than merely intended.
+    naming: Boolean,
+    focusTick: Int,
     onChange: (Block) -> Unit,
     onRemove: () -> Unit,
+    onTag: () -> Unit,
+    onDone: () -> Unit,
+    onEdit: () -> Unit,
     handle: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     lifted: Boolean,
 ) {
     val shape = RoundedCornerShape(28.dp)
-    // Whether this section's name row is open for typing. Local: only one section is ever being
-    // named. The tick re-arms the focus request so a second tag press can re-summon the keyboard
-    // after it was dismissed without Done.
-    var naming by remember { mutableStateOf(false) }
-    var focusTick by remember { mutableIntStateOf(0) }
     // 0 on the plain home, 1 as a card. Everything the box is made of rides on this one number, so
     // the chrome arrives and leaves as a single move rather than as four separate ones.
     //
@@ -986,7 +1035,8 @@ private fun HomeSection(
             naming = naming,
             focusTick = focusTick,
             onChange = onChange,
-            onDone = { naming = false },
+            onDone = onDone,
+            onEdit = onEdit,
         )
         // The lid of the box: it arrives with the box and leaves with it. Its *height* is animated,
         // not just its alpha — an `if` around it made the card jump a whole row taller the instant
@@ -1015,10 +1065,8 @@ private fun HomeSection(
                 GlassCircle("+", more, size = 36.dp)
                 // The tag, in the header's dead middle. Just the trigger — the name itself lives
                 // in the row that expands out of the card's top.
-                SectionTag {
-                    // A toggle: open-and-focus, or fold the keyboard away again.
-                    if (naming) naming = false else { naming = true; focusTick++ }
-                }
+                // A toggle: open-and-focus, or fold the keyboard away again. The list owns which.
+                SectionTag(onTag)
                 // How long this block is — the intervals under it, run the × N to its left. M:SS,
                 // not formatMs: these are block lengths now rather than shares of the whole workout,
                 // so most of them are under a minute, and a bare "50" in a column under "1:30" reads
@@ -1047,9 +1095,11 @@ private fun HomeSection(
  *
  * [enabled] is the home's "only once there is a header to hang it under"; the editor passes true.
  *
- * Visibility follows [naming] alone. The tag opens and closes this row outright, and closing is only
- * ever a fold — the name is left exactly where it was, for the section to wear on the timer and for
- * the next tag press to find. Deleting the section is the one thing that takes a name away.
+ * A NAME STAYS ON SCREEN. Visibility is [naming] *or* a name to show: the tag only ever opens this
+ * row, and closing it stops the typing rather than hiding what you typed — a name you can't see is
+ * one you have to open a keyboard to check. The row goes away when the name does, so clearing the
+ * text and folding is what takes it off the card, and deleting the section takes it off for good.
+ * Tapping the name itself is the other way back in, which is why focus reports up through [onEdit].
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1059,6 +1109,7 @@ internal fun SectionNameRow(
     focusTick: Int,
     onChange: (Block) -> Unit,
     onDone: () -> Unit,
+    onEdit: () -> Unit,
     enabled: Boolean = true,
 ) {
     val focusManager = LocalFocusManager.current
@@ -1071,28 +1122,40 @@ internal fun SectionNameRow(
     // frame or two after the tag is pressed the IME is still down. Reacting to that would clear
     // the focus that was about to open it — the row would flicker and close on its own. Only a
     // keyboard that has actually been up can count as one that has gone away.
+    //
+    // And it must be a keyboard THIS field was holding. isImeVisible is a window-wide fact: every
+    // card on the screen sees every keyboard, so a latch armed by the neighbour's typing fired the
+    // moment the neighbour's keyboard went down. That is precisely the gap between closing one tag
+    // and opening the next — press the top card's tag, then the bottom one's, and the row you just
+    // opened closed itself and took the keyboard with it. Arming on `focused` scopes the latch to
+    // the field that actually summoned the IME; a card that merely witnessed one never arms at all.
     val imeUp = WindowInsets.isImeVisible
+    var focused by remember { mutableStateOf(false) }
     var seen by remember { mutableStateOf(false) }
-    LaunchedEffect(imeUp) {
-        if (imeUp) {
-            seen = true
-        } else if (seen) {
+    LaunchedEffect(naming, imeUp, focused) {
+        // Folded away: nothing to close, and the latch must not survive into the next opening.
+        if (!naming) {
             seen = false
-            // Guarded on `naming` so the cards that merely *witnessed* someone else's keyboard —
-            // isImeVisible is a window-wide fact, every card sees it — don't all pile onto the
-            // focus manager when it closes.
-            if (naming) {
-                onDone()
-                focusManager.clearFocus()
-            }
+            return@LaunchedEffect
+        }
+        if (imeUp && focused) {
+            seen = true
+            return@LaunchedEffect
+        }
+        // The keyboard this field was holding has gone — swiped away, or handed to another card.
+        if (seen) {
+            seen = false
+            onDone()
+            focusManager.clearFocus()
         }
     }
-        // The name, above everything else in the card — pencil pressed, this expands out of the
+        // The name, above everything else in the card — tag pressed, this expands out of the
         // top on the same chrome animation the header lid rides, and the card grows to make room
-        // exactly the way it does for a new interval. Once named it simply stays; clearing the
-        // text and hitting Done folds it away again.
+        // exactly the way it does for a new interval. A name then simply stays put, in plain sight
+        // on the card, until it is cleared: `b.name.isNotEmpty()` is what keeps this row up after
+        // the typing stops.
         AnimatedVisibility(
-            enabled && naming,
+            enabled && (naming || b.name.isNotEmpty()),
             enter = chromeIn(Alignment.Top),
             exit = chromeOut(Alignment.Top),
         ) {
@@ -1158,6 +1221,14 @@ internal fun SectionNameRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focus)
+                    // What scopes the IME latch above to this field rather than to the window. And
+                    // now that a named row sits on the card with the typing over, focus arriving is
+                    // its own way in: tap the name and the list is told to treat it as being edited,
+                    // which is what re-arms the latch that puts the caret away afterwards.
+                    .onFocusChanged {
+                        focused = it.isFocused
+                        if (it.isFocused && !naming) onEdit()
+                    }
                     .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp)
                     .animateContentSize(tween(260, easing = FastOutSlowInEasing)),
                 decorationBox = { inner ->

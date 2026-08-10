@@ -3,9 +3,11 @@ package com.chrispoole.intervaltimer.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +61,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
@@ -407,6 +410,21 @@ fun EditorScreen(
         onMove = { from, to -> moveGroup(from - FIRST_CARD, to - FIRST_CARD) },
     )
 
+    // Which card is being typed into, plus the tick that re-arms its focus request. One id: opening
+    // a second card's row ends the first's turn. See the home's copy for why the list holds this.
+    val focus = LocalFocusManager.current
+    var namingId by remember { mutableStateOf<Long?>(null) }
+    var nameTick by remember { mutableIntStateOf(0) }
+    // Placement animation off while a name row is opening, open, or closing, so the cards below track
+    // the growth frame for frame instead of trailing it and sitting over the card above. The rest of
+    // the time it is the default spring, which is what carries add, delete and reorder here.
+    val nameGrow by animateFloatAsState(
+        if (namingId != null) 1f else 0f,
+        tween(260, easing = FastOutSlowInEasing),
+        label = "nameGrow",
+    )
+    val tracking = namingId != null || nameGrow > 0f
+
     Box(Modifier.fillMaxSize()) {
         HomeBackground(Modifier.fillMaxSize())
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -466,6 +484,17 @@ fun EditorScreen(
                     index = i,
                     groupCount = blocks.size,
                     lifted = lifted,
+                    naming = namingId == ub.id,
+                    focusTick = nameTick,
+                    onTag = {
+                        // See the home's copy: the row outlives the typing now, so the fold is what
+                        // has to release the keyboard — and only ever from here, never from inside a
+                        // card, which would steal focus from whichever card just asked for it.
+                        if (namingId == ub.id) { namingId = null; focus.clearFocus() }
+                        else { namingId = ub.id; nameTick++ }
+                    },
+                    onDone = { namingId = null },
+                    onEdit = { namingId = ub.id },
                     handle = {
                         DragHandle(
                             key = ub.id,
@@ -490,12 +519,12 @@ fun EditorScreen(
                         }
                         // The card under the finger is placed by hand; everything else lets the
                         // lazy list animate it aside.
-                        .then(if (floating) Modifier else Modifier.animateItem()),
+                        .then(if (floating || tracking) Modifier else Modifier.animateItem()),
                 )
             }
 
             item(key = "footer") {
-                Column(Modifier.animateItem()) {
+                Column(if (tracking) Modifier else Modifier.animateItem()) {
                     // Rounds directly under the cards, then the add button — the home's order. It is
                     // sitting under the whole stack that makes it read as governing the whole stack,
                     // so nothing may come between them.
@@ -615,12 +644,20 @@ private fun BlockEditorCard(
     index: Int,
     groupCount: Int,
     lifted: Boolean,
+    // Held by the list, exactly as the home holds it, and for the same two reasons: only one card is
+    // ever being named, and the cards below a growing name row must stop animating their own
+    // placement while it grows or they trail it and ride over the card above.
+    naming: Boolean,
+    focusTick: Int,
     handle: @Composable () -> Unit,
     /** Returns whether the edit was accepted — a reorder that isn't has to spring back. */
     onChange: (Block) -> Boolean,
     onAddItem: () -> Unit,
     onRemoveItem: (Int) -> Unit,
     onDeleteGroup: () -> Unit,
+    onTag: () -> Unit,
+    onDone: () -> Unit,
+    onEdit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // 28dp, the home section's radius. This card and a home section are the same object seen on two
@@ -632,11 +669,6 @@ private fun BlockEditorCard(
     // the brightening was doing all the work anyway.
     val fill by animateColorAsState(if (lifted) Color.White.copy(alpha = 0.20f) else GlassFill, label = "fill")
     val edge by animateFloatAsState(if (lifted) 0.5f else 0f, label = "edge")
-    // Whether this card's name row is open for typing. Local, exactly as a home section holds it:
-    // only one card is ever being named. The tick re-arms the focus request so a second tag press
-    // can re-summon the keyboard after it was dismissed without Done.
-    var naming by remember { mutableStateOf(false) }
-    var focusTick by remember { mutableIntStateOf(0) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -655,7 +687,8 @@ private fun BlockEditorCard(
             naming = naming,
             focusTick = focusTick,
             onChange = { onChange(it) },
-            onDone = { naming = false },
+            onDone = onDone,
+            onEdit = onEdit,
         )
         // The home section's header, control for control: grip, the ×N, how long this group runs,
         // and the ✕. No "Group 3" — the grip beside it already says "Reorder group 3" to a screen
@@ -692,10 +725,8 @@ private fun BlockEditorCard(
             // The tag, in the header's dead middle — the home's placement exactly. It carries the
             // flexible slot that used to be a bare Spacer here, and gives it straight back when
             // section names are switched off.
-            SectionTag {
-                // A toggle: open-and-focus, or fold the keyboard away again.
-                if (naming) naming = false else { naming = true; focusTick++ }
-            }
+            // A toggle: open-and-focus, or fold the keyboard away again. The list owns which.
+            SectionTag(onTag)
             // How long this group runs, the ×N included — the same readout the home puts here.
             Text(
                 clock(block.items.sumOf { it.durationSec } * block.repeat),
