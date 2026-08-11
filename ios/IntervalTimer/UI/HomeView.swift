@@ -555,8 +555,12 @@ struct SectionName: View {
 
     var body: some View {
         if naming || !block.name.isEmpty {
+            // No `prompt:`. SwiftUI draws one at the text origin, which is where the caret is —
+            // so the bar wears the placeholder's first letter. An overlay is the only way to
+            // hold it clear, and it has to sit ABOVE the padding modifiers so its leading edge
+            // is the text's own. The label moves to `.accessibilityLabel`, which is what the
+            // prompt was carrying for VoiceOver.
             TextField("", text: $draft,
-                      prompt: Text("Name").foregroundStyle(.white.opacity(0.35)),
                       // Wraps rather than scrolling sideways. 3 rows, not 2, because only CJK ever
                       // needs the third and clipping it there is exactly what the 40-character cap
                       // exists to avoid.
@@ -567,6 +571,17 @@ struct SectionName: View {
                 .foregroundStyle(.white)
                 .tint(.white)
                 .focused($focused)
+                .accessibilityLabel("Name block")
+                .overlay(alignment: .topLeading) {
+                    if draft.isEmpty {
+                        Text("Name block")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .padding(.leading, 7)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .padding(.horizontal, 8)
                 .padding(.top, 2)
                 .padding(.bottom, 8)

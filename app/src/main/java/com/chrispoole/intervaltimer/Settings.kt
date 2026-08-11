@@ -130,15 +130,18 @@ object Settings {
 
     // Same wire shape as presets.json, one level deeper: a section is its interval list plus how
     // many times it runs.
+    //
+    // NAMES ARE NOT WRITTEN. A section's name lasts as long as the app is open and no longer: the
+    // home is the scratch pad you came back to, and a name from last week's workout riding back onto
+    // it — on sections whose numbers you have since changed — is a label that has quietly stopped
+    // being true. Naming something you mean to keep is what "Save as preset" is for, and presets.json
+    // does carry them. Nothing else here needs a name, so nothing else here stores one.
     private fun homeJson(blocks: List<Block>): String {
         val arr = JSONArray()
         for (b in blocks) {
             val items = JSONArray()
             for (s in b.items) items.put(JSONObject().put("phase", s.phase.name).put("sec", s.durationSec))
-            val o = JSONObject().put("items", items).put("repeat", b.repeat)
-            // Only when there is one, so an unnamed home writes the exact bytes it always did.
-            if (b.name.isNotEmpty()) o.put("name", b.name)
-            arr.put(o)
+            arr.put(JSONObject().put("items", items).put("repeat", b.repeat))
         }
         return arr.toString()
     }
@@ -158,7 +161,10 @@ object Settings {
                 val it = items.getJSONObject(j)
                 SeqInterval(Phase.valueOf(it.getString("phase")), it.getInt("sec"))
             }
-            if (list.isEmpty()) null else Block(list, o.optInt("repeat", 1).coerceAtLeast(1), o.optString("name"))
+            // The name is ignored, not just unwritten: an install upgrading from a build that saved
+            // one has that name sitting in its prefs already, and reading it back would hand it a
+            // title on first launch that no later launch would ever give it again.
+            if (list.isEmpty()) null else Block(list, o.optInt("repeat", 1).coerceAtLeast(1))
         }
         blocks.ifEmpty { null }
     }.getOrNull()

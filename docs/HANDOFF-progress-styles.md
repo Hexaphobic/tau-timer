@@ -1,5 +1,59 @@
 # Handoff prompt — selectable countdown styles
 
+> **PARKED 2026-08-11, mid-design. Nothing built, no code written.** The brief below still stands as
+> background, but §4 and §5 have been overtaken — read this block first.
+>
+> ### Settled
+>
+> - **Two styles, not four.** **Split** (the shipping perimeter stroke) stays exactly as it is and
+>   stays the default — explicitly not to be touched. **Drain** is the only addition.
+> - **Bar and Ring are rejected.** Ring failed on a finding the original brief missed: the Aura
+>   shader's heaviest bloom (`weight 0.9`) sits at roughly screen centre, which is precisely where a
+>   ring around the numeral is drawn. Split escapes to the edge; Ring cannot. Bar was simply not
+>   wanted. Iris, tide and horizon stay parked and unbuilt.
+> - **§4 dissolves.** Drain no longer behaves differently on the two grounds. The emptied region
+>   **paints its own black over the ground** instead of relying on the ground to be black: Drain is
+>   two halves of one layer — phase colour below the level, a black scrim above it. On Minimal the
+>   scrim lands on black and costs nothing; on Aura it is what makes the level read. One
+>   implementation, no per-ground branch, **and no new shader uniforms** — §3 is respected.
+> - **Phone + iOS only.** The watch keeps its flat, numbers-only timer.
+> - **Its own `SettingsCard` under Theme**, not a row inside the Theme card — owner's words were
+>   "an extra panel inside settings". Tiles are **live previews**, each running its own loop.
+> - Enum as §6 describes: mirrors `Palette`, persisted by name,
+>   `runCatching { valueOf() }.getOrDefault(SPLIT)`, setter `updateProgressStyle()`.
+>
+> ### Open — must be answered before building
+>
+> 1. **The aura only exists where the level has emptied.** Owner, on seeing it: *"the aura doesn't
+>    exist, as it's lighting up. You reveal it essentially in the background."* With the scrim on,
+>    the shader reads as something being uncovered rather than something that was already there.
+>    This is the live objection and it has no answer yet.
+> 2. **Two constants unset** — how black the emptied part goes, and the opacity of the colour still
+>    standing. The tuning artifact carries both as dials; the numbers were never called.
+> 3. **The numeral disappears in Mono.** `Palette.MONO` makes work, rest and prepare all
+>    `Color.White`, so a white numeral vanishes the moment the level reaches it. Vesper (`#99FFE4`)
+>    is pale enough to be close behind. Three candidates were built and shown, none chosen:
+>    **Split** (white above the level, black below — reuses the two masks Drain already has),
+>    **Hard switch** (whole numeral flips once the level passes its middle), and **Plain** (status
+>    quo, i.e. the bug).
+>
+> ### Worth knowing before touching the numeral
+>
+> - The timer numeral has **no glow behind it** — it is plain white on the ground. A halo in an
+>   early mock was the mock's own `text-shadow`, not the app's.
+> - Whatever treats the numeral must handle four shapes, not one: Western digits, **stacked** CJK and
+>   Korean (two lines, minutes over seconds), Devanagari and Arabic-Indic digits, and **Cistercian**,
+>   which is a single drawn glyph with no baseline. And **word mode is on by default**, so under 60
+>   seconds English, Spanish, French and Russian show a spelled word — a wide, short shape instead of
+>   a tall one, and what most users will actually be looking at.
+>
+> ### Artifacts
+>
+> - Fourteen styles, the original survey — <https://claude.ai/code/artifact/e33d4352-faf5-4683-8309-41864633bcd1>
+> - Four styles against both grounds — <https://claude.ai/code/artifact/bb10417c-bdcf-46fd-906f-09d23104e34d>
+> - Drain: scrim mechanism, dials, all ten languages, the three numeral treatments —
+>   <https://claude.ai/code/artifact/2dd21db6-8d3d-4c7a-8cbe-8737a936a9e2>
+
 Copy everything below the line into a fresh chat. It is written to be self-contained.
 
 ---

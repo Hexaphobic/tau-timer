@@ -118,13 +118,16 @@ final class Settings: ObservableObject {
 
 /// The home layout's wire shape — the same one Android writes into its prefs, so the two builds
 /// describe a section identically even though nothing syncs between them.
+/// No `name` field, and deliberately: a section's name lasts as long as the app is open and no
+/// longer. The home is the scratch pad you came back to, and a name from last week's workout riding
+/// back onto sections whose numbers you have since changed is a label that has quietly stopped being
+/// true. Naming something you mean to keep is what "Save as preset" is for, and presets do carry
+/// them. Dropping the property rather than skipping the write also handles the upgrade: `Codable`
+/// ignores a key it has no property for, so a home saved by a build that stored names decodes
+/// without one instead of granting a title on first launch that no later launch would give again.
 private struct HomeBlockDTO: Codable {
     let items: [ItemDTO]
     let `repeat`: Int
-    /// Optional, and nil rather than "" when there is no name: a synthesised `encode(to:)` skips a
-    /// nil entirely, so an unnamed home writes the exact bytes it always did — which is also what
-    /// keeps a build that predates names reading it.
-    let name: String?
 
     struct ItemDTO: Codable {
         let phase: String
@@ -134,11 +137,10 @@ private struct HomeBlockDTO: Codable {
     init(_ b: Block) {
         items = b.items.map { ItemDTO(phase: $0.phase.rawValue, sec: $0.durationSec) }
         self.repeat = b.repeatCount
-        name = b.name.isEmpty ? nil : b.name
     }
 
     var block: Block {
         Block(items.map { SeqInterval(Phase(rawValue: $0.phase) ?? .work, $0.sec) },
-              max(self.repeat, 1), name ?? "")
+              max(self.repeat, 1))
     }
 }

@@ -48,6 +48,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -98,6 +99,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -401,6 +403,64 @@ class MainActivity : ComponentActivity() {
 data class HomeRow(val id: Long, val b: Block)
 
 /**
+ * The caret, drawn by hand — both name fields wear this one. (Not the preset editor's title field:
+ * that one is a Material OutlinedTextField, which exposes neither `onTextLayout` nor a decoration
+ * box, so it keeps the stock caret until it stops being a Material field.)
+ *
+ * Compose's own is a hard-edged 2dp rectangle strobing 500ms on, 500ms off, and `cursorBrush` is
+ * the only hook the field exposes: width and blink are both hardcoded behind it, so colour is all
+ * you can reach from there. Both name fields set that brush transparent and paint this instead —
+ * a 3dp pill with round caps, inset from the line box, breathing between full and 15% rather than
+ * flashing. It is the one bare rectangle left on a screen where every other surface is rounded.
+ *
+ * It never goes fully out, and that is the point of the change: what read as cheap was the square
+ * wave, not the shape. A floor of 15% keeps it a caret you can always see, moving.
+ *
+ * Restarted on every caret move, which is what Compose's own does too — a cursor caught half-faded
+ * under your own typing reads as lag. [offset] is the key rather than the text, because there is no
+ * edit that leaves the caret where it was.
+ *
+ * Held steady at full when the OS has been told to remove animations: a caret still has to say
+ * "the next letter lands here", and that is shape and position, not motion.
+ *
+ * Goes AFTER `.padding(...)` in the chain. Draw modifiers work in the space of what they decorate,
+ * so sitting inside the padding puts the origin on the text's own origin — which is the space
+ * `getCursorRect` measures in, and the reason nothing here needs a correction term.
+ */
+@Composable
+private fun Modifier.pillCaret(layout: TextLayoutResult?, offset: Int, visible: Boolean): Modifier {
+    val alpha = remember { Animatable(0f) }
+    LaunchedEffect(visible, offset) {
+        if (!visible) {
+            alpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        alpha.snapTo(1f)
+        if (Settings.reducedMotion) return@LaunchedEffect
+        alpha.animateTo(
+            0.15f,
+            infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        )
+    }
+    return drawWithContent {
+        drawContent()
+        if (alpha.value <= 0f) return@drawWithContent
+        // A layout one keystroke stale can be shorter than the caret it's being asked about,
+        // for the frame between a delete landing and the text re-measuring.
+        val text = layout?.layoutInput?.text ?: return@drawWithContent
+        val r = layout.getCursorRect(offset.coerceIn(0, text.length))
+        val w = 3.dp.toPx()
+        val inset = 2.dp.toPx()
+        drawRoundRect(
+            Color.White.copy(alpha = alpha.value),
+            topLeft = Offset(r.left, r.top + inset),
+            size = Size(w, (r.height - inset * 2).coerceAtLeast(w)),
+            cornerRadius = CornerRadius(w / 2),
+        )
+    }
+}
+
+/**
  * Name-and-save, as one fully rounded glass pill so it sits in the same family as every other
  * control. Material's OutlinedTextField was the only square-ish thing on the screen.
  */
@@ -428,13 +488,26 @@ private fun NameField(
             if (value.isEmpty()) {
                 Text("Name this preset", color = Color.White.copy(alpha = 0.45f), fontSize = 16.sp)
             }
+            // TextFieldValue rather than the String overload, for the same reason the section
+            // name row uses one: [pillCaret] has to be told where the caret is, and only the
+            // value carries a selection. The caller still hands over a plain String — the field
+            // follows it, so nothing outside here has to know.
+            var tf by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+            if (tf.text != value) tf = TextFieldValue(value, TextRange(value.length))
+            var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+            var focused by remember { mutableStateOf(false) }
             BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = tf,
+                onValueChange = { tf = it; onValueChange(it.text) },
                 singleLine = true,
                 textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 16.sp),
-                cursorBrush = SolidColor(Color.White),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                cursorBrush = SolidColor(Color.Transparent),
+                onTextLayout = { layout = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .onFocusChanged { focused = it.isFocused }
+                    .pillCaret(layout, tf.selection.start, focused),
             )
         }
         CloseX { onClose() }
@@ -493,7 +566,8 @@ private fun SetupScreen(
     // exactly why the tag lives in the header and the header only arrives with `grouped`. Delete
     // down to one and the name would otherwise survive, ride onto the timer, and have nowhere on
     // screen left to edit it from. Stripped here rather than at each delete because this is the one
-    // list both the save and the workout read, so neither can disagree with the other.
+    // list the workout, the summary and "Save as preset" all read, so none of them can disagree.
+    // (The save below never carries a name either way — see `homeJson`, which stores none at all.)
     val layout = if (grouped) rows.map { it.b } else rows.map { it.b.copy(name = "") }
     LaunchedEffect(layout) { if (layout.isNotEmpty()) Settings.updateHome(layout) }
 
@@ -1142,11 +1216,23 @@ internal fun SectionNameRow(
             seen = true
             return@LaunchedEffect
         }
-        // The keyboard this field was holding has gone — swiped away, or handed to another card.
+        // The keyboard this field was holding has gone — swiped away, or handed to another field.
         if (seen) {
             seen = false
             onDone()
-            focusManager.clearFocus()
+            // Only take focus away if it is still ours to take. Both exits land here, and they
+            // want opposite things:
+            //
+            //   keyboard gone (!imeUp)  — we still hold a focus nothing can type into. Drop it.
+            //   keyboard still up       — some other field just took it. Clearing now yanks focus
+            //                             straight back out of whatever asked for it.
+            //
+            // The second case is not hypothetical: name a section, then press "Save as preset"
+            // without closing the keyboard first. The preset field requests focus, this latch
+            // fires a frame later because THIS field lost it, and the clear took the caret out of
+            // the field that had just opened — it sat there with a placeholder, swallowing every
+            // keystroke, and Save stayed greyed out because nothing ever reached it.
+            if (!imeUp) focusManager.clearFocus()
         }
     }
         // The name, above everything else in the card — tag pressed, this expands out of the
@@ -1169,6 +1255,8 @@ internal fun SectionNameRow(
             // The block is the source of truth; the field follows it. Covers this remember's
             // slot being reused for a different section after a delete above shifts the list.
             if (tf.text != b.name) tf = TextFieldValue(b.name, TextRange(b.name.length))
+            // Where the caret goes, for [pillCaret] to draw into.
+            var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
             // Keyed on the tick, not on `naming`: each pencil press re-arms the request, so the
             // keyboard comes back even when a swipe already dismissed it with naming still true.
             // On first composition of an already-named card naming is false, so nothing grabs.
@@ -1210,7 +1298,9 @@ internal fun SectionNameRow(
                 singleLine = false,
                 maxLines = 3,
                 textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
-                cursorBrush = SolidColor(Color.White),
+                // Transparent, because [pillCaret] draws it — see there.
+                cursorBrush = SolidColor(Color.Transparent),
+                onTextLayout = { layout = it },
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Done,
@@ -1230,6 +1320,7 @@ internal fun SectionNameRow(
                         if (it.isFocused && !naming) onEdit()
                     }
                     .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp)
+                    .pillCaret(layout, tf.selection.start, focused)
                     .animateContentSize(tween(260, easing = FastOutSlowInEasing)),
                 decorationBox = { inner ->
                     // Top-aligned, not centred: on a two- or three-row name the placeholder is
@@ -1237,7 +1328,17 @@ internal fun SectionNameRow(
                     // grows, which reads as the text sliding rather than a row being added.
                     Box(contentAlignment = Alignment.TopStart) {
                         if (b.name.isEmpty()) {
-                            Text("Name", color = Color.White.copy(alpha = 0.35f), fontSize = 15.sp, maxLines = 1)
+                            // Nudged clear of the caret. Both sit at the text origin — the field
+                            // stacks the placeholder under the real text, which starts at x=0 —
+                            // so an unpadded placeholder wears the caret through its first letter.
+                            // 7dp is the 3dp pill plus air: enough that they read as two things.
+                            Text(
+                                "Name block",
+                                modifier = Modifier.padding(start = 7.dp),
+                                color = Color.White.copy(alpha = 0.35f),
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                            )
                         }
                         inner()
                     }
