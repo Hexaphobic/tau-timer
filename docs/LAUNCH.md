@@ -5,6 +5,14 @@
 > **Free**, Play's one-way rule (free can never become paid) has permanently settled monetization
 > as free + a one-time unlock. See `docs/GROWTH.md`.
 
+> **ALSO STALE, 2026-08-21:** that unlock has now shipped. v1.1.0 (`versionCode 3`) sells a
+> **$2.99 one-time purchase** — six extra themes and unlimited saved sequences — through Play
+> Billing. The library merges `INTERNET`, `ACCESS_NETWORK_STATE` and `com.android.vending.BILLING`
+> into the **phone** manifest, so every "no INTERNET permission" line below is now false for
+> `:app`. It stays true for `:wear`, which has no Billing library and nothing to sell — it was
+> carried to 1.1.0 / `versionCode 1002` only so one listing shows one version. The Console steps
+> the unlock still needs are §5 of `docs/PLAY_SUBMISSION.md`, and the order there matters.
+
 Written the night before (2026-07-30). Everything below assumes the tree as it stands tonight.
 "You" = things only you can do (passwords, accounts, taste). "Claude" = I run it, you watch.
 
@@ -118,13 +126,24 @@ lazily and reads empty if you look too early; don't re-upload on the strength of
 | Declaration | Answer | Basis |
 |---|---|---|
 | Privacy policy | `https://legal.midamultimedia.com/interval-timer/privacy-policy/` | verified live, HTTP 200, wildcard cert |
-| Ads | No | no ads SDK; no INTERNET permission in either merged manifest |
+| Ads | No | no ads SDK and no `AD_ID`; the INTERNET permission is Play Billing's, not an ad network's |
 | Advertising ID | No | `AD_ID` appears 0 times in both packaged manifests |
 | Sign in details | No restricted parts | no auth surface anywhere in the source |
 | Government apps | No | — |
-| Financial features | None | no billing library, no purchases |
+| Financial features | None | unchanged — Play means lending, banking, crypto and investing here, and a one-time unlock is none of them |
 | Health apps | **Activity and fitness** | reversed 08-03 morning — see below |
-| Data safety | No collection, no sharing | no INTERNET permission, so nothing can leave the device |
+| Data safety | No collection, no sharing | the only traffic is Play asking Play who owns the unlock; no app data leaves the device |
+
+**Three of those bases were rewritten on 2026-08-21** and the answers deliberately were not. v1.1.0
+put a network permission in the phone manifest, which retires the "it physically cannot phone home"
+argument the overnight answers leaned on — but Ads, Financial features and Data safety are all still
+correctly answered, just for reasons that now have to be stated rather than pointed at.
+
+The one to not get clever about is **Financial features**. The instinct on seeing a paywall land is
+to go tick something; don't. That declaration is Play asking whether you offer loans, banking,
+crypto or investments. Selling a $2.99 unlock is an in-app product, and Play adds the
+"In-app purchases" badge to the listing itself — §5 of `PLAY_SUBMISSION.md`. Nothing on this table
+needs changing in the Console.
 
 **The one judgement call: Health apps. REVERSED on the morning of 08-03 — now "Activity and
 fitness".** The overnight answer was "no health features", on the reasoning that the app measures
@@ -142,12 +161,19 @@ the app is marketed on TikTok and Instagram to a fitness audience — the catego
 work for arriving link traffic, not organic-discovery work, and is worth more than the technical
 precision of that checkbox. Over-claiming here is the safe direction: it invites more scrutiny,
 and there is no health data to scrutinise. The Health apps policy obligations are about health
-*data* — collection, storage, sharing — and this app has none and no INTERNET permission, so it
-satisfies them by construction. Nothing about the app changed.
+*data* — collection, storage, sharing — and this app has none. (The network permission v1.1.0 added
+carries Play Billing's ownership check and nothing else, so that still holds by construction.)
+Nothing about the app changed.
 
-**Verified permissions** (both packaged release manifests, so this is what actually ships):
-app = FOREGROUND_SERVICE, FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK.
-wear = the same plus VIBRATE. No INTERNET. No AD_ID. That is the evidence base for Data safety.
+**Verified permissions.** On 08-03 this read: both modules FOREGROUND_SERVICE,
+FOREGROUND_SERVICE_SPECIAL_USE, POST_NOTIFICATIONS, WAKE_LOCK, wear additionally VIBRATE, no
+INTERNET on either, no AD_ID.
+
+**Re-verified 2026-08-21 against the packaged bundles themselves**, which is what actually ships:
+the phone has since gained `INTERNET`, `ACCESS_NETWORK_STATE` and `com.android.vending.BILLING`
+from the Billing library. Wear is byte-for-byte the same list it was. Neither carries `AD_ID`.
+Data safety is still "no collection" — §1 of `PLAY_SUBMISSION.md` carries that argument now that
+the manifest no longer makes it unaided.
 
 **Foreground service declaration**: not seen in App content. It most likely appears during the
 release review flow because the bundle declares `specialUse`. The justification to paste is §2 of
@@ -187,6 +213,9 @@ Done, needs nothing from you:
   module (the wearable dependency injects none), FGS type `specialUse` with subtype
   `interval_timer`. Data Safety "No to collection" and the privacy page are both
   accurate for the artifacts that will actually be uploaded.
+  **[Superseded 2026-08-21:** true as verified on 08-02, and still true of `:wear`. The phone
+  picked up `INTERNET`, `ACCESS_NETWORK_STATE` and `com.android.vending.BILLING` with the v1.1.0
+  unlock. Data Safety and the privacy page are unaffected and remain accurate.**]**
 
 Left to do in the Console — all of it needs you, because the Play Console needs a
 visible display and file uploads:
@@ -232,6 +261,7 @@ source (word mode is 12 languages, not 3).
 
 ## Noted for after launch (user's words, 2026-07-30 night)
 
-- **Settings**: drop the copy explaining that colours correlate to work/rest — "goes against our
-  ethos of simplicity. Intuition is king." (Confirm exactly which text is meant before deleting.)
+- ~~**Settings**: drop the copy explaining that colours correlate to work/rest — "goes against our
+  ethos of simplicity. Intuition is king."~~ **Done** — went with the three settings dropped in
+  `6bd73c0` (2026-08-08). No copy of that kind survives anywhere in the settings source.
 - Grouped progress pips (PUNCHLIST §10) — open design question, unbuilt by choice.

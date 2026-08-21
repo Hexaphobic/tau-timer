@@ -1,0 +1,38 @@
+{
+  "identifier" : "A1B2C3D4",
+  "nonRenewingSubscriptions" : [
+  ],
+  "products" : [
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "1000000001",
+      "localizations" : [
+        {
+          "description" : "Six more colour themes and unlimited saved sequences. One payment, no subscription.",
+          "displayName" : "Unlock everything",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "unlock",
+      "referenceName" : "Unlock everything",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "0",
+    "_developerTeamID" : "GTF5NXSC6V",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+    ]
+  },
+  "subscriptionGroups" : [
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

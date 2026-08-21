@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Apple's required-reason API declaration. Without it, uploading returns ITMS-91053 "Missing API
+  declaration" — which fires at the upload step, long before any review, because this app reads and
+  writes UserDefaults (Settings.swift, IntervalTimerApp.swift).
+
+  Everything here is a statement that the app does nothing: it collects no data, tracks nobody, and
+  touches exactly one required-reason API, for its own settings and no other purpose. CA92.1 is
+  Apple's reason code for "access info from same app, per documentation" — the app's own defaults,
+  never another app's, never a device signal read for identification.
+
+  The one-time unlock does not change any of this. Payment is Apple's transaction; the app is told
+  whether this account owns the product and nothing else. There is no name, no email, no card.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

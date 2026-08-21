@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Export options for `xcodebuild -exportArchive`. Nothing exotic: one App Store build, signed
+  automatically, symbols uploaded so a crash report is readable. Bitcode is gone from the platform
+  and does not belong here.
+
+  It exists as a file because the archive step is a two-command sequence that gets run once and
+  then not again for months, and re-deriving these five keys from memory at 11pm is how a build
+  ends up uploaded without symbols.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>GTF5NXSC6V</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>

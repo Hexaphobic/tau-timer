@@ -16,9 +16,10 @@ after the last commit. This file is the current record.) Play review on a newer 
 runs 7–14 days, and health-adjacent categories 14–21, so expect a wait.
 
 **This forecloses paid-up-front on Android, permanently.** The Play app record was created as
-**Free** (`LAUNCH.md:179`). Google's rule: *once your app has been offered for free, the app can't
-be changed to paid* — the only route is a new app with a new package name, forfeiting this listing,
-its reviews, and the `specialUse` FGS review currently in flight.
+**Free** (`LAUNCH.md`, §"Status, 2026-08-02 afternoon"). Google's rule: *once your app has been
+offered for free, the app can't be changed to paid* — the only route is a new app with a new
+package name, forfeiting this listing, its reviews, and the `specialUse` FGS review currently in
+flight.
 
 So §2's model question is answered by fact rather than preference: **free + a one-time unlock.**
 §7's counterargument is now historical — read it to understand the trade you made, not as an open
@@ -31,8 +32,10 @@ monetization code, land the unlock in v1.1. You are exactly on plan.
 Any earlier build activity was TestFlight; Beta App Review is not App Review. Everything
 time-critical is still available, and the order matters:
 
-1. **Attach the $4.99 unlock to the 1.0 build before submitting.** Apple requires the first
+1. **Attach the unlock to the 1.0 build before submitting.** Apple requires the first
    non-consumable to ship *with a new app version*. Free now; a permanent extra review cycle later.
+   Android shipped this at **$2.99** on 2026-08-21 — read the dated note in §2 before you type a
+   price into App Store Connect.
 2. **Enrol in the Small Business Program now** — the 15% rate starts 15 days after the fiscal month
    of approval, so enrolling after launch bills the best sales week at 30%.
 3. **Submit with "Manually release this version."** This decouples review from launch: the app parks
@@ -74,6 +77,20 @@ FOREGROUND_SERVICE · FOREGROUND_SERVICE_SPECIAL_USE · WAKE_LOCK · POST_NOTIFI
 
 That is the complete permission list of the release build. **No INTERNET.** The app is physically
 incapable of phoning home, and that is checkable on camera by anyone in ten seconds.
+
+> **Note, 2026-08-21 — that is no longer the shipping permission list, and this affects what you
+> may say on camera.** v1.1.0 added Play Billing, which merges in `INTERNET`,
+> `ACCESS_NETWORK_STATE` and `com.android.vending.BILLING`. §6 found that three lines of
+> `tools:node="remove"` strip the first two back out; **that was not done** — the shipped bundle
+> carries all three, and `PRIVACY.md` was reworded instead, which is the fallback §6's first
+> 20-minute check names.
+>
+> The positioning below still holds — no analytics, no ads, no tracking, and the only traffic is
+> Play asking Play whether this account owns the unlock. But **"physically incapable of phoning
+> home" is not a claim you can make any more**, and the ten-second permission-list demo now has a
+> Billing line in it that has to be explained rather than skipped. Either reword the claim to what
+> is still true and provable, or go do §6's strip and earn the absolute version back. The analysis
+> below is left as researched; what moved is the evidence, not the ground it argues for.
 
 The closest competitor to your positioning — `com.mdev.intervaltimer`, free, ad-free, 4.9 stars,
 363,381 installs — already has a review saying it is *"the only one (to my knowledge) with no data
@@ -127,6 +144,13 @@ SDK is the exact sequence that produces an HN pile-on which outranks your store 
 cost of ads to collect a fraction of the unlock revenue.
 
 ### Price: $4.99. Not $1, not $2
+
+> **Decided 2026-08-21: $2.99.** Shipped in v1.1.0 (`versionCode 3`) as Play product `unlock`.
+> The decision was taken with the section below read, not in ignorance of it — this analysis argued
+> for $4.99 and was overruled on the owner's judgement, which is the one input the data does not
+> contain. Everything below stays exactly as researched: it is the record of what the numbers said,
+> and it is what you re-read if the price is ever revisited. Price is also the cheapest thing here to
+> change later, as the section itself argues — no code, no review, either store.
 
 Your instinct was $1–2. That is wrong by about a factor of four.
 
@@ -203,6 +227,13 @@ At $4.99 net $4.24, $1,000 = **236 unlock sales**. Downloads required:
 
 **Plan on 12,000–20,000 downloads for $1,000.** Your first 1,000 downloads will produce roughly
 **$40–60.**
+
+**The same model at the shipped $2.99** (added 2026-08-21 — the table above is left at the
+researched price): net $2.54, so $1,000 = **394 unlock sales**, and every download figure moves out
+by 1.67×: ~78,700 at 0.5%, ~32,800 at 1.2%, ~19,700 at 2.0%, ~13,600 at 2.9%. **Plan on
+20,000–33,000 downloads for $1,000**, and expect roughly **$25–35** from the first 1,000. The
+milestone did not get closer by lowering the price; it got about two-thirds further away. That is
+the trade, stated plainly, and it is the number to write down.
 
 Write that down now. It is what stops month three reading as failure when it is actually on track,
 and it is what makes the case for a creator budget before you burn a year on organic.
@@ -292,7 +323,12 @@ Full concepts with first-1.5-second hooks are in the research; the six that matt
   25/5 is just a preset.
 - **Zero Permissions** — Android app-info screen, Permissions tapped, empty list. "no internet
   permission. it literally cannot phone home." Unfalsifiable on camera, and the most
-  screenshot-and-shareable fact you own.
+  screenshot-and-shareable fact you own. **Do not shoot this against v1.1.0 as written** (note,
+  2026-08-21): Billing put `INTERNET` in the manifest, so that line is now false on camera, which is
+  the worst possible place to be wrong. Either shoot it after doing §6's `tools:node="remove"` strip
+  and its smoke test, or reshoot the voiceover as "no accounts, no analytics, no tracking — the only
+  thing it ever sends is the store being asked whether you bought the unlock", which is still true
+  and still stronger than anything a competitor can say.
 - **Drift** — split screen against a stopwatch, both started together, timecode overlay: "same
   start. 45 minutes later." Cut to both matched to the frame. Craft *proof* rather than craft
   *claim*; "you'd think Apple made it" needs one piece of evidence, not an adjective.
@@ -459,9 +495,10 @@ field.** That's a legitimate preference, not a mistake.
    all of it blank.
 3. **Enrol in Apple's Small Business Program.** 90 seconds, and it must land before the first sale —
    the 15% rate only starts 15 days after the fiscal month in which enrolment is approved.
-4. **Attach the $4.99 unlock to the iOS 1.0 submission if it hasn't shipped.** Apple requires the
+4. **Attach the unlock to the iOS 1.0 submission if it hasn't shipped.** Apple requires the
    first non-consumable to be submitted *with a new app version*; attaching it now costs one
-   App Store Connect field, deferring it costs a full extra review cycle, permanently.
+   App Store Connect field, deferring it costs a full extra review cycle, permanently. Price:
+   Android went **$2.99** on 2026-08-21 — see the dated note in §2.
 5. Fix the listing — **after review clears**, so nothing perturbs an in-flight submission. The Wear
    app is **standalone, not a "companion"**; Google gives top-chart and curated-collection
    eligibility specifically to standalone watch apps, and the current wording forfeits it. Also tick

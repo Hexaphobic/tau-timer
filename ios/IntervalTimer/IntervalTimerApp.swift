@@ -26,6 +26,7 @@ enum Screen { case setup, settings, presets, editor }
 struct RootView: View {
     @StateObject private var engine = TimerEngine()
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var billing = Billing.shared
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var screen: Screen = .setup
@@ -54,6 +55,15 @@ struct RootView: View {
             default: break
             }
             #endif
+        }
+        // Reads what this Apple Account already owns and starts listening for purchases made
+        // elsewhere. Nothing waits on it: the timer is the app, and it works whether or not the
+        // App Store ever answers.
+        .task { await billing.start() }
+        // Over everything, including a running workout — but nothing sets it while one is running,
+        // because neither gate is reachable from the timer screen.
+        .sheet(isPresented: $billing.paywall) {
+            UnlockSheet(onDismiss: { billing.paywall = false })
         }
         .onChange(of: scenePhase) { _, phase in
             // "Run in background" off means leaving the app ends the workout. On Android that hangs
@@ -107,6 +117,11 @@ struct RootView: View {
                             // the edited version once.
                             PresetStore.shared.add(p)
                             settings.hideBuiltin(original.name)
+                        } else if presetsFull(PresetStore.shared.saved.count, unlocked: billing.unlocked) {
+                            // Fourth save on the free tier: the paywall, and the editor stays put
+                            // with the draft intact rather than dumping it on the way out.
+                            billing.paywall = true
+                            return
                         } else {
                             PresetStore.shared.add(p)
                         }

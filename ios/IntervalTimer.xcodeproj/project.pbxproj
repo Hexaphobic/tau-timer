@@ -26,6 +26,8 @@
 		AA0000000000000000000211 /* go.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000111 /* go.wav */; };
 		AA0000000000000000000212 /* tick.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000112 /* tick.wav */; };
 		AA0000000000000000000213 /* warn5.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000113 /* warn5.wav */; };
+		AA0000000000000000000214 /* Billing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000115 /* Billing.swift */; };
+		AA0000000000000000000215 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000116 /* PrivacyInfo.xcprivacy */; };
 		AA00000000000000000000F3 /* IntervalTimerCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000F2 /* IntervalTimerCore */; };
 /* End PBXBuildFile section */
 
@@ -51,6 +53,9 @@
 		AA0000000000000000000112 /* tick.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = tick.wav; sourceTree = "<group>"; };
 		AA0000000000000000000113 /* warn5.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = warn5.wav; sourceTree = "<group>"; };
 		AA0000000000000000000114 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000115 /* Billing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Billing.swift; sourceTree = "<group>"; };
+		AA0000000000000000000116 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA0000000000000000000117 /* Unlock.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Unlock.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,10 +94,13 @@
 				AA0000000000000000000103 /* PresetStore.swift */,
 				AA0000000000000000000104 /* TimerEngine.swift */,
 				AA0000000000000000000105 /* Beeper.swift */,
+				AA0000000000000000000115 /* Billing.swift */,
 				AA00000000000000000000E4 /* UI */,
 				AA00000000000000000000E5 /* Resources */,
 				AA0000000000000000000110 /* Assets.xcassets */,
 				AA0000000000000000000114 /* Info.plist */,
+				AA0000000000000000000116 /* PrivacyInfo.xcprivacy */,
+				AA0000000000000000000117 /* Unlock.storekit */,
 			);
 			path = IntervalTimer;
 			sourceTree = "<group>";
@@ -192,6 +200,7 @@
 				AA0000000000000000000211 /* go.wav in Resources */,
 				AA0000000000000000000212 /* tick.wav in Resources */,
 				AA0000000000000000000213 /* warn5.wav in Resources */,
+				AA0000000000000000000215 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,6 +216,7 @@
 				AA0000000000000000000203 /* PresetStore.swift in Sources */,
 				AA0000000000000000000204 /* TimerEngine.swift in Sources */,
 				AA0000000000000000000205 /* Beeper.swift in Sources */,
+				AA0000000000000000000214 /* Billing.swift in Sources */,
 				AA0000000000000000000206 /* Glass.swift in Sources */,
 				AA0000000000000000000207 /* Aura.swift in Sources */,
 				AA0000000000000000000208 /* TextFit.swift in Sources */,
@@ -280,7 +290,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GTF5NXSC6V;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = IntervalTimer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -301,7 +312,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GTF5NXSC6V;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = IntervalTimer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

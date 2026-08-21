@@ -25,8 +25,8 @@ android {
         applicationId = "com.chrispoole.intervaltimer"
         minSdk = 30          // Wear OS 3+ (Galaxy Watch 4 and up)
         targetSdk = 35       // Wear OS requirement from Aug 31, 2026 (phone stays 36)
-        versionCode = 1001   // own range so it never collides with the phone's code under one Play listing
-        versionName = "1.0.1" // matches the phone: one listing, one version the user sees
+        versionCode = 1002   // own range so it never collides with the phone's code under one Play listing
+        versionName = "1.1.0" // matches the phone: one listing, one version the user sees
     }
 
     signingConfigs {

@@ -27,7 +27,8 @@ zsh glob with no matches aborts the whole `&&` chain silently.
 Verdict on the port: *"Your port over seems good on both of them."*
 
 **Items 1–9 are done and verified on real hardware** (Flip 7 over adb, iPhone 17 Pro simulator).
-Item 10 is a design question and is deliberately not built. Nothing is committed.
+Item 10 is a design question and is deliberately not built. (*"Nothing is committed" was true when
+this line was written on 07-30; everything in this file has since been committed and released.*)
 
 ---
 
@@ -1403,7 +1404,8 @@ doing this whole thing again", and the second is the sentence the screen was mis
 
 ## Standing context
 
-- Nothing is committed. Do not commit or push without asking.
+- **Superseded 2026-08-21:** the work here *is* committed, and the app has shipped to Play. The
+  standing instruction still holds: **do not commit or push without asking.**
 - The phone never buzzes; the watch does. Drag-gesture haptics in the editor are approved and stay.
 - The debug build is installed on the Flip 7 (it replaced whatever was there).
 - iOS verification gaps unchanged (see `IOS_PORT.md`): screen-locked residency, audio over music and

@@ -13,7 +13,9 @@ A minimalist, dark-mode interval timer for Android, built for the Samsung Galaxy
 - **Multilingual countdown** — the numbers and Work/Rest labels render in 9 languages using native glyphs (中文, 日本語, 한국어, हिन्दी, العربية, …), plus Cistercian, a 13th-century monastic cipher that packs the whole count into one drawn glyph. Languages that share Western numerals (e.g. Russian) can spell the count out instead, so it still reads as foreign at a glance.
 - **Drift-free timing** — the clock lives in a foreground service anchored to `elapsedRealtime()`, so it stays accurate across backgrounding, and keeps beeping with the screen off. Toggle background-running off if you'd rather it stop when you close the app.
 - **Aesthetic** — AMOLED black with a subtle, blurred aurora; liquid-glass controls; a glowing progress stroke tracing the screen edge; phase-colored glow (green work, blue rest, violet get-ready).
-- **Fully local** — no accounts, no network, no tracking. Presets are stored as JSON on the device.
+- **Fully local** — no accounts, no analytics, no tracking. Presets are stored as JSON on the
+  device. The one exception, added in v1.1.0: the store is asked whether you own the one-time
+  unlock. Nothing else leaves the phone.
 
 ## Build
 

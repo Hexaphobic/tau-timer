@@ -10,8 +10,15 @@ available directly.
 
 ## 1. Data safety form
 
-The app has no `INTERNET` permission, no analytics SDK, no ads SDK and no crash reporting. Every
-answer below is verifiable from the manifest and the dependency list.
+Since v1.1.0 the app *does* hold `INTERNET`. The Play Billing library merges it in, together with
+`ACCESS_NETWORK_STATE` and `com.android.vending.BILLING` — see §5. That changes the evidence, not
+the answers. There is still no analytics SDK, no ads SDK and no crash reporting, and the only thing
+that ever crosses that permission is Play asking Play whether this Google account owns the unlock.
+No payment detail, and nothing about the user's workouts, ever reaches the app.
+
+So the form is answered the same way it always was, but you can no longer close the argument by
+pointing at the permission list — the reasoning below is what carries it now. Every answer remains
+verifiable from the manifest and the dependency list.
 
 | Question | Answer |
 |---|---|
@@ -77,7 +84,13 @@ because I'd change it — I wouldn't, on a first submission.
 
 ---
 
-## 3. Listing assets still to make
+## 3. Listing assets
+
+**The asset files below were made before the 2026-08-07 submission** (whether each was uploaded is
+Play Console state, which nothing in this repo can attest) — they live in
+`docs/play-assets/` (icon-512, feature-1024x500, five phone shots, four watch shots, and
+`listing.md` for the two descriptions). The list is kept as the spec to re-check against whenever
+the listing is revised:
 
 - App icon, 512×512 PNG
 - Feature graphic, 1024×500 (shown at the top of the listing — required)
@@ -97,9 +110,27 @@ URL**, not an uploaded file. Worth knowing before you spend time editing one.
 
 ## 4. Version
 
-Both modules are at `versionName "1.0.0"` — the phone on `versionCode 1`, the watch on `versionCode
-1000` so the two never collide under one listing. `versionCode` must increase by 1 for every
-subsequent upload; Play rejects a re-used code.
+**As of 2026-08-21 both modules are on `versionName "1.1.0"`** — the phone on `versionCode 3`,
+the watch on `versionCode 1002`. The watch gained nothing from the billing work (there is no
+Billing library in `:wear` and nothing to buy on a watch); it was carried to 1.1.0 purely so one
+listing shows one version to the user.
+
+The watch keeps its own `versionCode` range (1000+) so the two can never collide under one listing.
+`versionCode` must increase for every upload; Play rejects a re-used code, which is why the phone
+went 1 → 2 → 3 and the watch 1000 → 1001 → 1002 rather than either restarting.
+
+If you upload only the phone for a release, the watch's code does not need to move — they are
+independent counters, and only the module you actually upload has to increment.
+
+**For the 1.1.0 release, upload both.** The alternative — attaching the existing 1001 watch bundle
+from Play's library and uploading only the phone — is tempting, because the watch binary is
+byte-for-byte the same work and re-uploading it re-exposes the `FOREGROUND_SERVICE_SPECIAL_USE`
+declaration that gets a human at Play. But it ships a listing where the phone reads 1.1.0 and the
+watch reads 1.0.1, which is exactly the split the watch's own version comment exists to prevent.
+The 1002 bundle is built, signed with the upload key and sitting at
+`wear/build/outputs/bundle/release/wear-release.aab`. If the special-use review looks like it will
+hold up the release, add 1001 from the library instead and let the watch catch up in the next
+release — that is the trade, and it is yours to make with the review queue in front of you.
 
 ---
 

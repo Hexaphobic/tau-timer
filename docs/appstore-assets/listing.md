@@ -95,17 +95,101 @@ Source in `docs/site/`. Redeploy both with:
 
     npx netlify-cli deploy --dir docs/site --prod
 
-The support page carries the support@midamultimedia.com address and six FAQs covering the
+The support page carries the support@midamultimedia.com address and eight FAQs covering the
 questions most likely to arrive as one-star reviews (background running, cues over music, how to
-pause, word mode, building sequences, data collection).
+pause, word mode, building sequences, data collection, a lost unlock, and refunds). The last three
+name both stores, because this same page is the App Store's support URL.
 
 ## Age rating
 
 Expect 4+. Same answers as the Play/IARC questionnaire: no violence, no sexuality, no language,
 no controlled substances, no gambling, no horror, no user-generated content, no user-to-user
-interaction, no purchases. Preset names are typed by the user but never leave the device.
+interaction. Preset names are typed by the user but never leave the device.
+
+One answer changed on 2026-08-21: the app now carries a single non-consumable in-app purchase, so
+the purchases question is **yes**. It does not move the rating — a $2.99 one-time unlock for colour
+themes is not gambling, loot boxes or a simulated-gambling mechanic, and there is nothing random
+about what it gives you.
 
 ## App Privacy (nutrition labels)
 
-"Data Not Collected" — the whole form. Same basis as Play Data Safety: the app holds no INTERNET
-permission at all, so nothing can leave the device.
+"Data Not Collected" — the whole form. The basis is stronger than a policy promise: the binary
+links no networking framework at all (verified with `otool -L` and `nm -u` on the built product),
+so there is nothing in it that could send anything anywhere.
+
+The in-app purchase does not change this answer. Apple runs the transaction; the app is told
+whether this Apple Account owns `unlock` and nothing else — no name, no email, no payment details
+ever reach it. Payment data you never see is not data you collect.
+
+`PrivacyInfo.xcprivacy` ships in the bundle declaring `NSPrivacyTracking = false`, no collected
+data types, and the one required-reason API the app touches (UserDefaults, reason CA92.1, for its
+own settings). Without that file the upload fails with ITMS-91053 before review ever starts.
+
+## In-app purchase
+
+One non-consumable, created in App Store Connect before the build is submitted — a first
+non-consumable has to ship attached to a version, and adding it afterwards costs a whole extra
+review cycle.
+
+- **Reference name:** Unlock everything
+- **Product ID:** `unlock` — the same string as the Play product, and unchangeable once created.
+  It must match `UNLOCK_ID` in `ios/IntervalTimer/Billing.swift` character for character.
+- **Price:** Tier for $2.99 USD, Apple auto-converting the rest.
+- **Display name:** Unlock everything
+- **Description:** Six more colour themes and unlimited saved sequences. One payment, no
+  subscription.
+- **Review screenshot:** the paywall itself — Settings › tap any locked theme.
+- **Review notes:** "Tap Settings, then any theme other than Default or Mono. The purchase sheet
+  is the only thing behind the unlock; the timer, the audio cues, background running and all 12
+  languages are free and need no purchase to review."
+
+The unlock must be submitted **with** the 1.0.0 build (attach it in the version's In-App Purchases
+section), not afterwards. `ios/IntervalTimer/Unlock.storekit` is the local StoreKit test
+configuration — running the app from Xcode's IntervalTimer scheme exercises the whole purchase and
+restore flow with no App Store Connect round trip and no money.
+
+## Archive and upload
+
+The code is ready — the app builds clean for a real device (`Release`, arm64) and the unlock works;
+both gates were exercised in the simulator on 2026-08-21. What is not ready is signing, and it
+needs you for about two minutes.
+
+**The blocker, verified three ways.** `xcodebuild archive` fails with *"Your team has no devices
+from which to generate a provisioning profile."* Automatic signing signs the archive for
+development first and re-signs for distribution at export, so it wants an iOS App Development
+profile — and the team (GTF5NXSC6V) has zero registered devices, so no such profile can be minted.
+Forcing manual signing with the App Store profile already on this Mac fails too: that profile is
+Xcode-managed, and manual signing refuses managed profiles. Setting `CODE_SIGN_IDENTITY` to
+Apple Distribution under automatic signing fails as a conflicting-settings error. There is no
+command-line way around it.
+
+**Clearing it — either one works:**
+- Plug an iPhone into this Mac and let Xcode register it (Window › Devices and Simulators). This is
+  the one to prefer, because the device tests in `docs/IOS_PORT.md` have never been run either and
+  the phone needs to be attached for those anyway.
+- Or add any device ID at developer.apple.com › Certificates, Identifiers & Profiles › Devices.
+
+**Then it is two commands:**
+
+```
+cd ios
+xcodebuild -project IntervalTimer.xcodeproj -scheme IntervalTimer \
+  -destination 'generic/platform=iOS' -configuration Release \
+  -archivePath build/IntervalTimer.xcarchive archive -allowProvisioningUpdates
+
+xcodebuild -exportArchive -archivePath build/IntervalTimer.xcarchive \
+  -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+  -allowProvisioningUpdates
+```
+
+`ios/ExportOptions.plist` is already written for App Store Connect distribution with symbols.
+
+**Build number is 2, not 1.** Build 1.0.0 (1) was uploaded to App Store Connect on 2026-08-03 and a
+build number can never be reused. `ios/IntervalTimer/Info.plist` carries the literal — the
+`CURRENT_PROJECT_VERSION` build setting never reaches a hand-written Info.plist, so that line is the
+one that governs.
+
+**Order at submission time:** create the `unlock` in-app purchase first, attach it to the 1.0.0
+version, then submit. A first non-consumable must ship with a version; adding it afterwards costs a
+full extra review cycle. And file the App Launch featuring nomination **before** pressing Submit —
+it closes permanently at submission, one shot per app, ever.

@@ -5,6 +5,7 @@ struct SettingsView: View {
     let onBack: () -> Void
 
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var billing = Billing.shared
 
     var body: some View {
         // The pill floats over the scroll rather than sitting above it, so the content passes
@@ -51,7 +52,23 @@ struct SettingsView: View {
                                                  set: { settings.updateMinimalBg($0) })) { Text("Minimal") }
                         }
                     }) {
-                        PalettePicker()
+                        VStack(alignment: .leading, spacing: 14) {
+                            PalettePicker()
+                            // One line for the whole grid rather than a padlock on each of the six:
+                            // the swatches are the sales pitch, and stamping them is what makes an
+                            // app feel like a trial.
+                            if !billing.unlocked {
+                                Button {
+                                    billing.paywall = true
+                                } label: {
+                                    Text(billing.price.map { "Six themes come with the unlock — \($0)" }
+                                         ?? "Six themes come with the unlock")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
 
                     // Its own panel rather than a dropdown inside Theme: the grid is the biggest thing
@@ -74,6 +91,32 @@ struct SettingsView: View {
                                 isOn: settings.wordMode
                             ) { settings.updateWordMode($0) }
                             LanguageGrid().padding(.top, 8)
+                        }
+                    }
+
+                    SettingsCard(title: "Unlock") {
+                        if billing.unlocked {
+                            Text("Unlocked — thank you.")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                        } else {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Text("All eight themes and unlimited saved sequences. One payment.")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                GlassPill(
+                                    text: billing.price.map { "Unlock — \($0)" } ?? "Unlock",
+                                    action: { billing.paywall = true },
+                                    wide: true
+                                )
+                                // The App Store is asked what you own on every launch, so this is
+                                // only for a purchase that landed on another device a moment ago —
+                                // and for Apple, which requires the control to be visible.
+                                Button("Restore purchase") { Task { await billing.restore() } }
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
@@ -272,9 +315,11 @@ private struct PaletteSwatch: View {
     let palette: Palette
 
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var billing = Billing.shared
 
     var body: some View {
         let selected = palette == settings.palette
+        let locked = paletteLocked(palette, unlocked: billing.unlocked)
         let ordinal = Palette.allCases.firstIndex(of: palette) ?? 0
         // The order a workout meets them.
         let stripes = [palette.prep, palette.work, palette.rest]
@@ -306,7 +351,9 @@ private struct PaletteSwatch: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { settings.updatePalette(palette) }
+            // A locked theme is still shown in full colour and still tappable — you are meant to
+            // see what you'd be buying. Tapping opens the sheet instead of applying it.
+            .onTapGesture { locked ? (billing.paywall = true) : settings.updatePalette(palette) }
 
             Text(palette.label)
                 .font(.system(size: 12, weight: selected ? .bold : .regular))

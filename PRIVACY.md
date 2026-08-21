@@ -2,15 +2,17 @@
 
 **Last updated: 21 August 2026**
 
-Interval Timer is an interval workout timer for Android and Wear OS, published by Chris Poole.
+Interval Timer is an interval workout timer published by Chris Poole. This policy covers it
+wherever it is published: the Android and Wear OS apps, and the iPhone app once it is released.
 
 ## The short version
 
 **Interval Timer does not collect, store, or transmit any personal information.**
 
-There is no account, no sign-in, and no analytics. The only network permission the app holds is
-the one Google Play Billing requires in order to sell the one-time unlock, and the only thing that
-ever crosses it is Play asking Play whether you have bought it — see **Purchases** below.
+There is no account, no sign-in, and no analytics. The network permissions the app holds are the
+ones the store's billing library requires in order to sell the one-time unlock, and the only thing
+that ever crosses the internet is the store being asked whether you have bought it — see
+**Purchases** below.
 
 ## What is stored, and where
 
@@ -29,14 +31,17 @@ deletes all of it. There is no cloud backup and no copy held by the developer.
 Interval Timer offers one optional one-time purchase, which adds six extra colour themes and
 removes the three-sequence save limit. It is not a subscription and there is nothing else to buy.
 
-The purchase is handled entirely by **Google Play Billing**. The app never sees or stores your name,
-your email address, or any payment details — Google handles the transaction and tells the app only
-whether this Google account owns the unlock. That check happens when the app starts and when you
-tap Restore purchase, and it is the only network traffic the app generates. Google's handling of the
-payment is covered by the [Google Privacy Policy](https://policies.google.com/privacy).
+The purchase is handled entirely by the store you installed the app from — **Google Play Billing**
+on Android, **the App Store** on iPhone. The app never sees or stores your name, your email address,
+or any payment details. The store handles the transaction and tells the app one thing: whether the
+account you are signed in with owns the unlock. That check happens when the app starts and when you
+tap Restore purchase, and it is the only thing the app ever sends over the internet. The store's
+handling of the payment is covered by its own policy — the
+[Google Privacy Policy](https://policies.google.com/privacy) or the
+[Apple Privacy Policy](https://www.apple.com/legal/privacy/).
 
-Nothing about your workouts, presets or settings is sent to Google, to the developer, or to anyone
-else as part of this.
+Nothing about your workouts, presets or settings is sent to Google, to Apple, to the developer, or
+to anyone else as part of this.
 
 ## Wear OS watch sync
 

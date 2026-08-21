@@ -172,7 +172,7 @@ ios/
   IntervalTimerCore/          SwiftPM package — pure logic, no UIKit/SwiftUI. `swift test` runs it
                               with no simulator, no signing, no Xcode project. 38 tests, green.
   IntervalTimer/              the app: Settings, PresetStore, TimerEngine, Beeper + UI/
-  IntervalTimer.xcodeproj/    iOS 17+, portrait, Swift 5 mode, bundle id com.chrispoole.intervaltimer
+  IntervalTimer.xcodeproj/    iOS 17+, portrait, Swift 5 mode, bundle id com.midamultimedia.intervaltimer
 ```
 
 **The clock host.** `Beeper` holds a `.playback` + `.mixWithOthers` session and a running
@@ -211,9 +211,14 @@ transcription traps, both found by measuring the rendered pixels rather than by 
 value an interval *starts* at. Composed numerals don't shrink with the number — a 30s interval opens
 on 三十, two glyphs, and a second later shows 二十九, which is three — so the Chinese clock ran off
 both edges of the screen. It now takes the widest value the count actually passes through.
-**This bug is still live in the Kotlin** (`model/Numbers.kt`), which has the identical logic.
-`testWidestLineCoversEveryValueTheCountPassesThrough` guards it: 27 failures with the old behaviour
-reinstated, 0 with the fix.
+**The Kotlin has since been brought across too** — `model/Numbers.kt` carries the same
+`widest(upTo:)` walk, so the platforms agree again. (This paragraph claimed the Kotlin was still
+broken for rather longer than it was true; the fix actually rode along in the same commit as the
+port, `88f4a23`.) Both sides are guarded by the same mirrored test —
+`testWidestLineCoversEveryValueTheCountPassesThrough` in Swift,
+`widestLineCoversEveryValueTheCountPassesThrough` in Kotlin. Reinstate the old behaviour and the
+Swift side reports 27 failing assertions (XCTest keeps going after each one); the Kotlin mirror
+throws on the first, so it reports one failed test. Both go green with the fix.
 
 **Dropped on purpose:** the Z Flip cover-screen `compact` layout. No iPhone has that geometry.
 

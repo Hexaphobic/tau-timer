@@ -380,7 +380,17 @@ struct HomeView: View {
                     }
                 )
             } else {
-                GlassPill(text: "Save as preset", action: { naming = true }, wide: true)
+                GlassPill(
+                    text: "Save as preset",
+                    action: {
+                        if presetsFull(PresetStore.shared.saved.count, unlocked: Billing.shared.unlocked) {
+                            Billing.shared.paywall = true
+                        } else {
+                            naming = true
+                        }
+                    },
+                    wide: true
+                )
             }
         }
         // Animating the container's size turns the swap into the button growing into the field,

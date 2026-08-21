@@ -19,7 +19,11 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<!-- 1 was uploaded to App Store Connect on 2026-08-03 and a build number can never be reused,
+	     so the first submitted build is 2. This literal is what ships: the target sets
+	     CURRENT_PROJECT_VERSION too, but with a hand-written Info.plist that variable never
+	     reaches the bundle, so this line is the one that counts. -->
+	<string>2</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- The whole reason the workout survives a locked screen. With an active .playback session the
