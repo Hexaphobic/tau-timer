@@ -100,3 +100,42 @@ URL**, not an uploaded file. Worth knowing before you spend time editing one.
 Both modules are at `versionName "1.0.0"` — the phone on `versionCode 1`, the watch on `versionCode
 1000` so the two never collide under one listing. `versionCode` must increase by 1 for every
 subsequent upload; Play rejects a re-used code.
+
+---
+
+## 5. The unlock (v1.1.0, `versionCode 3`)
+
+The code is in. What is left is Play Console work, and one ordering rule that will waste a day if
+you get it wrong.
+
+**Order matters: the in-app product cannot be created until a build containing the Billing library
+has been uploaded to a track.** Play only offers the "In-app products" screen once it has seen
+`com.android.billingclient` in an uploaded APK/AAB. So: upload to internal testing first, then
+create the product, then test.
+
+1. **Upload** the v1.1.0 bundle to **Internal testing**. Nothing is buyable yet; that is expected.
+2. **Monetize → Products → In-app products → Create product.**
+   - Product ID: **`unlock`** — must match `UNLOCK_SKU` in `Billing.kt` exactly, and it can never be
+     changed or reused once created.
+   - Name: *Unlock everything*. Description: the six themes and unlimited saved sequences.
+   - Price: **$2.99** USD, let Play auto-convert the other currencies.
+   - Set the product **Active**. An inactive product returns no `ProductDetails`, and the app then
+     shows the button with no price and does nothing on tap.
+3. **Setup → License testing** — add your own Google account. Licence testers buy with a test card,
+   see the real Play sheet, and are never charged. Without this you will be spending $2.99 to test.
+4. **Test on a device signed into that account:** locked theme → sheet → buy → all eight themes and
+   the preset cap gone; then clear the app's data and confirm it comes back unlocked (that is
+   `queryPurchasesAsync` on launch doing its job, not a cached receipt).
+5. **Store listing:** the "Contains ads" declaration stays **No**. The listing gains "In-app
+   purchases" automatically — you do not declare that yourself.
+6. **Data safety: no change.** The app still collects nothing. The purchase is Google's transaction,
+   not app data collection. `PRIVACY.md` has been updated for the network permission and the
+   purchase itself, and needs re-uploading wherever it is hosted.
+
+New permissions the Billing library merges in, none of them user-visible or prompted:
+`INTERNET`, `ACCESS_NETWORK_STATE`, `com.android.vending.BILLING`.
+
+**Grandfathering.** On the first launch of v1.1.0 the app checks `firstInstallTime <
+lastUpdateTime` and, if this install predates the paywall, marks it permanently unlocked. Existing
+1.0.1 users therefore keep all eight themes and every preset they have already saved. This is
+decided once and written to prefs, so later updates do not hand the unlock to everyone who updates.

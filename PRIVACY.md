@@ -1,6 +1,6 @@
 # Privacy Policy — Interval Timer
 
-**Last updated: 27 July 2026**
+**Last updated: 21 August 2026**
 
 Interval Timer is an interval workout timer for Android and Wear OS, published by Chris Poole.
 
@@ -8,8 +8,9 @@ Interval Timer is an interval workout timer for Android and Wear OS, published b
 
 **Interval Timer does not collect, store, or transmit any personal information.**
 
-There is no account, no sign-in, and no analytics. The app does not hold the Android
-`INTERNET` permission, so it is technically incapable of sending anything anywhere over a network.
+There is no account, no sign-in, and no analytics. The only network permission the app holds is
+the one Google Play Billing requires in order to sell the one-time unlock, and the only thing that
+ever crosses it is Play asking Play whether you have bought it — see **Purchases** below.
 
 ## What is stored, and where
 
@@ -22,6 +23,20 @@ Everything the app remembers is stored **only on your own device**, in the app's
 
 None of this leaves your device except in the one case described below. Uninstalling the app
 deletes all of it. There is no cloud backup and no copy held by the developer.
+
+## Purchases
+
+Interval Timer offers one optional one-time purchase, which adds six extra colour themes and
+removes the three-sequence save limit. It is not a subscription and there is nothing else to buy.
+
+The purchase is handled entirely by **Google Play Billing**. The app never sees or stores your name,
+your email address, or any payment details — Google handles the transaction and tells the app only
+whether this Google account owns the unlock. That check happens when the app starts and when you
+tap Restore purchase, and it is the only network traffic the app generates. Google's handling of the
+payment is covered by the [Google Privacy Policy](https://policies.google.com/privacy).
+
+Nothing about your workouts, presets or settings is sent to Google, to the developer, or to anyone
+else as part of this.
 
 ## Wear OS watch sync
 

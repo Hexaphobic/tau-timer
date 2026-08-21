@@ -195,6 +195,7 @@ import com.chrispoole.intervaltimer.ui.WorkColor
 import com.chrispoole.intervaltimer.ui.GlassCircle
 import com.chrispoole.intervaltimer.ui.GlassFill
 import com.chrispoole.intervaltimer.ui.GlassPill
+import com.chrispoole.intervaltimer.ui.UnlockSheet
 import com.chrispoole.intervaltimer.ui.HomeBackground
 import com.chrispoole.intervaltimer.ui.NoticePill
 import com.chrispoole.intervaltimer.ui.noRippleClickable
@@ -243,6 +244,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Settings.init(this)
         PresetStore.init(this)
+        Billing.init(this)
         enableEdgeToEdge()
         hideSystemBars()
         // Only ask when we don't already have it: onCreate runs again on every Activity recreation,
@@ -272,6 +274,9 @@ class MainActivity : ComponentActivity() {
                 if (attaching) {
                     LaunchedEffect(Unit) { delay(800); attaching = false }
                 }
+                // Over everything, including a running workout — but nothing sets it while one is
+                // running, because neither gate is reachable from the timer screen.
+                if (Billing.paywall) UnlockSheet(onDismiss = { Billing.paywall = false })
                 when {
                     // Reopening mid-workout lands straight back on the live timer, never the setup screen.
                     attaching && service == null -> Box(Modifier.fillMaxSize().background(Color.Black))
@@ -313,6 +318,12 @@ class MainActivity : ComponentActivity() {
                                     PresetStore.add(p)
                                     Settings.hideBuiltin(original.name)
                                     PresetStore.pushToWatch()
+                                }
+                                // Fourth save on the free tier: the paywall, and the editor stays
+                                // put with the draft intact rather than dumping it on the way out.
+                                presetsFull(PresetStore.saved.size, Billing.unlocked) -> {
+                                    Billing.paywall = true
+                                    return@EditorScreen
                                 }
                                 else -> PresetStore.add(p)
                             }
@@ -757,7 +768,14 @@ private fun SetupScreen(
                                     },
                                 )
                             } else {
-                                GlassPill("Save as preset", { naming = true }, Modifier.fillMaxWidth())
+                                GlassPill(
+                                    "Save as preset",
+                                    {
+                                        if (presetsFull(PresetStore.saved.size, Billing.unlocked)) Billing.paywall = true
+                                        else naming = true
+                                    },
+                                    Modifier.fillMaxWidth(),
+                                )
                             }
                             Spacer(Modifier.height(14.dp))
                         }
@@ -1997,6 +2015,16 @@ private fun SettingsScreen(onBack: () -> Unit) {
             },
         ) {
             PalettePicker()
+            // One line for the whole grid rather than a padlock on each of the six: the swatches
+            // are the sales pitch, and stamping them is what makes an app feel like a trial.
+            if (!Billing.unlocked) {
+                Text(
+                    Billing.price?.let { "Six themes come with the unlock — $it" } ?: "Six themes come with the unlock",
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.noRippleClickable { Billing.paywall = true },
+                )
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -2031,6 +2059,39 @@ private fun SettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(16.dp))
             LanguageGrid()
         }
+
+        Spacer(Modifier.height(16.dp))
+
+        SettingsCard("Unlock") {
+            if (Billing.unlocked) {
+                Text("Unlocked — thank you.", color = Color.White, fontSize = 16.sp)
+            } else {
+                Text(
+                    "All eight themes and unlimited saved sequences. One payment.",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                )
+                Spacer(Modifier.height(14.dp))
+                GlassPill(
+                    Billing.price?.let { "Unlock — $it" } ?: "Unlock",
+                    { Billing.paywall = true },
+                    Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                // Play is asked what you own on every launch, so this is only for the case where the
+                // purchase landed on another device a moment ago. It restores silently or does
+                // nothing — there is no failure state worth a dialog.
+                Text(
+                    "Restore purchase",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 14.sp,
+                    modifier = Modifier.noRippleClickable { Billing.refresh() }.padding(vertical = 4.dp),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
       }
       BackPill(
           onBack,
@@ -2248,6 +2309,7 @@ private fun PalettePicker() {
 @Composable
 private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
     val selected = p == Settings.palette
+    val locked = paletteLocked(p, Billing.unlocked)
     val shape = RoundedCornerShape(12.dp)
     // 6dp off each side, which takes ~10% off every stripe. The shader corrects for aspect
     // (`p.x *= iResolution.x / iResolution.y`), so a box wider than it is tall reaches further out
@@ -2268,7 +2330,9 @@ private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
                 // competing with the colours they were framing; now the ring means something.
                 // Padding stays either way, so nothing shifts as the selection moves.
                 .then(if (selected) Modifier.border(2.dp, Color.White, shape) else Modifier)
-                .clickable { Settings.updatePalette(p) }
+                // A locked theme is still shown in full colour and still tappable — you are meant
+                // to see what you'd be buying. Tapping opens the sheet instead of applying it.
+                .clickable { if (locked) Billing.paywall = true else Settings.updatePalette(p) }
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -2288,7 +2352,7 @@ private fun PaletteSwatch(p: Palette, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(6.dp))
         Text(
             p.label,
-            color = Color.White.copy(alpha = if (selected) 1f else 0.5f),
+            color = Color.White.copy(alpha = if (selected) 1f else if (locked) 0.35f else 0.5f),
             fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
