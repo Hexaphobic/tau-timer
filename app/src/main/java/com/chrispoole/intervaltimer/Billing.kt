@@ -112,8 +112,8 @@ object Billing {
                         .build(),
                 ),
             ).build(),
-        ) { _, list ->
-            details = list.firstOrNull()
+        ) { _, result ->
+            details = result.productDetailsList.firstOrNull()
             price = details?.oneTimePurchaseOfferDetails?.formattedPrice
         }
     }
