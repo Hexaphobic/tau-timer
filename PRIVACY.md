@@ -2,7 +2,7 @@
 
 **Last updated: 21 August 2026**
 
-Interval Timer is an interval workout timer published by Chris Poole. This policy covers it
+Interval Timer is an interval workout timer published by MidaMultiMedia LLC. This policy covers it
 wherever it is published: the Android and Wear OS apps, and the iPhone app once it is released.
 
 ## The short version
